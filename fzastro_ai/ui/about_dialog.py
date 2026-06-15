@@ -36,7 +36,7 @@ def open_about_window(parent):
         title.setObjectName("helpDialogTitle")
 
         subtitle = QLabel(
-            "Version 1 local AI workstation for chat, documents, web research, Python execution, memory, and astrophotography workflows."
+            "Version 1 local AI workstation for chat, documents, web research, Python execution, memory, and astrophotography workflows, including transparent LOOKUP distance estimates."
         )
         subtitle.setObjectName("helpDialogSubtitle")
         subtitle.setWordWrap(True)
@@ -58,11 +58,12 @@ def open_about_window(parent):
             "- Optional OCR support for scanned documents\n"
             "- Web search, Daily News, market, gold, and crude-oil actions\n"
             "- Integrated FZASTRO tools: SITE, IMAGING, LOOKUP, SEEING, TARGETS, and SOLAR MAP\n"
+            "- LOOKUP distance-ladder details for parallax, Gaia proxy, NED-D, and Hubble-law style estimates where available\n"
             "- Source tags that identify whether answers come from local knowledge, web, files, Python, or model reasoning\n"
             "- Persistent memory with review/search tools\n"
             "- Calibration profiles and model/profile controls\n"
             "- Bottom-row hardware telemetry for GPU/VRAM, CPU and RAM, with best-effort temperatures\n"
-            "- Composer Actions, Context, and Persona menus for common app workflows\n"
+            "- Skills, Knowledge, Code Lab, Model Lab, Context, and Persona menus for common app workflows\n"
             "- Clear Library compacts document_knowledge.sqlite3 after removing document assets\n"
             "- Python code-block Run support through a real local Python interpreter\n"
             "- Repeatable EXE build tooling for Windows release builds\n"

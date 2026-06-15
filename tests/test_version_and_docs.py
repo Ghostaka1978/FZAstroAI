@@ -102,3 +102,30 @@ def test_llm_benchmark_feature_is_documented_and_wired():
     assert "https://github.com/Ghostaka1978/FZAstroAI" in release_docs
     assert "GitHub repository" in help_dialog
     assert "_handle_brand_mark_click" in app_source
+
+
+def test_distance_ladder_feature_is_documented():
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    release_docs = (PROJECT_ROOT / "RELEASE_VALIDATION.md").read_text(encoding="utf-8")
+    help_dialog = (PROJECT_ROOT / "fzastro_ai" / "ui" / "help_dialog.py").read_text(
+        encoding="utf-8"
+    )
+    about_dialog = (PROJECT_ROOT / "fzastro_ai" / "ui" / "about_dialog.py").read_text(
+        encoding="utf-8"
+    )
+    engine_source = (
+        PROJECT_ROOT / "fzastro_ai" / "astro_tools" / "engine.py"
+    ).read_text(encoding="utf-8")
+
+    combined_docs = "\n".join([readme, release_docs, help_dialog, about_dialog])
+
+    assert "Distance ladder calculations" in readme
+    assert "distance-ladder" in combined_docs
+    assert "parallax" in combined_docs
+    assert "Gaia" in combined_docs
+    assert "NED-D" in combined_docs
+    assert "Hubble" in combined_docs
+    assert "FZASTRO_USE_DISTANCE_LADDER" in readme
+    assert "FZASTRO_USE_DISTANCE_LADDER" in help_dialog
+    assert "_legacy_distance_ladder_for_fast_info" in engine_source
+    assert "hubble(z)" in engine_source

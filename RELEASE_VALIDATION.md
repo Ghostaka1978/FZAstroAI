@@ -160,15 +160,16 @@ LLM Benchmark checks:
 
 Astro checks:
 
-1. Astro toolbar shows `ASTRO TOOLS   SITE   IMAGING   LOOKUP   SEEING   TARGETS   SOLAR MAP`.
+1. **Skills → Astro** exposes SITE, IMAGING, LOOKUP, SEEING, TARGETS, and SOLAR MAP.
 2. SITE opens the observing-site picker and saves latitude, longitude, elevation, and timezone.
 3. IMAGING opens camera/FOV setup and updates the toolbar summary.
 4. LOOKUP opens the migrated object dropdown catalogs and can query at least `M31`, `M82`, and `M101` without Gaia timeout.
-5. SEEING returns night meteorology/seeing output without huge blank space at the bottom.
-6. TARGETS returns the best-target planner output without huge blank space at the bottom.
-7. SOLAR MAP renders the solar-system map and the button label is not clipped.
-8. While the main chat is scrolled upward, LOOKUP, SEEING, TARGETS, and SOLAR MAP finish without forcing the main chat to auto-scroll to the bottom.
-9. ASTRO LOOKUP/SEEING/TARGETS/SOLAR MAP do not log `Astropy runtime data fallback missing` from the PyInstaller `_MEI` runtime folder.
+5. LOOKUP distance output shows the distance value and method when available, such as parallax, Gaia proxy, NED-D, or Hubble-law style estimates; unavailable distances should say they are unavailable instead of failing.
+6. SEEING returns night meteorology/seeing output without huge blank space at the bottom.
+7. TARGETS returns the best-target planner output without huge blank space at the bottom.
+8. SOLAR MAP renders the solar-system map and the button label is not clipped.
+9. While the main chat is scrolled upward, LOOKUP, SEEING, TARGETS, and SOLAR MAP finish without forcing the main chat to auto-scroll to the bottom.
+10. ASTRO LOOKUP/SEEING/TARGETS/SOLAR MAP do not log `Astropy runtime data fallback missing` from the PyInstaller `_MEI` runtime folder.
 
 ## 6. Document knowledge library verification
 
@@ -244,5 +245,5 @@ The release candidate can be marked complete when:
 - `build_exe.ps1` completes without errors.
 - `validate_release.ps1` completes without fatal errors.
 - The EXE remains open during the smoke test.
-- The manual acceptance checklist passes, including the LLM Benchmark Dashboard checks.
+- The manual acceptance checklist passes, including the LLM Benchmark Dashboard checks and Astro LOOKUP distance-ladder visibility.
 - The About window shows the correct Version 1 version and milestone.

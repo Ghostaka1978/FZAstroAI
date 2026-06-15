@@ -288,7 +288,7 @@ SKILLS: tuple[Skill, ...] = (
     Skill(
         skill_id="astro",
         label="Astro",
-        description="FZASTRO observing site, imaging, lookup, seeing, targets, and solar map tools.",
+        description="FZASTRO observing site, imaging, lookup, distance-ladder, seeing, targets, and solar map tools.",
         icon="☉",
         actions=(
             _direct(
@@ -308,7 +308,7 @@ SKILLS: tuple[Skill, ...] = (
             _direct(
                 "astro.lookup",
                 "LOOKUP",
-                "Astro object lookup with optional sky image.",
+                "Astro object lookup with distance-ladder details and optional sky image.",
                 "open_astro_lookup_dialog",
                 section="Tools",
                 favorite=True,

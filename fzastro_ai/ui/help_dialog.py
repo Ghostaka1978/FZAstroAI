@@ -280,7 +280,7 @@ Skills currently includes:
 Research: Daily News, Read page, Summarize page, Screenshot page
 Knowledge: Document Library, Search knowledge, Brief/Open/Ask document, Memory, Active context
 Code Lab: Paste/wrap code, Run input/selection, Explain, Debug, Refactor, Tests, Patch, Commit message
-Astro: SITE, IMAGING, LOOKUP, SEEING, TARGETS, SOLAR MAP
+Astro: SITE, IMAGING, LOOKUP, SEEING, TARGETS, SOLAR MAP, distance-ladder lookup details
 Markets: CRM, DBX, OIL, GOLD
 Model Lab: Refresh models, LLM Benchmark, Runtime status, Persona, System Prompt Editor
 Workspace: New chat, History, Active context, Diagnostics, Help, About, GitHub repository
@@ -551,12 +551,19 @@ Skills   Astro   SITE   IMAGING   LOOKUP   SEEING   TARGETS   SOLAR MAP
 |---|---|
 | **SITE** | Pick/save observing latitude, longitude, elevation, and timezone for SEEING and TARGETS. |
 | **IMAGING** | Select camera preset, focal length, calculated FOV, image size, and rotation for LOOKUP images. |
-| **LOOKUP** | Look up an object such as M31, NGC 7000, IC 5146, planets, comets, stars, or spacecraft. |
+| **LOOKUP** | Look up an object such as M31, NGC 7000, IC 5146, planets, comets, stars, or spacecraft, including distance details when available. |
 | **SEEING** | Run the migrated `see.py` seeing forecast: clouds, moon, humidity, wind, dew point, pressure, and imaging score. |
 | **TARGETS** | Run tonight's best-target planner from `target.py`. |
 | **SOLAR MAP** | Render the current solar-system map from `solarsystem.py`. |
 
 LOOKUP uses the selected **IMAGING** setup, so choose your camera preset and focal length before running object lookup when you want the sky image framed correctly.
+
+
+### Distance ladder calculations
+
+LOOKUP also exposes the distance calculation path instead of only showing a final distance. When data is available, the distance block can identify whether the value came from direct parallax, Gaia-based fallback estimates, redshift-independent NED-D galaxy distances, or a conservative Hubble-law estimate from redshift/radial velocity.
+
+This is a practical astronomy helper for transparency inside the app. It is not meant to replace catalogue data or professional distance-measurement pipelines. To force strict fast Sesame/SIMBAD lookup behavior, set `FZASTRO_USE_DISTANCE_LADDER=0`.
 
 The LOOKUP dialog includes the migrated FZASTRO object dropdown catalogs:
 
@@ -700,6 +707,7 @@ PDF text + visual: say image and text from page number.
 Memory: say remember/search memory.
 Python: say run/test/execute or use /run-python.
 Benchmark speed/quality: click LLM BENCH, choose a model directly in the dialog or refresh the model list, choose Raw model or a persona/calibration profile, then Run Selected or Run All Presets.
+Astro distance path: use Skills -> Astro -> LOOKUP and check the distance method line for parallax, Gaia proxy, NED-D, or Hubble-law style estimates where available.
 ```
 """
 
@@ -720,7 +728,7 @@ def open_help_cheat_sheet_dialog(parent):
 
     subtitle = QLabel(
         "Version 1 guide for chat, models, web, news, market quotes, documents, "
-        "PDF page images/text, memory, history, attachments, Python execution, LLM benchmarking, tests, and Astro tools."
+        "PDF page images/text, memory, history, attachments, Python execution, LLM benchmarking, tests, Astro tools, and distance-ladder lookup details."
     )
     subtitle.setObjectName("helpDialogSubtitle")
     subtitle.setWordWrap(True)
