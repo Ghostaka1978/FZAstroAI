@@ -30,3 +30,6 @@ dist/
 *.tmp
 .DS_Store
 Thumbs.db
+
+*.bak_*
+*.bak
