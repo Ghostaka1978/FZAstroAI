@@ -76,6 +76,14 @@ def test_favorite_skill_actions_are_available_for_future_quick_access():
     assert "model.benchmark" in favorite_ids
 
 
+def test_astro_skill_mentions_distance_ladder_lookup_details():
+    astro_skill = SKILL_BY_ID["astro"]
+    lookup_action = SKILL_ACTION_BY_ID["astro.lookup"]
+
+    assert "distance-ladder" in astro_skill.description
+    assert "distance-ladder" in lookup_action.description
+
+
 def test_main_window_uses_skill_registry_for_top_and_composer_menus():
     app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
 
