@@ -23,7 +23,7 @@ FZAstro AI provides a local workstation for:
 
 ## LLM Benchmark Dashboard
 
-FZAstro AI includes an integrated LLM Benchmark Dashboard for testing any model on the configured local or OpenAI-compatible endpoint without leaving the desktop app. Open it from the **LLM BENCH** quick-action button. The dashboard has its own model selector and refresh control, auto-refreshes the available model list on open, mirrors live GPU/VRAM and CPU/RAM telemetry from the main window, lets benchmark runs target a different model than the main chat selector when needed, and can run either as a raw model or with a selected app persona/calibration profile.
+FZAstro AI includes an integrated LLM Benchmark Dashboard for testing any model on the configured local or OpenAI-compatible endpoint without leaving the desktop app. Open it from **Skills → Model Lab → LLM Benchmark**; the legacy **LLM BENCH** label remains documented for release validation. The dashboard has its own model selector and refresh control, auto-refreshes the available model list on open, mirrors live GPU/VRAM and CPU/RAM telemetry from the main window, lets benchmark runs target a different model than the main chat selector when needed, and can run either as a raw model or with a selected app persona/calibration profile.
 
 The benchmark dashboard can:
 
@@ -80,11 +80,12 @@ Version 1 is a release-candidate baseline for testing and validation. It include
 * PDF text retrieval and PDF page/image rendering
 * Optional OCR support
 * Web search and webpage extraction tools
+* Skills bar grouping Research, Knowledge, Code Lab, Astro, Markets, Model Lab, and Workspace actions
 * Daily News, market, gold, and crude-oil actions
 * Integrated FZASTRO SITE, IMAGING, LOOKUP, SEEING, TARGETS, and SOLAR MAP tools
 * Persistent memory with review/search tools
 * Calibration profiles and model/profile controls
-* Composer Actions, Context, and Persona menus
+* Composer Add, Skills, Knowledge, Code Lab, and Model Lab menus
 * Local Python code-block execution
 * LLM Benchmark Dashboard for local/Ollama/OpenAI-compatible model speed tests, direct model selection, and full-suite preset runs
 * Repeatable Windows EXE build tooling

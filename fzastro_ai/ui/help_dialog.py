@@ -266,23 +266,27 @@ For large PDFs/books, use the Document Knowledge Library instead of normal attac
 Use the toolbar above the message box to prepare pasted technical content before sending.
 
 ```text
-Code       Wrap selected text, or the whole input, in a Markdown code fence.
-Paste Code Paste clipboard text directly as a code fence.
-Actions    Insert editable Web/Document/Python prompts; Python Run actions use the local runner.
-Context    Inspect active context, indexed documents, memory, runtime/model status, and the last tool result.
-Persona    Show the active persona/calibration or open persona-related tools.
+Code Lab   Code composer tools, Python runner actions, review, tests, patches, and commit messages.
+Add        Paste code, attach files, import documents, or inspect active context.
+Skills     Open all grouped skill menus from the composer.
+Knowledge  Document library, document search, PDF/book reader, and persistent memory tools.
+Model Lab  Model refresh, benchmark, persona/calibration, runtime status, and memory tools.
 Clear      Clear the input box and pending attachments.
 ```
 
-Actions currently includes:
+Skills currently includes:
 
 ```text
-Web: Read page, Summarize page, Screenshot page
-Documents: List documents, Search documents, Find in documents, Brief document, Show page image
-Python: Run input, Run selected code, Explain, Debug, Refactor, Create tests, Explain traceback/error
+Research: Daily News, Read page, Summarize page, Screenshot page
+Knowledge: Document Library, Search knowledge, Brief/Open/Ask document, Memory, Active context
+Code Lab: Paste/wrap code, Run input/selection, Explain, Debug, Refactor, Tests, Patch, Commit message
+Astro: SITE, IMAGING, LOOKUP, SEEING, TARGETS, SOLAR MAP
+Markets: CRM, DBX, OIL, GOLD
+Model Lab: Refresh models, LLM Benchmark, Runtime status, Persona, System Prompt Editor
+Workspace: New chat, History, Active context, Diagnostics, Help, About, GitHub repository
 ```
 
-Prompt actions are inserted into the composer and are not sent automatically. Use **Code** or **Paste Code** for Python, logs, JSON, shell commands, tracebacks, and config files. Python Run actions execute through the existing local Python runner.
+Prompt actions are inserted into the composer and are not sent automatically. Use **Code Lab** or **Add → Paste code** for Python, logs, JSON, shell commands, tracebacks, and config files. Python Run actions execute through the existing local Python runner.
 
 ## 14. Document Knowledge Library
 
@@ -537,10 +541,10 @@ Only run code you trust.
 
 ## 28. Astro Tools — FZASTRO modules
 
-Use the Astro toolbar for the migrated FZASTRO astrophotography tools.
+Use **Skills → Astro** for the migrated FZASTRO astrophotography tools.
 
 ```text
-ASTRO TOOLS   SITE   IMAGING   LOOKUP   SEEING   TARGETS   SOLAR MAP
+Skills   Astro   SITE   IMAGING   LOOKUP   SEEING   TARGETS   SOLAR MAP
 ```
 
 | Button | What it does |
@@ -583,10 +587,10 @@ Source: Migrated FZASTRO LOOKUP tool.
 
 ## 29. LLM Benchmark Dashboard
 
-Use **LLM BENCH** when you want to measure model speed and compare local/Ollama/OpenAI-compatible endpoints. The dashboard uses the current app endpoint, mirrors the main app model-list behavior, auto-refreshes its model selector, keeps the local list if refresh fails, includes **Refresh Models** and **Use Active Model**, mirrors the main GPU/VRAM and CPU/RAM telemetry, lets you select Raw model or a persona/calibration profile, and keeps benchmark controls readable.
+Use **Skills → Model Lab → LLM Benchmark** when you want to measure model speed and compare local/Ollama/OpenAI-compatible endpoints. The dashboard uses the current app endpoint, mirrors the main app model-list behavior, auto-refreshes its model selector, keeps the local list if refresh fails, includes **Refresh Models** and **Use Active Model**, mirrors the main GPU/VRAM and CPU/RAM telemetry, lets you select Raw model or a persona/calibration profile, and keeps benchmark controls readable.
 
 ```text
-LLM BENCH -> choose model -> choose Raw model/persona -> choose benchmark preset -> Run Selected
+Skills -> Model Lab -> LLM Benchmark -> choose model -> choose Raw model/persona -> choose benchmark preset -> Run Selected
 ```
 
 The dashboard has three tabs; benchmark controls, preset selection, custom prompt entry, and live telemetry stay in the shared top panel:

@@ -37,3 +37,9 @@ Thumbs.db
 # Local app runtime state
 llm_benchmark_history.json
 *.json.tmp
+
+# Release/build artifacts
+fzastro_ai.zip
+dist/
+build/
+*.spec

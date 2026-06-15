@@ -73,6 +73,13 @@ from .composer_actions import (
     build_composer_action_prompt,
     composer_actions_by_group,
 )
+from .skill_registry import (
+    SKILLS,
+    SKILL_ACTION_BY_ID,
+    SKILL_BY_ID,
+    SkillAction,
+    skill_actions_by_section,
+)
 from .config import (
     API_KEY,
     APP_DIR,
@@ -1209,7 +1216,7 @@ class FZAstroAI(
         quick_bar_layout.setContentsMargins(12, 8, 12, 8)
         quick_bar_layout.setSpacing(7)
 
-        quick_label = QLabel("QUICK ACTIONS")
+        quick_label = QLabel("SKILLS")
         quick_label.setObjectName("toolbarCaption")
 
         self.news_button = QPushButton("Daily News")
@@ -1353,15 +1360,23 @@ class FZAstroAI(
         web_quick_label.setObjectName("toolbarCaption")
         web_quick_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
+        self.skill_buttons = {}
+        for skill in SKILLS:
+            skill_button = QPushButton(skill.label)
+            skill_button.setObjectName("stockPriceButton")
+            skill_button.setFixedHeight(36)
+            skill_button.setMinimumWidth(max(82, len(skill.label) * 9 + 24))
+            skill_button.setCursor(Qt.PointingHandCursor)
+            skill_button.setToolTip(skill.description)
+            skill_button.setAccessibleName(f"Open {skill.label} skill")
+            skill_button.setMenu(self.build_skill_menu(skill.skill_id))
+            self.skill_buttons[skill.skill_id] = skill_button
+
         quick_bar_layout.addWidget(quick_label)
         quick_bar_layout.addSpacing(4)
         quick_bar_layout.addWidget(self.new_chat_button)
-        quick_bar_layout.addWidget(self.news_button)
-        quick_bar_layout.addWidget(self.llm_benchmark_button)
-        quick_bar_layout.addWidget(self.crm_stock_button)
-        quick_bar_layout.addWidget(self.dbx_stock_button)
-        quick_bar_layout.addWidget(self.crude_oil_button)
-        quick_bar_layout.addWidget(self.gold_button)
+        for skill_button in self.skill_buttons.values():
+            quick_bar_layout.addWidget(skill_button)
         quick_bar_layout.addStretch(1)
         quick_bar_layout.addWidget(model_quick_label)
         quick_bar_layout.addWidget(self.model_box)
@@ -1559,14 +1574,14 @@ class FZAstroAI(
         composer_tools_label = QLabel("COMPOSER")
         composer_tools_label.setObjectName("composerToolsLabel")
 
-        self.composer_code_button = QPushButton("Code")
+        self.composer_code_button = QPushButton("Code Lab")
         self.composer_code_button.setObjectName("composerToolButton")
         self.composer_code_button.setCursor(Qt.PointingHandCursor)
         self.composer_code_button.setToolTip(
             "Code tools: wrap/paste code, run Python, debug, refactor, test, patch, and review."
         )
         self.composer_code_button.setShortcut(QKeySequence("Ctrl+K"))
-        self.composer_code_button.setMenu(self.build_composer_code_menu())
+        self.composer_code_button.setMenu(self.build_skill_menu("code_lab"))
 
         self.composer_paste_code_button = QPushButton("Add")
         self.composer_paste_code_button.setObjectName("composerToolButton")
@@ -1576,29 +1591,29 @@ class FZAstroAI(
         )
         self.composer_paste_code_button.setMenu(self.build_composer_add_menu())
 
-        self.composer_actions_button = QPushButton("Actions")
+        self.composer_actions_button = QPushButton("Skills")
         self.composer_actions_button.setObjectName("composerToolButton")
         self.composer_actions_button.setCursor(Qt.PointingHandCursor)
         self.composer_actions_button.setToolTip(
-            "Insert reusable text and web action prompts without sending them."
+            "Open all skill groups from the composer."
         )
-        self.composer_actions_button.setMenu(self.build_composer_actions_menu())
+        self.composer_actions_button.setMenu(self.build_composer_skills_menu())
 
-        self.composer_context_button = QPushButton("Library")
+        self.composer_context_button = QPushButton("Knowledge")
         self.composer_context_button.setObjectName("composerToolButton")
         self.composer_context_button.setCursor(Qt.PointingHandCursor)
         self.composer_context_button.setToolTip(
             "Open imported documents, search the knowledge library, brief books, and browse PDF pages."
         )
-        self.composer_context_button.setMenu(self.build_composer_library_menu())
+        self.composer_context_button.setMenu(self.build_skill_menu("knowledge"))
 
-        self.composer_persona_button = QPushButton("Persona")
+        self.composer_persona_button = QPushButton("Model Lab")
         self.composer_persona_button.setObjectName("composerToolButton")
         self.composer_persona_button.setCursor(Qt.PointingHandCursor)
         self.composer_persona_button.setToolTip(
             "Show the current persona/calibration or open persona-related tools."
         )
-        self.composer_persona_button.setMenu(self.build_composer_persona_menu())
+        self.composer_persona_button.setMenu(self.build_skill_menu("model_lab"))
 
         self.composer_clear_button = QPushButton("Clear")
         self.composer_clear_button.setObjectName("composerToolButton")
@@ -1691,7 +1706,7 @@ class FZAstroAI(
 
         main_layout.addWidget(top_bar)
         main_layout.addWidget(quick_bar)
-        main_layout.addWidget(astro_bar)
+        # Astro actions now live under the Astro skill menu.
         main_layout.addWidget(self.thought_panel)
         main_layout.addWidget(chat_surface, 1)
         main_layout.addWidget(composer_shell)
@@ -3191,6 +3206,76 @@ class FZAstroAI(
         # previous conversation. The independent local clock remains visible.
         self.set_idle_ui_state("")
         self.update_clock_label()
+
+    def _add_skill_actions_to_menu(self, menu, skill_id):
+        """Populate *menu* from the user-facing skill registry."""
+        for section_name, actions in skill_actions_by_section(skill_id).items():
+            if menu.actions():
+                menu.addSeparator()
+
+            if section_name:
+                section_action = QAction(section_name, self)
+                section_action.setEnabled(False)
+                menu.addAction(section_action)
+
+            for action_spec in actions:
+                action = QAction(action_spec.label, self)
+                action.setToolTip(action_spec.description)
+                action.triggered.connect(
+                    lambda checked=False, action_id=action_spec.action_id: (
+                        self.run_skill_action(action_id)
+                    )
+                )
+                menu.addAction(action)
+
+    def build_skill_menu(self, skill_id):
+        menu = QMenu(self)
+        skill = SKILL_BY_ID.get(skill_id)
+
+        if skill is None:
+            missing_action = QAction("Unknown skill", self)
+            missing_action.setEnabled(False)
+            menu.addAction(missing_action)
+            return menu
+
+        self._add_skill_actions_to_menu(menu, skill_id)
+        return menu
+
+    def build_composer_skills_menu(self):
+        menu = QMenu(self)
+
+        for skill in SKILLS:
+            skill_menu = menu.addMenu(skill.label)
+            skill_menu.setToolTipsVisible(True)
+            self._add_skill_actions_to_menu(skill_menu, skill.skill_id)
+
+        return menu
+
+    def run_skill_action(self, action_id):
+        """Dispatch one user-facing Skill action to the existing execution layer."""
+        action_spec = SKILL_ACTION_BY_ID.get(action_id)
+
+        if action_spec is None:
+            self.stats_label.setText("Unknown skill action.")
+            return
+
+        if action_spec.kind == "composer":
+            composer_action_id = action_spec.composer_action_id or action_id
+            self.run_composer_action(composer_action_id)
+            return
+
+        if action_spec.kind != "direct":
+            self.stats_label.setText(f"Unsupported skill action: {action_spec.kind}")
+            return
+
+        handler_name = action_spec.handler_name
+        handler = getattr(self, str(handler_name or ""), None)
+
+        if not callable(handler):
+            self.stats_label.setText(f"No handler for skill action: {action_spec.label}")
+            return
+
+        handler(*action_spec.handler_args, **action_spec.kwargs)
 
     def _add_registry_actions_to_menu(self, menu, groups=None):
         for group_name, actions in composer_actions_by_group(groups).items():
