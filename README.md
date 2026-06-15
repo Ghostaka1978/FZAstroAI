@@ -188,3 +188,11 @@ Release validation checks that development/repair artifacts are not included in 
 Development/repair artifacts include `.bak`, `.patch`, `repair_*.ps1`, pytest cache data, Python cache directories, temporary debug files, local investigation notes, and other non-runtime files produced while repairing or validating the application.
 
 The packaged release should contain only the application runtime files and required bundled resources.
+
+### Distance ladder calculations
+
+FZAstro AI includes distance-ladder calculation helpers for astronomy workflows. These expose the calculation path behind distance estimates, including standard relations such as parallax distance, distance modulus, luminosity-based estimates, and redshift/Hubble-law style calculations where applicable.
+
+These tools are intended as practical astronomy aids and educational calculation helpers, not as replacements for professional catalogue data or peer-reviewed measurement pipelines.
+
+Runtime note: optional distance-ladder helpers can be enabled with `FZASTRO_USE_DISTANCE_LADDER=1` when you want the astronomy tools to expose the distance calculation path.
