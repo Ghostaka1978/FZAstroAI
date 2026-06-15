@@ -1,0 +1,33 @@
+# FZAstro AI Version 1 dependency baseline
+# Python: 3.11 recommended
+
+PySide6>=6.7,<7
+openai>=1.40,<2
+requests>=2.32,<3
+beautifulsoup4>=4.12,<5
+ddgs>=9.0,<10
+playwright>=1.46,<2
+Markdown>=3.6,<4
+Pygments>=2.18,<3
+PyPDF2>=3.0,<4
+PyMuPDF>=1.24,<2
+Pillow>=10.4,<12
+pytesseract>=0.3.13,<0.4
+openpyxl>=3.1,<4
+pyinstaller>=6.10,<7
+
+# Migrated FZASTRO astro-tools dependencies
+astropy>=6.1,<8
+astroquery>=0.4.7,<0.5
+numpy>=1.26,<3
+matplotlib>=3.8,<4
+skyfield>=1.49,<2
+tzdata>=2025.2
+# Optional only: timezonefinder can auto-detect IANA timezones from lat/lon,
+# but it may require Microsoft C++ Build Tools on Windows. The app works without it.
+
+# Test runner used by validate_release.ps1 and the Version 1 release-candidate checklist
+pytest>=8.0,<9
+
+# Code formatter used before builds and checked during validation
+black>=24.10,<26
