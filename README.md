@@ -1,5 +1,4 @@
 ﻿# FZAstro AI
-# FZAstro AI
 
 FZAstro AI is a Windows desktop AI workstation for astrophotography, document research, web research, local Python execution, and integrated astronomy tools.
 
