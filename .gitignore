@@ -24,3 +24,9 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.py[cod]
+.idea/
+*.spec
+*.tmp
+.DS_Store
+Thumbs.db
