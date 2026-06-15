@@ -37,15 +37,23 @@ def test_skill_registry_groups_actions_into_user_facing_skills():
     assert "markets.gold" in SKILL_ACTION_BY_ID
     assert "model.benchmark" in SKILL_ACTION_BY_ID
     assert SKILL_ACTION_BY_ID["skill.python.run_input"].kind == "composer"
-    assert SKILL_ACTION_BY_ID["skill.python.run_input"].composer_action_id == "python.run_input"
+    assert (
+        SKILL_ACTION_BY_ID["skill.python.run_input"].composer_action_id
+        == "python.run_input"
+    )
 
 
 def test_skill_actions_keep_existing_handlers_as_execution_layer():
     assert SKILL_ACTION_BY_ID["research.daily_news"].handler_name == "daily_news"
-    assert SKILL_ACTION_BY_ID["astro.targets"].handler_name == "open_astro_targets_dialog"
+    assert (
+        SKILL_ACTION_BY_ID["astro.targets"].handler_name == "open_astro_targets_dialog"
+    )
     assert SKILL_ACTION_BY_ID["markets.oil"].handler_name == "retrieve_stock_price"
     assert SKILL_ACTION_BY_ID["markets.oil"].handler_args == ("CL=F",)
-    assert SKILL_ACTION_BY_ID["workspace.repository"].handler_name == "open_project_repository"
+    assert (
+        SKILL_ACTION_BY_ID["workspace.repository"].handler_name
+        == "open_project_repository"
+    )
 
 
 def test_skill_actions_group_by_section_in_display_order():
@@ -72,7 +80,7 @@ def test_main_window_uses_skill_registry_for_top_and_composer_menus():
     app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
 
     assert "from .skill_registry import" in app_text
-    assert "QLabel(\"SKILLS\")" in app_text
+    assert 'QLabel("SKILLS")' in app_text
     assert "self.skill_buttons" in app_text
     assert "build_skill_menu" in app_text
     assert "build_composer_skills_menu" in app_text

@@ -3272,7 +3272,9 @@ class FZAstroAI(
         handler = getattr(self, str(handler_name or ""), None)
 
         if not callable(handler):
-            self.stats_label.setText(f"No handler for skill action: {action_spec.label}")
+            self.stats_label.setText(
+                f"No handler for skill action: {action_spec.label}"
+            )
             return
 
         handler(*action_spec.handler_args, **action_spec.kwargs)

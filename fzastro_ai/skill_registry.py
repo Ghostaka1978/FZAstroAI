@@ -19,7 +19,9 @@ class SkillAction:
     action_id: str
     label: str
     description: str
-    kind: str = "direct"  # "direct" calls an app method; "composer" runs a composer action.
+    kind: str = (
+        "direct"  # "direct" calls an app method; "composer" runs a composer action.
+    )
     section: str = ""
     handler_name: str | None = None
     handler_args: tuple[object, ...] = ()
