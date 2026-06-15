@@ -305,7 +305,9 @@ function Assert-ReleaseArtifactHygiene {
         "*.rej",
         "*.patch",
         "repair_*.ps1",
-        "*_fixture_fix.patch"
+        "*_fixture_fix.patch",
+        "llm_benchmark_history.json",
+        "*.json.tmp"
     )
 
     $unexpectedFiles = @()
@@ -344,6 +346,7 @@ function Assert-ReleaseManifest {
     $requiredFiles = @(
         "FZAstroAI.exe",
         "README.md",
+        "RELEASE_VALIDATION.md",
         "requirements.txt",
         "VERSION.txt",
         "release_manifest.txt"
@@ -492,7 +495,8 @@ import importlib
 modules = [
     "PySide6", "openai", "requests", "bs4", "ddgs", "playwright",
     "markdown", "pygments", "PyPDF2", "fitz", "PIL", "pytesseract", "openpyxl", "PyInstaller",
-    "astropy", "astroquery", "numpy", "matplotlib", "skyfield", "black"
+    "astropy", "astroquery", "numpy", "matplotlib", "skyfield", "black",
+    "fzastro_ai.ui.llm_benchmark_dialog"
 ]
 for name in modules:
     importlib.import_module(name)

@@ -2,7 +2,6 @@ from pathlib import Path
 
 from fzastro_ai.config import APP_MILESTONE, APP_VERSION, APP_VERSION_LABEL
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -57,3 +56,49 @@ def test_black_is_part_of_release_workflow():
     assert "[tool.black]" in pyproject
     assert "Formatting source with Black before build" in build_script
     assert "Checking Black formatting" in validation_script
+
+
+def test_llm_benchmark_feature_is_documented_and_wired():
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    release_docs = (PROJECT_ROOT / "RELEASE_VALIDATION.md").read_text(encoding="utf-8")
+    help_dialog = (PROJECT_ROOT / "fzastro_ai" / "ui" / "help_dialog.py").read_text(
+        encoding="utf-8"
+    )
+    app_source = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8")
+    benchmark_source = (
+        PROJECT_ROOT / "fzastro_ai" / "ui" / "llm_benchmark_dialog.py"
+    ).read_text(encoding="utf-8")
+
+    assert "LLM Benchmark Dashboard" in readme
+    assert "LLM BENCH" in readme
+    assert "LLM Benchmark checks" in release_docs
+    assert "polished control layout" in release_docs
+    assert "LLM Benchmark Dashboard" in help_dialog
+    assert "Run All Presets" in readme
+    assert "Run All Presets" in release_docs
+    assert "Run All Presets" in help_dialog
+    assert "Delete Selected" in readme
+    assert "Delete Selected" in release_docs
+    assert "Delete Selected" in help_dialog
+    assert "persona/calibration" in readme
+    assert "persona/calibration" in release_docs
+    assert "persona/calibration" in help_dialog
+    assert "telemetry" in readme.lower()
+    assert "telemetry" in release_docs.lower()
+    assert "telemetry" in help_dialog.lower()
+    assert "benchmarkTelemetryCard" in benchmark_source
+    assert 'tabs.addTab(self.dashboard_tab, "Dashboard")' in benchmark_source
+    assert 'tabs.addTab(self.history_tab, "History")' in benchmark_source
+    assert 'tabs.addTab(self.compare_tab, "Compare")' in benchmark_source
+    assert 'tabs.addTab(self.benchmark_tab, "Benchmark")' not in benchmark_source
+    assert "Composite" in benchmark_source
+    assert "evaluate_response_quality" in benchmark_source
+    assert "selected_persona_payload" in benchmark_source
+    assert "Raw model (no persona)" in benchmark_source
+    assert "open_llm_benchmark_dialog" in app_source
+    assert "llm_benchmark_button" in app_source
+    assert "https://github.com/Ghostaka1978/FZAstroAI" in app_source
+    assert "https://github.com/Ghostaka1978/FZAstroAI" in readme
+    assert "https://github.com/Ghostaka1978/FZAstroAI" in release_docs
+    assert "GitHub repository" in help_dialog
+    assert "_handle_brand_mark_click" in app_source

@@ -796,6 +796,7 @@ if (-not (Test-Path $FinalExe)) { throw "Build finished but EXE was not found: $
 Show-StageStep "Prepare release folder"
 Copy-Item -Force $FinalExe $ReleaseExe
 Copy-Item -Force (Join-Path $ProjectRoot "README.md") $ReleaseDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $ProjectRoot "RELEASE_VALIDATION.md") $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $RequirementsFile $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $VersionFile $ReleaseDir -ErrorAction SilentlyContinue
 

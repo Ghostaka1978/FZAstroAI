@@ -33,3 +33,7 @@ Thumbs.db
 
 *.bak_*
 *.bak
+
+# Local app runtime state
+llm_benchmark_history.json
+*.json.tmp

@@ -21,13 +21,14 @@ from pathlib import Path
 
 import requests
 
-from PySide6.QtCore import QPoint, QPropertyAnimation, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QPoint, QPropertyAnimation, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QAction,
     QColor,
     QIcon,
     QKeyEvent,
     QKeySequence,
+    QDesktopServices,
     QPainter,
     QPixmap,
     QTextCursor,
@@ -161,6 +162,7 @@ from .ui.diagnostics_dialog import (
 )
 from .ui.help_dialog import open_help_cheat_sheet_dialog
 from .ui.about_dialog import open_about_window
+from .ui.llm_benchmark_dialog import open_llm_benchmark_dialog
 from .ui.source_chips import add_source_header_widget
 from .ui.styles import get_main_stylesheet
 from .ui.main_layout import MainLayoutMixin
@@ -765,6 +767,20 @@ class FZAstroAI(
     def open_about_window(self):
         open_about_window(self)
 
+    def open_llm_benchmark_dashboard(self):
+        open_llm_benchmark_dialog(self)
+
+    def open_project_repository(self):
+        QDesktopServices.openUrl(QUrl("https://github.com/Ghostaka1978/FZAstroAI"))
+
+    def _handle_brand_mark_click(self, event):
+        if event.button() == Qt.LeftButton:
+            self.open_project_repository()
+            event.accept()
+            return
+
+        event.ignore()
+
     def __init__(self):
         super().__init__()
 
@@ -1091,6 +1107,10 @@ class FZAstroAI(
         brand_mark.setObjectName("brandMark")
         brand_mark.setAlignment(Qt.AlignCenter)
         brand_mark.setFixedSize(38, 38)
+        brand_mark.setCursor(Qt.PointingHandCursor)
+        brand_mark.setToolTip("Open the FZAstro AI GitHub repository")
+        brand_mark.setAccessibleName("Open FZAstro AI GitHub repository")
+        brand_mark.mousePressEvent = self._handle_brand_mark_click
 
         title_box = QWidget()
         title_box_layout = QVBoxLayout(title_box)
@@ -1199,6 +1219,16 @@ class FZAstroAI(
         self.news_button.setCursor(Qt.PointingHandCursor)
         self.news_button.clicked.connect(self.daily_news)
         self.news_button.setToolTip("Generate the daily news briefing")
+
+        self.llm_benchmark_button = QPushButton("LLM BENCH")
+        self.llm_benchmark_button.setObjectName("stockPriceButton")
+        self.llm_benchmark_button.setFixedSize(96, 36)
+        self.llm_benchmark_button.setCursor(Qt.PointingHandCursor)
+        self.llm_benchmark_button.clicked.connect(self.open_llm_benchmark_dashboard)
+        self.llm_benchmark_button.setToolTip(
+            "Open latency, throughput, and model comparison benchmarks"
+        )
+        self.llm_benchmark_button.setAccessibleName("Open LLM benchmark dashboard")
 
         self.crm_stock_button = QPushButton("CRM")
         self.crm_stock_button.setObjectName("stockPriceButton")
@@ -1327,6 +1357,7 @@ class FZAstroAI(
         quick_bar_layout.addSpacing(4)
         quick_bar_layout.addWidget(self.new_chat_button)
         quick_bar_layout.addWidget(self.news_button)
+        quick_bar_layout.addWidget(self.llm_benchmark_button)
         quick_bar_layout.addWidget(self.crm_stock_button)
         quick_bar_layout.addWidget(self.dbx_stock_button)
         quick_bar_layout.addWidget(self.crude_oil_button)

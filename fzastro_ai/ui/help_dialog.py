@@ -17,7 +17,7 @@ from ..logging_utils import log_exception
 
 HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI Version 1 Help
 
-This guide shows the exact things you can ask FZAstro AI to do and which mode/source should be used. Version 1 is a release-candidate baseline, not a final production claim.
+This guide shows the exact things you can ask FZAstro AI to do and which mode/source should be used. Version 1 is a release-candidate baseline, not a final production claim. Click the **FZ** square in the header to open the project GitHub repository in your external browser.
 
 ## 1. Version 1 status
 
@@ -581,7 +581,50 @@ App + Astro API
 Source: Migrated FZASTRO LOOKUP tool.
 ```
 
-## 29. Stop a running task
+## 29. LLM Benchmark Dashboard
+
+Use **LLM BENCH** when you want to measure model speed and compare local/Ollama/OpenAI-compatible endpoints. The dashboard uses the current app endpoint, mirrors the main app model-list behavior, auto-refreshes its model selector, keeps the local list if refresh fails, includes **Refresh Models** and **Use Active Model**, mirrors the main GPU/VRAM and CPU/RAM telemetry, lets you select Raw model or a persona/calibration profile, and keeps benchmark controls readable.
+
+```text
+LLM BENCH -> choose model -> choose Raw model/persona -> choose benchmark preset -> Run Selected
+```
+
+The dashboard has three tabs; benchmark controls, preset selection, custom prompt entry, and live telemetry stay in the shared top panel:
+
+| Tab | What it shows |
+|---|---|
+| **Dashboard** | Total runs, tested models, average quality, average latency, average throughput, average output, prefill, and generation time. |
+| **History** | Saved benchmark runs from `llm_benchmark_history.json`, with **Delete Selected**, Delete key, and right-click deletion for removing individual records. |
+| **Compare** | Per-model + persona comparison by preset coverage, heuristic quality, composite score, tokens/sec, latency, stability, and total time. |
+
+Built-in presets include:
+
+```text
+Quick Q&A (short)
+Math Reasoning
+Code Generation
+Creative Writing
+Logical Reasoning
+Data Analysis
+Translation & Multilingual
+Summarization
+Instruction Following
+```
+
+Metrics meaning:
+
+| Metric | Meaning |
+|---|---|
+| **Tokens/sec** | Estimated completion-token generation throughput. |
+| **Time to first token** | Streaming latency before the first generated token arrives. |
+| **Total time** | Full request runtime. |
+| **Generation time** | Time spent after the first token starts arriving. |
+| **Input tokens** | Estimated user prompt plus selected persona/system-prompt token count. |
+| **Completion tokens** | Estimated generated output token count. |
+
+For fair comparisons, use the same preset, persona/calibration, temperature, endpoint, repeat count, and background GPU load for each model; the telemetry row helps you spot background load while testing. Raw model mode gives the cleanest speed baseline; a selected persona/profile measures how the app's system prompt changes quality, latency, and output length. **Run Selected** tests the visible preset or custom prompt. **Run All Presets** executes the full built-in suite in one pass and stores each preset separately in History. Select models directly from the benchmark window; use **Use Active Model** when you want to return to the main app's selected model. Use **Delete Selected**, Delete, or right-click to remove individual saved rows, **Export JSON** to save a copy of the benchmark history, or **Clear History** to reset all local benchmark results.
+
+## 30. Stop a running task
 
 Use **Stop** when a model reply, web task, memory extraction, document import, or Python execution is taking too long.
 
@@ -589,7 +632,7 @@ Use **Stop** when a model reply, web task, memory extraction, document import, o
 Stop = interrupt the active process when supported.
 ```
 
-## 30. Good prompt patterns
+## 31. Good prompt patterns
 
 For documents:
 
@@ -625,20 +668,20 @@ Write Python code for [task] and test it.
 [code]
 ```
 
-## 31. Quick troubleshooting
+## 32. Quick troubleshooting
 
 | Problem | What to try |
 |---|---|
 | Local PDF request goes to web | Include the PDF title, page number, and words like `from my document` or `PDF page image`. |
-| Model is slow | Choose a smaller model, reduce context, or stop the current reply. |
-| No models appear | If Ollama is installed, press refresh beside the model selector; the app can auto-start local Ollama. If the selector says `Ollama unavailable`, install/start Ollama or check `FZASTRO_AUTO_START_OLLAMA`. |
+| Model is slow | Choose a smaller model, reduce context, run LLM BENCH for baseline throughput, or stop the current reply. |
+| No models appear | If Ollama is installed, press refresh beside the model selector; the app can auto-start local Ollama. If the selector says `Ollama unavailable`, install/start Ollama or check `FZASTRO_AUTO_START_OLLAMA`. In LLM BENCH, use **Refresh Models** after changing endpoints or downloading models. |
 | Ollama stays running after exit | This is the safe default. Set `FZASTRO_STOP_OLLAMA_ON_EXIT=1` to stop only an Ollama process launched by FZAstro AI. |
 | Webpage text is poor | Try screenshot mode or ask for rendered webpage extraction. |
 | PDF text is missing | The page may be scanned; OCR may be needed. |
 | Python does not run in EXE | Set `FZASTRO_PYTHON` to a real Python interpreter path. |
 | Answer source is unclear | Check the source chips above the answer. |
 
-## 32. Fast cheat sheet
+## 33. Fast cheat sheet
 
 ```text
 Normal answer: ask normally.
@@ -652,6 +695,7 @@ PDF visual page: say image/render page number.
 PDF text + visual: say image and text from page number.
 Memory: say remember/search memory.
 Python: say run/test/execute or use /run-python.
+Benchmark speed/quality: click LLM BENCH, choose a model directly in the dialog or refresh the model list, choose Raw model or a persona/calibration profile, then Run Selected or Run All Presets.
 ```
 """
 
@@ -672,7 +716,7 @@ def open_help_cheat_sheet_dialog(parent):
 
     subtitle = QLabel(
         "Version 1 guide for chat, models, web, news, market quotes, documents, "
-        "PDF page images/text, memory, history, attachments, Python execution, tests, and Astro tools."
+        "PDF page images/text, memory, history, attachments, Python execution, LLM benchmarking, tests, and Astro tools."
     )
     subtitle.setObjectName("helpDialogSubtitle")
     subtitle.setWordWrap(True)

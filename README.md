@@ -1,8 +1,8 @@
-﻿# FZAstro AI
+# FZAstro AI
 
-FZAstro AI is a Windows desktop AI workstation for astrophotography, document research, web research, local Python execution, and integrated astronomy tools.
+FZAstro AI is a Windows desktop AI workstation for astrophotography, document research, web research, local Python execution, LLM benchmarking, and integrated astronomy tools.
 
-It combines a local/OpenAI-compatible chat interface with a PySide6 desktop application, a document knowledge library, persistent memory, web tools, market/news actions, and migrated FZASTRO astrophotography utilities.
+It combines a local/OpenAI-compatible chat interface with a PySide6 desktop application, a document knowledge library, persistent memory, web tools, market/news actions, benchmark telemetry, and migrated FZASTRO astrophotography utilities. The **FZ** square in the app header opens `https://github.com/Ghostaka1978/FZAstroAI` in the external browser.
 
 ## What FZAstro AI does
 
@@ -19,6 +19,34 @@ FZAstro AI provides a local workstation for:
 * Saving and searching persistent memory
 * Tracking answer sources with source tags such as LLM, Docs, Web, Files, Python, Memory, and App
 * Monitoring hardware telemetry such as GPU/VRAM, CPU, RAM, and best-effort temperatures
+* Benchmarking local/Ollama/OpenAI-compatible LLM models with latency, throughput, history, and comparison metrics
+
+## LLM Benchmark Dashboard
+
+FZAstro AI includes an integrated LLM Benchmark Dashboard for testing any model on the configured local or OpenAI-compatible endpoint without leaving the desktop app. Open it from the **LLM BENCH** quick-action button. The dashboard has its own model selector and refresh control, auto-refreshes the available model list on open, mirrors live GPU/VRAM and CPU/RAM telemetry from the main window, lets benchmark runs target a different model than the main chat selector when needed, and can run either as a raw model or with a selected app persona/calibration profile.
+
+The benchmark dashboard can:
+
+* Select and refresh models directly inside the benchmark window without changing the main chat model
+* Select **Raw model**, **Active app persona**, or a specific calibration profile so persona effects are measured explicitly
+* Run built-in benchmark presets for quick Q&A, math reasoning, code generation, creative writing, logical reasoning, data analysis, translation, summarization, and instruction following
+* Run every built-in preset in one pass with **Run All Presets**
+* Run a custom prompt with user-selected temperature and max-token settings from the top control panel
+* Measure tokens per second, time to first token, total runtime, generation time, estimated input tokens, system-prompt tokens, and estimated completion tokens
+* Add a local heuristic quality score to flag whether the result seems sensible, complete, and instruction-following
+* Show live telemetry and record a telemetry snapshot with each completed benchmark sample
+* Save local benchmark history in `llm_benchmark_history.json` under the app data directory
+* Compare tested models by model + persona, preset coverage, average quality, composite score, throughput, latency, stability, and total time
+* Use **Delete Selected**, Delete, or right-click to remove individual benchmark history records, or clear the full local history
+* Export benchmark history to JSON for external review or sharing
+
+Recommended quick check:
+
+```text
+Open LLM BENCH -> choose or refresh a model -> select Quick Q&A (short) -> Run Selected
+```
+
+For cleaner model comparisons, use **Run All Presets** on each model with the same endpoint, persona/calibration selection, temperature, repeat count, and background GPU load. Selected single-preset runs use the visible max-token setting; full-suite runs use each preset's default max-token budget. Use **Raw model** for pure speed baselines and a named persona/profile when you want to measure app-style behavior.
 
 ## Astrophotography tools
 
@@ -58,12 +86,13 @@ Version 1 is a release-candidate baseline for testing and validation. It include
 * Calibration profiles and model/profile controls
 * Composer Actions, Context, and Persona menus
 * Local Python code-block execution
+* LLM Benchmark Dashboard for local/Ollama/OpenAI-compatible model speed tests, direct model selection, and full-suite preset runs
 * Repeatable Windows EXE build tooling
-* Starter automated test suite for routing, memory, documentation, and version checks
+* Starter automated test suite for routing, memory, documentation, release workflow, and version checks
 
 ## Runtime notes
 
-Ollama or another OpenAI-compatible endpoint must be available for local chat.
+Ollama or another OpenAI-compatible endpoint must be available for local chat and LLM benchmarking.
 
 Tesseract OCR is optional and only required for OCR/scanned-page workflows.
 
@@ -79,15 +108,31 @@ FZAstro AI is packaged through the repository PowerShell release workflow.
 
 ## Release build workflow
 
-Run these commands from the project root:
+Use the single release workflow command from the project root:
 
 ```powershell
-.\clean_build.ps1
-.\build_exe.ps1
-.\validate_release.ps1
+. .\activate_venv.ps1
+powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 ```
 
+`deploy.ps1` calls `clean_build.ps1`, and `clean_build.ps1` starts `build_exe.ps1` automatically after cleaning previous build/cache output. At the end of a successful build, the build script displays a validation prompt asking whether to run `validate_release.ps1` immediately.
+
 Release build output is written one folder above the project root under `..\FZAstroAI_BUILD`. The scripts use `FZASTRO_PROJECT_ROOT`, `FZASTRO_BUILD_ROOT`, and `FZASTRO_PYTHON` to keep the build, validation, and packaged EXE launch deterministic.
+
+The deploy/build/validation scripts use a quiet progress display by default. They show a progress bar and the current cleanup, build, and validation stage while sending noisy pip, pytest, Black, and PyInstaller output to `..\FZAstroAI_BUILD\logs`. Use `-VerboseOutput` when full live command output is needed.
+
+The packaged release folder includes:
+
+```text
+FZAstroAI.exe
+README.md
+RELEASE_VALIDATION.md
+requirements.txt
+VERSION.txt
+release_manifest.txt
+```
+
+The `release_manifest.txt` contains the EXE path, size, and SHA256 hash. `validate_release.ps1` verifies the release manifest, PyInstaller resource configuration, release artifact hygiene, and EXE smoke launch with isolated `smoke_appdata` through `FZASTRO_APP_DIR`. The pytest suite also includes optional GUI startup smoke coverage when PySide6 is installed.
 
 ## Python version policy
 
@@ -108,6 +153,32 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
+
+## Release validation
+
+Before tagging or pushing a release candidate, run:
+
+```powershell
+python -m pytest
+powershell -ExecutionPolicy Bypass -File .\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -ExePath "..\FZAstroAI_BUILD\release\FZAstroAI.exe" -KeepRunning
+```
+
+Manual validation must include the LLM Benchmark Dashboard: open **LLM BENCH**, confirm the polished control layout is not clipped, confirm the telemetry row mirrors the main GPU/VRAM and CPU/RAM labels, confirm only Dashboard, History, and Compare tabs are shown, refresh/select a different model inside the dialog without changing the main chat selector, select Raw model and at least one persona/calibration profile, run Quick Q&A with **Run Selected**, run the full suite with **Run All Presets**, confirm metrics and quality scores are populated, verify History persists, use **Delete Selected** to delete one selected history row, verify Compare groups by model + persona with composite/stability scores, export JSON, clear history, and stop a running benchmark.
+
+## Git-ready handoff checklist
+
+Before committing:
+
+```powershell
+python -m pytest
+powershell -ExecutionPolicy Bypass -File .\format_code.ps1 -PythonExe ".\.venv\Scripts\python.exe" -Check
+git status --short
+git add README.md RELEASE_VALIDATION.md build_exe.ps1 validate_release.ps1 fzastro_ai tests
+git commit -m "Add LLM benchmark dashboard"
+git push
+```
+
+Do not commit `.venv`, `__pycache__`, `.pytest_cache`, local benchmark history, build output, repair patches, or temporary logs.
 
 ## Release artifact hygiene
 

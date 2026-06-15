@@ -295,3 +295,14 @@ def test_release_docs_describe_manifest_resource_and_gui_smoke_checks(project_ro
     assert "PyInstaller resource" in docs
     assert "smoke_appdata" in docs
     assert "GUI smoke" in docs or "GUI startup" in docs
+
+
+def test_release_package_includes_validation_documentation():
+    build_script = (PROJECT_ROOT / "build_exe.ps1").read_text(encoding="utf-8")
+    validation_script = (PROJECT_ROOT / "validate_release.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "RELEASE_VALIDATION.md" in build_script
+    assert "RELEASE_VALIDATION.md" in validation_script
+    assert "fzastro_ai.ui.llm_benchmark_dialog" in validation_script
