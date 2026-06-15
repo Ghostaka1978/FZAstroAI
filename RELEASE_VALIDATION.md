@@ -150,10 +150,10 @@ LLM Benchmark checks:
 5. Dashboard, History, and Compare tabs use the dark app theme; the old dedicated Benchmark tab is not shown.
 6. The telemetry row mirrors the main window GPU/VRAM and CPU/RAM labels while a benchmark is running or idle.
 7. Benchmark preset list includes Quick Q&A, Math Reasoning, Code Generation, Creative Writing, Logical Reasoning, Data Analysis, Translation & Multilingual, Summarization, and Instruction Following.
-8. **Run Selected** against Quick Q&A completes and fills tokens/sec, time to first token, total time, completion tokens, input tokens, quality score, telemetry snapshot, and model response.
+8. **Run Selected** against Quick Q&A completes and fills tokens/sec, time to first token, total time, completion tokens, input tokens, accuracy score, trust score, quality score, deterministic grader evidence, telemetry snapshot, and model response.
 9. **Run All Presets** executes the full built-in benchmark suite in one pass and records each preset separately in History.
 10. Benchmark history persists after closing and reopening the dashboard.
-11. Compare tab groups results by model + persona and sorts by composite score; coverage, quality, throughput, latency, and stability are populated.
+11. Compare tab groups results by model + persona and sorts by composite score; coverage, accuracy, speed, trust, instruction following, throughput, latency, and stability are populated.
 12. **Delete Selected** removes only the selected History row(s) after confirmation and updates Dashboard/Compare totals.
 13. Export JSON writes `llm_benchmark_history.json` successfully, and Clear History removes all saved entries after confirmation.
 14. Stop cancels an active benchmark without leaving the worker running.

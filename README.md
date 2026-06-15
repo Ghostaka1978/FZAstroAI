@@ -33,10 +33,10 @@ The benchmark dashboard can:
 * Run every built-in preset in one pass with **Run All Presets**
 * Run a custom prompt with user-selected temperature and max-token settings from the top control panel
 * Measure tokens per second, time to first token, total runtime, generation time, estimated input tokens, system-prompt tokens, and estimated completion tokens
-* Add a local heuristic quality score to flag whether the result seems sensible, complete, and instruction-following
+* Score **accuracy**, **instruction following**, and **trust** with deterministic graders, prompt/response hashes, and a retained heuristic quality sense-check
 * Show live telemetry and record a telemetry snapshot with each completed benchmark sample
 * Save local benchmark history in `llm_benchmark_history.json` under the app data directory
-* Compare tested models by model + persona, preset coverage, average quality, composite score, throughput, latency, stability, and total time
+* Compare tested models by model + persona, preset coverage, accuracy, speed, trust, instruction following, composite score, throughput, latency, and stability
 * Use **Delete Selected**, Delete, or right-click to remove individual benchmark history records, or clear the full local history
 * Export benchmark history to JSON for external review or sharing
 
@@ -164,7 +164,7 @@ python -m pytest
 powershell -ExecutionPolicy Bypass -File .\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -ExePath "..\FZAstroAI_BUILD\release\FZAstroAI.exe" -KeepRunning
 ```
 
-Manual validation must include the LLM Benchmark Dashboard: open **LLM BENCH**, confirm the polished control layout is not clipped, confirm the telemetry row mirrors the main GPU/VRAM and CPU/RAM labels, confirm only Dashboard, History, and Compare tabs are shown, refresh/select a different model inside the dialog without changing the main chat selector, select Raw model and at least one persona/calibration profile, run Quick Q&A with **Run Selected**, run the full suite with **Run All Presets**, confirm metrics and quality scores are populated, verify History persists, use **Delete Selected** to delete one selected history row, verify Compare groups by model + persona with composite/stability scores, export JSON, clear history, and stop a running benchmark.
+Manual validation must include the LLM Benchmark Dashboard: open **LLM BENCH**, confirm the polished control layout is not clipped, confirm the telemetry row mirrors the main GPU/VRAM and CPU/RAM labels, confirm only Dashboard, History, and Compare tabs are shown, refresh/select a different model inside the dialog without changing the main chat selector, select Raw model and at least one persona/calibration profile, run Quick Q&A with **Run Selected**, run the full suite with **Run All Presets**, confirm metrics, accuracy, trust, quality scores, and grader evidence are populated, verify History persists, use **Delete Selected** to delete one selected history row, verify Compare groups by model + persona with composite/stability scores, export JSON, clear history, and stop a running benchmark.
 
 ## Git-ready handoff checklist
 

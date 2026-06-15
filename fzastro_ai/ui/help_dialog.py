@@ -594,7 +594,7 @@ Source: Migrated FZASTRO LOOKUP tool.
 
 ## 29. LLM Benchmark Dashboard
 
-Use **Skills → Model Lab → LLM Benchmark** when you want to measure model speed and compare local/Ollama/OpenAI-compatible endpoints. The dashboard uses the current app endpoint, mirrors the main app model-list behavior, auto-refreshes its model selector, keeps the local list if refresh fails, includes **Refresh Models** and **Use Active Model**, mirrors the main GPU/VRAM and CPU/RAM telemetry, lets you select Raw model or a persona/calibration profile, and keeps benchmark controls readable.
+Use **Skills → Model Lab → LLM Benchmark** when you want to measure model accuracy, speed, trust, and compare local/Ollama/OpenAI-compatible endpoints. The dashboard uses the current app endpoint, mirrors the main app model-list behavior, auto-refreshes its model selector, keeps the local list if refresh fails, includes **Refresh Models** and **Use Active Model**, mirrors the main GPU/VRAM and CPU/RAM telemetry, lets you select Raw model or a persona/calibration profile, and keeps benchmark controls readable.
 
 ```text
 Skills -> Model Lab -> LLM Benchmark -> choose model -> choose Raw model/persona -> choose benchmark preset -> Run Selected
@@ -604,9 +604,9 @@ The dashboard has three tabs; benchmark controls, preset selection, custom promp
 
 | Tab | What it shows |
 |---|---|
-| **Dashboard** | Total runs, tested models, average quality, average latency, average throughput, average output, prefill, and generation time. |
+| **Dashboard** | Total runs, tested models, average accuracy, average trust, average speed, latency, stability, and generation time. |
 | **History** | Saved benchmark runs from `llm_benchmark_history.json`, with **Delete Selected**, Delete key, and right-click deletion for removing individual records. |
-| **Compare** | Per-model + persona comparison by preset coverage, heuristic quality, composite score, tokens/sec, latency, stability, and total time. |
+| **Compare** | Per-model + persona comparison by preset coverage, accuracy, speed, trust, instruction following, stability, composite score, tokens/sec, and latency. |
 
 Built-in presets include:
 
@@ -633,7 +633,7 @@ Metrics meaning:
 | **Input tokens** | Estimated user prompt plus selected persona/system-prompt token count. |
 | **Completion tokens** | Estimated generated output token count. |
 
-For fair comparisons, use the same preset, persona/calibration, temperature, endpoint, repeat count, and background GPU load for each model; the telemetry row helps you spot background load while testing. Raw model mode gives the cleanest speed baseline; a selected persona/profile measures how the app's system prompt changes quality, latency, and output length. **Run Selected** tests the visible preset or custom prompt. **Run All Presets** executes the full built-in suite in one pass and stores each preset separately in History. Select models directly from the benchmark window; use **Use Active Model** when you want to return to the main app's selected model. Use **Delete Selected**, Delete, or right-click to remove individual saved rows, **Export JSON** to save a copy of the benchmark history, or **Clear History** to reset all local benchmark results.
+For fair comparisons, use the same preset, persona/calibration, temperature, endpoint, repeat count, and background GPU load for each model; the telemetry row helps you spot background load while testing. Deterministic grader rows show why a score passed or failed, while the trust score rewards auditable runs with raw prompt/response evidence and repeat metadata. Raw model mode gives the cleanest speed baseline; a selected persona/profile measures how the app's system prompt changes quality, latency, and output length. **Run Selected** tests the visible preset or custom prompt. **Run All Presets** executes the full built-in suite in one pass and stores each preset separately in History. Select models directly from the benchmark window; use **Use Active Model** when you want to return to the main app's selected model. Use **Delete Selected**, Delete, or right-click to remove individual saved rows, **Export JSON** to save a copy of the benchmark history, or **Clear History** to reset all local benchmark results.
 
 ## 30. Stop a running task
 

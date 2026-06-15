@@ -1,8 +1,8 @@
 """LLM benchmark dashboard for the FZAstro AI desktop app.
 
 This dialog benchmarks any model returned by the configured OpenAI-compatible
-runtime, records latency/throughput metrics, and keeps a lightweight local JSON
-history for later comparison.
+runtime, records accuracy, speed, trust, and throughput metrics, and keeps a lightweight
+local JSON history for later comparison.
 """
 
 from __future__ import annotations
@@ -45,6 +45,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..benchmarks import (
+    BENCHMARK_ENGINE_VERSION,
+    build_result_evidence,
+    composite_score,
+    grade_benchmark_response,
+    run_statistics,
+)
 from ..config import APP_DIR, DEFAULT_MODEL_NAME, RUNTIME_CHAT_TIMEOUT_SECONDS
 from ..logging_utils import log_exception, log_warning
 from ..runtime import is_ollama_base_url, make_runtime_client
@@ -424,11 +431,23 @@ class LlmBenchmarkWorker(QThread):
                 generation_elapsed = max(0.001, total_elapsed - time_to_first_token)
                 tokens_per_second = completion_tokens / generation_elapsed
 
-                quality = evaluate_response_quality(
+                heuristic_quality = evaluate_response_quality(
                     preset_name=preset_name,
                     prompt=prompt,
                     response=response_text,
                     max_tokens=max_tokens,
+                )
+                benchmark_scores = grade_benchmark_response(
+                    preset_name=preset_name,
+                    prompt=prompt,
+                    response=response_text,
+                    max_tokens=max_tokens,
+                    model=self.model,
+                    base_url=self.base_url,
+                    repeat_total=repeat_total,
+                    heuristic_score=heuristic_quality.get("score"),
+                    heuristic_notes=heuristic_quality.get("notes") or [],
+                    token_estimation_method="estimated char/4",
                 )
                 result = {
                     "id": f"{int(time.time() * 1000)}-{index}",
@@ -455,10 +474,26 @@ class LlmBenchmarkWorker(QThread):
                     "time_to_first_token_s": time_to_first_token,
                     "generation_time_s": generation_elapsed,
                     "tokens_per_second": tokens_per_second,
-                    "quality_score": quality["score"],
-                    "quality_label": quality["label"],
-                    "quality_notes": quality["notes"],
-                    "quality_method": quality["method"],
+                    "benchmark_engine_version": BENCHMARK_ENGINE_VERSION,
+                    "case_id": benchmark_scores["case_id"],
+                    "prompt_hash": benchmark_scores["prompt_hash"],
+                    "response_hash": benchmark_scores["response_hash"],
+                    "accuracy_score": benchmark_scores["accuracy_score"],
+                    "instruction_score": benchmark_scores["instruction_score"],
+                    "trust_score": benchmark_scores["trust_score"],
+                    "deterministic_score": benchmark_scores["deterministic_score"],
+                    "heuristic_quality_score": benchmark_scores[
+                        "heuristic_quality_score"
+                    ],
+                    "quality_score": benchmark_scores["quality_score"],
+                    "quality_label": benchmark_scores["quality_label"],
+                    "quality_notes": benchmark_scores["quality_notes"],
+                    "quality_method": benchmark_scores["quality_method"],
+                    "grader_results": benchmark_scores["grader_results"],
+                    "trust_notes": benchmark_scores["trust_notes"],
+                    "token_estimation_method": benchmark_scores[
+                        "token_estimation_method"
+                    ],
                 }
                 results.append(result)
                 self.sample_finished.emit(result)
@@ -540,9 +575,7 @@ class LlmBenchmarkDialog(QDialog):
         title_layout.setSpacing(1)
         title = QLabel("LLM Benchmark")
         title.setObjectName("header")
-        subtitle = QLabel(
-            "Latency, throughput, output size, history, and model comparison"
-        )
+        subtitle = QLabel("Accuracy, speed, trust, history, and model comparison")
         subtitle.setObjectName("subtitle")
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
@@ -824,21 +857,21 @@ class LlmBenchmarkDialog(QDialog):
         self.metric_models_tested = MetricCard("Models tested", "0", "0 servers")
         self.metric_avg_latency = MetricCard("Avg latency", "—", "time to first token")
         self.metric_avg_throughput = MetricCard(
-            "Avg throughput", "—", "tokens/sec generation"
+            "Avg speed", "—", "tokens/sec generation"
         )
-        self.metric_avg_output = MetricCard("Avg output", "—", "completion tokens")
-        self.metric_avg_quality = MetricCard("Avg quality", "—", "heuristic score")
-        self.metric_avg_prefill = MetricCard("Avg prefill", "—", "time to first token")
+        self.metric_avg_accuracy = MetricCard("Avg accuracy", "—", "graded checks")
+        self.metric_avg_trust = MetricCard("Avg trust", "—", "evidence score")
+        self.metric_avg_stability = MetricCard("Stability", "—", "throughput variance")
         self.metric_avg_gen = MetricCard("Avg gen time", "—", "token generation time")
 
         cards = [
             self.metric_total_runs,
             self.metric_models_tested,
-            self.metric_avg_quality,
+            self.metric_avg_accuracy,
+            self.metric_avg_trust,
             self.metric_avg_throughput,
             self.metric_avg_latency,
-            self.metric_avg_output,
-            self.metric_avg_prefill,
+            self.metric_avg_stability,
             self.metric_avg_gen,
         ]
         for index, card in enumerate(cards):
@@ -920,19 +953,21 @@ class LlmBenchmarkDialog(QDialog):
 
         self.compare_table = QTableWidget()
         self.compare_table.setObjectName("benchmarkTable")
-        self.compare_table.setColumnCount(10)
+        self.compare_table.setColumnCount(12)
         self.compare_table.setHorizontalHeaderLabels(
             [
                 "Model",
                 "Persona",
                 "Runs",
                 "Coverage",
-                "Avg Quality",
+                "Accuracy",
+                "Speed",
+                "Trust",
+                "Instruction",
+                "Stability",
                 "Composite",
                 "Avg TPS",
                 "Avg TTFT",
-                "Stability",
-                "Avg Total",
             ]
         )
         self.compare_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -947,18 +982,19 @@ class LlmBenchmarkDialog(QDialog):
     def _create_results_table():
         table = QTableWidget()
         table.setObjectName("benchmarkTable")
-        table.setColumnCount(11)
+        table.setColumnCount(12)
         table.setHorizontalHeaderLabels(
             [
                 "Started",
                 "Model",
                 "Persona",
                 "Preset",
+                "Accuracy",
+                "Trust",
                 "Quality",
                 "TPS",
                 "TTFT",
                 "Total",
-                "Gen",
                 "Input tok",
                 "Output tok",
             ]
@@ -1604,6 +1640,11 @@ class LlmBenchmarkDialog(QDialog):
 
     def result_response_markdown(self, result: dict) -> str:
         quality_score = _fmt_quality(result.get("quality_score"))
+        accuracy_score = _fmt_quality(
+            result.get("accuracy_score", result.get("quality_score"))
+        )
+        trust_score = _fmt_quality(result.get("trust_score"))
+        instruction_score = _fmt_quality(result.get("instruction_score"))
         quality_label = str(result.get("quality_label") or "Unscored")
         quality_notes = result.get("quality_notes") or []
         if isinstance(quality_notes, str):
@@ -1612,13 +1653,35 @@ class LlmBenchmarkDialog(QDialog):
             "\n".join(f"- {note}" for note in quality_notes)
             or "- No quality notes recorded."
         )
+        trust_notes = result.get("trust_notes") or []
+        if isinstance(trust_notes, str):
+            trust_notes = [trust_notes]
+        trust_text = (
+            "\n".join(f"- {note}" for note in trust_notes)
+            or "- No trust notes recorded."
+        )
+        grader_rows = []
+        for grader in result.get("grader_results") or []:
+            status = "PASS" if grader.get("passed") else "FAIL"
+            score = _fmt_quality(grader.get("score"))
+            grader_rows.append(
+                f"| {grader.get('name', '')} | {status} | {score} | {grader.get('evidence', '')} |"
+            )
+        grader_text = (
+            "| Check | Status | Score | Evidence |\n|---|---:|---:|---|\n"
+            + "\n".join(grader_rows)
+            if grader_rows
+            else "No deterministic grader results recorded."
+        )
         prompt_name = str(result.get("prompt_name") or "").strip()
+        case_id = str(result.get("case_id") or "").strip()
         repeat_total = int(result.get("repeat_total") or 1)
         repeat_index = int(result.get("repeat_index") or 1)
         repeat_text = (
             f"\n**Repeat:** {repeat_index}/{repeat_total}" if repeat_total > 1 else ""
         )
         prompt_name_text = f"\n**Prompt ID:** {prompt_name}" if prompt_name else ""
+        case_text = f"\n**Case ID:** `{case_id}`" if case_id else ""
         persona_name = str(result.get("persona_name") or "Raw model")
         system_tokens = int(result.get("system_prompt_tokens") or 0)
         persona_text = (
@@ -1634,12 +1697,15 @@ class LlmBenchmarkDialog(QDialog):
             else ""
         )
         return (
-            f"**Preset:** {result.get('preset', '')}{prompt_name_text}{repeat_text}\n\n"
+            f"**Preset:** {result.get('preset', '')}{prompt_name_text}{case_text}{repeat_text}\n\n"
             f"{persona_text}"
             f"{telemetry_text}"
-            f"**Quality:** {quality_score} — {quality_label} "
-            "_(heuristic checks; inspect output for final judgment)_\n\n"
-            f"**Quality notes:**\n{notes_text}\n\n---\n\n"
+            f"**Accuracy:** {accuracy_score}  |  **Speed:** {_fmt_tps(result.get('tokens_per_second'))}  |  "
+            f"**Trust:** {trust_score}  |  **Instruction:** {instruction_score}\n\n"
+            f"**Overall quality:** {quality_score} — {quality_label} "
+            f"_({result.get('quality_method', 'benchmark checks')})_\n\n"
+            f"**Deterministic grader evidence:**\n\n{grader_text}\n\n"
+            f"**Quality / trust notes:**\n{notes_text}\n\n**Trust notes:**\n{trust_text}\n\n---\n\n"
             f"**Prompt:**\n\n{result.get('prompt', '')}\n\n---\n\n"
             f"**Response:**\n\n{result.get('response', '') or '_No text returned._'}"
         )
@@ -1649,6 +1715,7 @@ class LlmBenchmarkDialog(QDialog):
         self.refresh_telemetry_from_app()
         result["gpu_telemetry"] = self.gpu_telemetry_label.text()
         result["system_telemetry"] = self.system_telemetry_label.text()
+        result["evidence"] = build_result_evidence(result)
         self.history.insert(0, result)
         save_benchmark_history(self.history)
         self.add_result_to_table(self.latest_table, result, prepend=False)
@@ -1689,14 +1756,17 @@ class LlmBenchmarkDialog(QDialog):
         gen_values = [
             float(entry.get("generation_time_s") or 0.0) for entry in self.history
         ]
-        output_values = [
-            int(entry.get("completion_tokens") or 0) for entry in self.history
-        ]
-        quality_values = [
-            float(entry.get("quality_score"))
+        accuracy_values = [
+            float(entry.get("accuracy_score", entry.get("quality_score")))
             for entry in self.history
-            if entry.get("quality_score") is not None
+            if entry.get("accuracy_score", entry.get("quality_score")) is not None
         ]
+        trust_values = [
+            float(entry.get("trust_score"))
+            for entry in self.history
+            if entry.get("trust_score") is not None
+        ]
+        tps_stats = run_statistics(tps_values)
 
         self.metric_total_runs.set_metric(
             str(completed), f"{completed} completed, 0 errors"
@@ -1704,22 +1774,28 @@ class LlmBenchmarkDialog(QDialog):
         self.metric_models_tested.set_metric(
             str(len(models)), f"{len(models)} model(s)"
         )
+        self.metric_avg_accuracy.set_metric(
+            _fmt_quality(_mean(accuracy_values)) if accuracy_values else "—",
+            "deterministic graded checks",
+        )
+        self.metric_avg_trust.set_metric(
+            _fmt_quality(_mean(trust_values)) if trust_values else "—",
+            "auditability and evidence",
+        )
+        self.metric_avg_throughput.set_metric(
+            _fmt_tps(tps_stats["mean"]),
+            (
+                f"p95 {_fmt_tps(tps_stats['p95'])}"
+                if tps_values
+                else "tokens/sec generation"
+            ),
+        )
         self.metric_avg_latency.set_metric(
             _fmt_seconds(_mean(ttft_values)), "time to first token"
         )
-        self.metric_avg_quality.set_metric(
-            _fmt_quality(_mean(quality_values)) if quality_values else "—",
-            "heuristic sense check",
-        )
-        self.metric_avg_throughput.set_metric(
-            _fmt_tps(_mean(tps_values)), "tokens/sec generation"
-        )
-        self.metric_avg_output.set_metric(
-            str(round(_mean(output_values))) if output_values else "—",
-            "completion tokens",
-        )
-        self.metric_avg_prefill.set_metric(
-            _fmt_seconds(_mean(ttft_values)), "time to first token"
+        self.metric_avg_stability.set_metric(
+            _fmt_quality(_stability_score(tps_values)) if tps_values else "—",
+            "throughput consistency",
         )
         self.metric_avg_gen.set_metric(
             _fmt_seconds(_mean(gen_values)), "token generation time"
@@ -1750,11 +1826,12 @@ class LlmBenchmarkDialog(QDialog):
             result.get("model", ""),
             result.get("persona_name", "Raw model"),
             result.get("preset", ""),
+            _fmt_quality(result.get("accuracy_score", result.get("quality_score"))),
+            _fmt_quality(result.get("trust_score")),
             _fmt_quality(result.get("quality_score")),
             _fmt_tps(result.get("tokens_per_second")),
             _fmt_seconds(result.get("time_to_first_token_s")),
             _fmt_seconds(result.get("total_time_s")),
-            _fmt_seconds(result.get("generation_time_s")),
             str(input_tokens),
             str(result.get("completion_tokens", "")),
         ]
@@ -1779,11 +1856,21 @@ class LlmBenchmarkDialog(QDialog):
             ttft = [
                 float(entry.get("time_to_first_token_s") or 0.0) for entry in entries
             ]
-            total = [float(entry.get("total_time_s") or 0.0) for entry in entries]
-            quality = [
-                float(entry.get("quality_score"))
+            accuracy = [
+                float(entry.get("accuracy_score", entry.get("quality_score")))
                 for entry in entries
-                if entry.get("quality_score") is not None
+                if entry.get("accuracy_score", entry.get("quality_score")) is not None
+            ]
+            instruction = [
+                float(entry.get("instruction_score", entry.get("quality_score")))
+                for entry in entries
+                if entry.get("instruction_score", entry.get("quality_score"))
+                is not None
+            ]
+            trust = [
+                float(entry.get("trust_score"))
+                for entry in entries
+                if entry.get("trust_score") is not None
             ]
             covered_presets = {
                 str(entry.get("preset") or "")
@@ -1799,10 +1886,11 @@ class LlmBenchmarkDialog(QDialog):
                     "runs": len(entries),
                     "coverage": f"{coverage_count}/{len(preset_names)}",
                     "coverage_score": coverage_ratio * 100.0,
-                    "avg_quality": _mean(quality) if quality else 0.0,
+                    "avg_accuracy": _mean(accuracy) if accuracy else 0.0,
+                    "avg_instruction": _mean(instruction) if instruction else 0.0,
+                    "avg_trust": _mean(trust) if trust else 0.0,
                     "avg_tps": _mean(tps),
                     "avg_ttft": _mean(ttft),
-                    "avg_total": _mean(total),
                     "stability": _stability_score(tps),
                 }
             )
@@ -1811,18 +1899,22 @@ class LlmBenchmarkDialog(QDialog):
         positive_ttft = [row["avg_ttft"] for row in row_models if row["avg_ttft"] > 0]
         best_ttft = min(positive_ttft) if positive_ttft else 0.0
         for row in row_models:
-            speed_score = (row["avg_tps"] / max_tps * 100.0) if max_tps > 0 else 0.0
+            throughput_score = (
+                (row["avg_tps"] / max_tps * 100.0) if max_tps > 0 else 0.0
+            )
             latency_score = (
                 (best_ttft / row["avg_ttft"] * 100.0)
                 if row["avg_ttft"] > 0 and best_ttft > 0
                 else 0.0
             )
-            row["composite"] = (
-                row["avg_quality"] * 0.50
-                + speed_score * 0.25
-                + latency_score * 0.10
-                + row["stability"] * 0.10
-                + row["coverage_score"] * 0.05
+            row["speed_score"] = throughput_score * 0.70 + latency_score * 0.30
+            row["composite"] = composite_score(
+                accuracy=row["avg_accuracy"],
+                speed=row["speed_score"],
+                trust=row["avg_trust"],
+                instruction=row["avg_instruction"],
+                stability=row["stability"],
+                coverage=row["coverage_score"],
             )
 
         row_models.sort(key=lambda row: row["composite"], reverse=True)
@@ -1834,12 +1926,14 @@ class LlmBenchmarkDialog(QDialog):
                 row_data["persona"],
                 str(row_data["runs"]),
                 row_data["coverage"],
-                _fmt_quality(row_data["avg_quality"]),
+                _fmt_quality(row_data["avg_accuracy"]),
+                _fmt_quality(row_data["speed_score"]),
+                _fmt_quality(row_data["avg_trust"]),
+                _fmt_quality(row_data["avg_instruction"]),
+                _fmt_quality(row_data["stability"]),
                 _fmt_quality(row_data["composite"]),
                 _fmt_tps(row_data["avg_tps"]),
                 _fmt_seconds(row_data["avg_ttft"]),
-                _fmt_quality(row_data["stability"]),
-                _fmt_seconds(row_data["avg_total"]),
             ]
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
