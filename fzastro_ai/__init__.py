@@ -1,4 +1,4 @@
-"""FZAstro AI modular package."""
+﻿"""FZAstro AI modular package."""
 
 from .config import APP_VERSION as __version__
 
