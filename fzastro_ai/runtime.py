@@ -352,9 +352,7 @@ def restart_local_ollama_server(base_url=None, wait_seconds=12.0):
 
     stopped_existing, stop_status = terminate_local_ollama_server(base_url)
 
-    start_result = start_ollama_server_if_available(
-        base_url, wait_seconds=wait_seconds
-    )
+    start_result = start_ollama_server_if_available(base_url, wait_seconds=wait_seconds)
 
     if start_result.available:
         stop_fragment = (

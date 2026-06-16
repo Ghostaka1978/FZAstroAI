@@ -509,7 +509,9 @@ class ChatLifecycleMixin:
                     or self.is_deterministic_url_tool_request(text)
                 )
             except Exception as error:
-                log_exception("FZAstroAI.send_message attached-file web preflight", error)
+                log_exception(
+                    "FZAstroAI.send_message attached-file web preflight", error
+                )
                 attached_file_needs_web = False
 
             if not attached_file_needs_web:

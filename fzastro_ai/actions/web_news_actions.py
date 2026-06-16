@@ -1463,7 +1463,9 @@ class WebNewsActionsMixin:
                     or self.is_deterministic_url_tool_request(text)
                 )
             except Exception as error:
-                log_exception("FZAstroAI.start_web_decision attached-file preflight", error)
+                log_exception(
+                    "FZAstroAI.start_web_decision attached-file preflight", error
+                )
                 attached_file_needs_web = False
 
             if not attached_file_needs_web:

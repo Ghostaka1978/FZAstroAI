@@ -1052,7 +1052,9 @@ class FZAstroAI(
             height=36,
         )
         self.quick_restart_ollama_button.clicked.connect(self.restart_ollama)
-        self.quick_restart_ollama_button.setAccessibleName("Restart local Ollama server")
+        self.quick_restart_ollama_button.setAccessibleName(
+            "Restart local Ollama server"
+        )
 
         self.model_box = QComboBox()
         self.model_box.setObjectName("quickModelBox")

@@ -189,9 +189,7 @@ class ShutdownControllerMixin:
                     context="FZAstroAI.closeEvent chat stopped disconnect",
                 )
 
-                self._stop_qobject_worker(
-                    chat_worker, "FZAstroAI.closeEvent chat stop"
-                )
+                self._stop_qobject_worker(chat_worker, "FZAstroAI.closeEvent chat stop")
                 workers.append(chat_worker)
 
         decision_worker = getattr(self, "decision_worker", None)
@@ -563,7 +561,9 @@ class ShutdownControllerMixin:
             except (AttributeError, ValueError):
                 pass
 
-            self._delete_qobject_later(worker, "FZAstroAI.closeEvent finished worker deleteLater")
+            self._delete_qobject_later(
+                worker, "FZAstroAI.closeEvent finished worker deleteLater"
+            )
 
             if not self._closing_workers:
                 self._allow_close = True

@@ -86,8 +86,7 @@ def refresh_workspace_context(self):
     if quick_restart_button is not None:
         quick_restart_button.setToolTip(
             "Stop and restart the local Ollama server, then refresh models.\n"
-            "Use this when a local model is stuck before the first token.\n"
-            + tooltip
+            "Use this when a local model is stuck before the first token.\n" + tooltip
         )
 
     restart_button = getattr(self, "restart_ollama_button", None)
@@ -95,8 +94,7 @@ def refresh_workspace_context(self):
     if restart_button is not None:
         restart_button.setToolTip(
             "Stop and restart the local Ollama server, then refresh models.\n"
-            "This affects only a local localhost:11434 Ollama endpoint.\n"
-            + tooltip
+            "This affects only a local localhost:11434 Ollama endpoint.\n" + tooltip
         )
 
     web_box = getattr(self, "web_box", None)
@@ -304,7 +302,6 @@ def refresh_models(self):
     worker.start()
 
 
-
 def _finish_ollama_restart_worker(self, worker):
     if worker is getattr(self, "ollama_restart_worker", None):
         self.ollama_restart_worker = None
@@ -331,7 +328,6 @@ def _handle_ollama_restart_ready(self, worker, message, process):
     self.refresh_models()
 
 
-
 def _handle_ollama_restart_error(self, worker, error_message):
     if worker is not getattr(self, "ollama_restart_worker", None):
         return
@@ -340,7 +336,6 @@ def _handle_ollama_restart_error(self, worker, error_message):
     self.model_provider_status_message = clean_error
     self.stats_label.setText(clean_error)
     self.refresh_workspace_context()
-
 
 
 def _start_ollama_restart_worker(self):
@@ -388,7 +383,6 @@ def _start_ollama_restart_worker(self):
     worker.stopped.connect(handle_stopped)
     worker.finished.connect(handle_finished)
     worker.start()
-
 
 
 def restart_ollama(self):
