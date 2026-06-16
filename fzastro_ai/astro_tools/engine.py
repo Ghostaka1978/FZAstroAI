@@ -27,6 +27,15 @@ from ..config import APP_DIR
 from ..logging_utils import log_debug, log_exception, log_warning
 
 
+def _is_user_cancelled_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return (
+        "stopped by user" in text
+        or "cancelled by user" in text
+        or "canceled by user" in text
+    )
+
+
 PACKAGE_DIR = Path(__file__).resolve().parent
 FZASTRO_DIR = PACKAGE_DIR / "fzastro"
 SCRIPT_FILE = FZASTRO_DIR / "script.py"

@@ -16,6 +16,17 @@ from astropy.time import Time
 from zoneinfo import ZoneInfo
 import os, sys
 
+
+def _safe_stream_isatty(stream) -> bool:
+    """Return True only when *stream* is a live TTY-like object."""
+    try:
+        return bool(
+            stream is not None and hasattr(stream, "isatty") and stream.isatty()
+        )
+    except Exception:
+        return False
+
+
 USE_TTY_COLOR = (
     bool(getattr(sys, "stdout", None))
     and sys.stdout.isatty()
