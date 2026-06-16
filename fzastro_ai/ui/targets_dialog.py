@@ -43,6 +43,7 @@ from ..workers.targets_worker import TargetsWorker
 from .astro_location_dialog import choose_astro_location
 from .astro_lookup_dialog import (
     AstroLookupDialog,
+    FloatingSkyPreviewDialog,
     _legacy_lookup_to_html,
     _looks_like_html,
     _lookup_params_from_dialog_data,
@@ -68,12 +69,18 @@ class TargetsDialog(QDialog):
 
     def __init__(self, parent=None, location: dict[str, Any] | None = None):
         super().__init__(parent)
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+        )
         self.location = dict(location or {})
         self.targets_worker: TargetsWorker | None = None
         self.inline_lookup_worker: AstroWorker | None = None
         self._close_after_worker = False
         self._inline_lookup_serial = 0
         self._inline_lookup_pixmap: QPixmap | None = None
+        self._floating_preview_dialog: FloatingSkyPreviewDialog | None = None
         self._last_result: dict[str, Any] = {}
         self._last_picks: list[dict[str, Any]] = []
 
@@ -305,16 +312,26 @@ class TargetsDialog(QDialog):
         image_layout = QVBoxLayout(image_panel)
         image_layout.setContentsMargins(7, 7, 7, 7)
         image_layout.setSpacing(4)
+        image_header = QHBoxLayout()
+        image_header.setContentsMargins(0, 0, 0, 0)
         image_title = QLabel("Sky preview")
         image_title.setObjectName("astroLookupSectionTitle")
+        self.open_image_button = QPushButton("Open image")
+        self.open_image_button.setEnabled(False)
+        self.open_image_button.clicked.connect(self.open_inline_lookup_image)
+        image_header.addWidget(image_title)
+        image_header.addStretch(1)
+        image_header.addWidget(self.open_image_button)
         self.inline_lookup_image_label = QLabel("Select a target to load image.")
         self.inline_lookup_image_label.setObjectName("astroLookupImagePreview")
         self.inline_lookup_image_label.setAlignment(Qt.AlignCenter)
         self.inline_lookup_image_label.setWordWrap(True)
-        self.inline_lookup_image_label.setMinimumSize(260, 145)
-        image_layout.addWidget(image_title)
+        self.inline_lookup_image_label.setMinimumSize(240, 110)
+        self.inline_lookup_image_label.setMaximumHeight(170)
+        image_layout.addLayout(image_header)
         image_layout.addWidget(self.inline_lookup_image_label, 1)
-        side.addWidget(image_panel, 1)
+        image_panel.setMaximumHeight(220)
+        side.addWidget(image_panel, 0)
 
         action_row = QHBoxLayout()
         self.lookup_button = QPushButton("Open in LOOKUP")
@@ -567,6 +584,7 @@ class TargetsDialog(QDialog):
         self.inline_lookup_image_label.setPixmap(QPixmap())
         self.inline_lookup_image_label.setText("No image loaded.")
         self.inline_lookup_image_label.setToolTip("")
+        self.open_image_button.setEnabled(False)
 
     def queue_inline_lookup(self, pick: dict[str, Any]):
         query = str(pick.get("name") or "").strip()
@@ -590,6 +608,7 @@ class TargetsDialog(QDialog):
         self.inline_lookup_image_label.setPixmap(QPixmap())
         self.inline_lookup_image_label.setText("Loading sky preview…")
         self.inline_lookup_image_label.setToolTip("")
+        self.open_image_button.setEnabled(False)
         QTimer.singleShot(
             180,
             lambda expected_query=query, expected_serial=serial: self.run_inline_lookup(
@@ -729,12 +748,47 @@ class TargetsDialog(QDialog):
                 "Image returned, but Qt could not load it."
             )
             self.inline_lookup_image_label.setToolTip("")
+            self.open_image_button.setEnabled(False)
             return
 
         self._inline_lookup_pixmap = pixmap
         self.inline_lookup_image_label.setText("")
         self.inline_lookup_image_label.setToolTip(str(image_path))
+        self.open_image_button.setEnabled(True)
         self._rescale_inline_lookup_pixmap()
+        self._update_open_inline_lookup_image()
+
+    def open_inline_lookup_image(self):
+        if self._inline_lookup_pixmap is None or self._inline_lookup_pixmap.isNull():
+            return
+        pick = self.selected_pick() or {}
+        name = str(pick.get("name") or "TARGETS").strip()
+        title = f"Sky preview - {name}"
+        if self._floating_preview_dialog is None:
+            dialog = FloatingSkyPreviewDialog(
+                self, title=title, pixmap=self._inline_lookup_pixmap
+            )
+            dialog.destroyed.connect(
+                lambda *_: setattr(self, "_floating_preview_dialog", None)
+            )
+            self._floating_preview_dialog = dialog
+        else:
+            self._floating_preview_dialog.set_pixmap(
+                self._inline_lookup_pixmap, title=title
+            )
+        self._floating_preview_dialog.show()
+        self._floating_preview_dialog.raise_()
+        self._floating_preview_dialog.activateWindow()
+
+    def _update_open_inline_lookup_image(self):
+        dialog = self._floating_preview_dialog
+        if dialog is None or not dialog.isVisible():
+            return
+        if self._inline_lookup_pixmap is None or self._inline_lookup_pixmap.isNull():
+            return
+        pick = self.selected_pick() or {}
+        name = str(pick.get("name") or "TARGETS").strip()
+        dialog.set_pixmap(self._inline_lookup_pixmap, title=f"Sky preview - {name}")
 
     def _rescale_inline_lookup_pixmap(self):
         if self._inline_lookup_pixmap is None or self._inline_lookup_pixmap.isNull():

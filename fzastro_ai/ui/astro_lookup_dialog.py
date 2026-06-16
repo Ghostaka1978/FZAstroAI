@@ -327,6 +327,76 @@ def _legacy_lookup_to_html(text: str) -> str:
     return "\n".join(part for part in parts if part).strip()
 
 
+class FloatingSkyPreviewDialog(QDialog):
+    """Resizable non-modal sky image preview window."""
+
+    def __init__(
+        self,
+        parent=None,
+        title: str = "Sky preview",
+        pixmap: QPixmap | None = None,
+    ):
+        super().__init__(parent)
+        self._pixmap: QPixmap | None = None
+        self.setObjectName("astroLookupDialog")
+        self.setWindowTitle(str(title or "Sky preview"))
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+        )
+        self.resize(920, 620)
+        self.setMinimumSize(520, 360)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        self.image_label = QLabel("No sky image loaded.")
+        self.image_label.setObjectName("astroLookupImagePreview")
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setWordWrap(True)
+        self.image_label.setMinimumSize(480, 300)
+        self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.addWidget(self.image_label, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        if pixmap is not None:
+            self.set_pixmap(pixmap, title=title)
+
+    def set_pixmap(self, pixmap: QPixmap, title: str = "Sky preview"):
+        self.setWindowTitle(str(title or "Sky preview"))
+        if pixmap is None or pixmap.isNull():
+            self._pixmap = None
+            self.image_label.setPixmap(QPixmap())
+            self.image_label.setText("No sky image loaded.")
+            return
+        self._pixmap = pixmap
+        self.image_label.setText("")
+        self._rescale_pixmap()
+
+    def _rescale_pixmap(self):
+        if self._pixmap is None or self._pixmap.isNull():
+            return
+        target = self.image_label.size()
+        if target.width() <= 4 or target.height() <= 4:
+            return
+        self.image_label.setPixmap(
+            self._pixmap.scaled(
+                target,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self._rescale_pixmap)
+
+
 class AstroLookupDialog(QDialog):
     def __init__(
         self,
@@ -336,10 +406,16 @@ class AstroLookupDialog(QDialog):
         include_query: bool = True,
     ):
         super().__init__(parent)
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+        )
         self.include_query = bool(include_query)
         self.lookup_worker = None
         self._last_lookup_files: list[str] = []
         self._preview_pixmap: QPixmap | None = None
+        self._floating_preview_dialog: FloatingSkyPreviewDialog | None = None
         self.catalog_menus = [menu for row in ASTRO_CATALOG_ROWS for menu in row]
         self.catalog_combos = []
         self.setObjectName("astroLookupDialog")
@@ -552,8 +628,16 @@ class AstroLookupDialog(QDialog):
         image_layout = QVBoxLayout(image_panel)
         image_layout.setContentsMargins(9, 9, 9, 9)
         image_layout.setSpacing(6)
+        image_header = QHBoxLayout()
+        image_header.setContentsMargins(0, 0, 0, 0)
         image_title = QLabel("Sky preview")
         image_title.setObjectName("astroLookupSectionTitle")
+        self.open_image_button = QPushButton("Open image")
+        self.open_image_button.setEnabled(False)
+        self.open_image_button.clicked.connect(self.open_floating_preview)
+        image_header.addWidget(image_title)
+        image_header.addStretch(1)
+        image_header.addWidget(self.open_image_button)
         self.image_label = QLabel("Run LOOKUP to generate a sky image preview.")
         self.image_label.setObjectName("astroLookupImagePreview")
         self.image_label.setAlignment(Qt.AlignCenter)
@@ -564,7 +648,7 @@ class AstroLookupDialog(QDialog):
         self.image_path_label.setObjectName("helpDialogSubtitle")
         self.image_path_label.setWordWrap(True)
         self.image_path_label.hide()
-        image_layout.addWidget(image_title)
+        image_layout.addLayout(image_header)
         image_layout.addWidget(self.image_label, 1)
         image_layout.addWidget(self.image_path_label)
         split_row.addWidget(image_panel, 3)
@@ -746,6 +830,7 @@ class AstroLookupDialog(QDialog):
             "Sky image preview will appear after the lookup returns coordinates."
         )
         self.image_label.setToolTip("")
+        self.open_image_button.setEnabled(False)
         self.image_path_label.setText("")
         self.image_path_label.hide()
         self.status_label.setText(f"Running {clean_query}…")
@@ -854,7 +939,36 @@ class AstroLookupDialog(QDialog):
         self.image_label.setToolTip(str(image_path))
         self.image_path_label.setText(str(image_path))
         self.image_path_label.hide()
+        self.open_image_button.setEnabled(True)
         self._rescale_preview_pixmap()
+        self._update_open_floating_preview()
+
+    def open_floating_preview(self):
+        if self._preview_pixmap is None or self._preview_pixmap.isNull():
+            return
+        title = f"Sky preview - {self.query_edit.text().strip() or 'LOOKUP'}"
+        if self._floating_preview_dialog is None:
+            dialog = FloatingSkyPreviewDialog(
+                self, title=title, pixmap=self._preview_pixmap
+            )
+            dialog.destroyed.connect(
+                lambda *_: setattr(self, "_floating_preview_dialog", None)
+            )
+            self._floating_preview_dialog = dialog
+        else:
+            self._floating_preview_dialog.set_pixmap(self._preview_pixmap, title=title)
+        self._floating_preview_dialog.show()
+        self._floating_preview_dialog.raise_()
+        self._floating_preview_dialog.activateWindow()
+
+    def _update_open_floating_preview(self):
+        dialog = self._floating_preview_dialog
+        if dialog is None or not dialog.isVisible():
+            return
+        if self._preview_pixmap is None or self._preview_pixmap.isNull():
+            return
+        title = f"Sky preview - {self.query_edit.text().strip() or 'LOOKUP'}"
+        dialog.set_pixmap(self._preview_pixmap, title=title)
 
     def _rescale_preview_pixmap(self):
         if self._preview_pixmap is None or self._preview_pixmap.isNull():
