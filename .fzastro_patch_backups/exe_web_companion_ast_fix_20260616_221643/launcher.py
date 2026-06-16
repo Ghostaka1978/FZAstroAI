@@ -166,22 +166,13 @@ class WebCompanionProcess:
             lan=False,
         )
 
-    def start(self, *, lan: bool = True, token: str = "") -> WebCompanionStatus:
-        """Start the Web Companion.
-
-        In source/dev mode this launches:
-            python -m fzastro_ai.web_companion
-
-        In PyInstaller/frozen EXE mode this launches:
-            FZAstroAI.exe --web-companion
-
-        LAN mode is the default because the Web Companion is intended for
-        iPad/Mac/mobile access on the local network.
-        """
+    def start(self, *, lan: bool = False, token: str = "") -> WebCompanionStatus:
         existing = self.status()
         if existing.running:
             return existing
 
+        # If a desktop-owned process exists but health is dead/stale, kill it
+        # before starting a fresh server.
         if existing.owned and self.is_owned_running():
             self.stop()
 
@@ -189,21 +180,13 @@ class WebCompanionProcess:
         env = os.environ.copy()
         env["FZASTRO_WEB_PORT"] = str(self.port)
 
-        if getattr(sys, "frozen", False):
-            args = [
-                sys.executable,
-                "--web-companion",
-                "--port",
-                str(self.port),
-            ]
-        else:
-            args = [
-                sys.executable,
-                "-m",
-                "fzastro_ai.web_companion",
-                "--port",
-                str(self.port),
-            ]
+        args = [
+            sys.executable,
+            "-m",
+            "fzastro_ai.web_companion",
+            "--port",
+            str(self.port),
+        ]
 
         if self.lan:
             args.append("--lan")

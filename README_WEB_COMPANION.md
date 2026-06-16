@@ -39,6 +39,28 @@ Enter the token in the Web Companion UI:
 fzastro
 ~~~
 
+## LAN token environment variable
+
+LAN / iPad mode is protected by a web token. The run script sets this automatically when using `-Token`, but it can also be configured manually with the environment variable:
+
+~~~powershell
+$env:FZASTRO_WEB_TOKEN = "fzastro"
+~~~
+
+Then start the Web Companion in LAN mode:
+
+~~~powershell
+.\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
+~~~
+
+Or directly through Python:
+
+~~~powershell
+$env:FZASTRO_WEB_TOKEN = "fzastro"
+$env:FZASTRO_WEB_ALLOW_LAN = "1"
+.\.venv\Scripts\python.exe -m fzastro_ai.web_companion --lan --port 7860
+~~~
+
 ## Local-only mode
 
 For PC-only testing:
@@ -107,4 +129,4 @@ Expected LAN mode field:
 
 ## Security note
 
-Do not expose port `7860` directly to the public internet. Use LAN, VPN, Tailscale, ZeroTier, or another protected network path for remote access.
+Do not expose this directly to the public internet. Do not expose port `7860` directly to the public internet. Use LAN, VPN, Tailscale, ZeroTier, or another protected network path for remote access.

@@ -364,7 +364,7 @@ function Assert-ReleaseArtifactHygiene {
         throw ("Release folder contains development/repair artifacts: {0}" -f ($relativeFiles -join ", "))
     }
 
-    Add-Content -Path $script:WorkflowLogPath -Value "Release artifact hygiene ok"
+    Write-ValidationLog -Path $script:WorkflowLogPath -Value "Release artifact hygiene ok"
 }
 
 
@@ -419,7 +419,7 @@ function Assert-ReleaseManifest {
         throw "release_manifest.txt does not reference the validated EXE: $expectedExeName"
     }
 
-    Add-Content -Path $script:WorkflowLogPath -Value "Release manifest and required files ok"
+    Write-ValidationLog -Path $script:WorkflowLogPath -Value "Release manifest and required files ok"
 }
 
 
@@ -466,7 +466,7 @@ function Assert-PyInstallerResourceConfiguration {
         throw ("PyInstaller resource configuration is missing required markers: {0}" -f ($missingMarkers -join ", "))
     }
 
-    Add-Content -Path $script:WorkflowLogPath -Value "PyInstaller resource configuration ok"
+    Write-ValidationLog -Path $script:WorkflowLogPath -Value "PyInstaller resource configuration ok"
 }
 
 
