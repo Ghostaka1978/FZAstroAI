@@ -380,7 +380,7 @@ def build_response_source_tags(
         add("web_image")
     elif "[RENDERED PAGE]" in results_text:
         add("web_page")
-    elif "[WEB ARTICLES]" in results_text or results_text.strip():
+    elif "[WEB ARTICLES]" in results_text or "[INTERNET CONTEXT]" in results_text:
         add("web_search")
 
     if str(knowledge_context or "").strip():

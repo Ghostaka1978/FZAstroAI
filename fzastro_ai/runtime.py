@@ -89,6 +89,19 @@ class OllamaStartResult:
     process: subprocess.Popen | None = None
 
 
+@dataclass(frozen=True)
+class OllamaRestartResult:
+    """Outcome from a user-requested local Ollama restart."""
+
+    available: bool
+    stopped_existing: bool
+    attempted_start: bool
+    executable: str | None
+    status: str
+    message: str
+    process: subprocess.Popen | None = None
+
+
 def find_ollama_executable():
     """Return an installed Ollama executable path, if one can be found."""
 
@@ -270,6 +283,107 @@ def stop_owned_ollama_process(process, timeout=3.0):
         return "still_running"
     except Exception as exc:
         return f"stop_failed: {exc}"
+
+
+def terminate_local_ollama_server(base_url=None, timeout=5.0):
+    """Best-effort termination for a local Ollama server process.
+
+    This is used only for the explicit Restart Ollama UI action.  It is
+    intentionally restricted to localhost:11434 so remote OpenAI-compatible
+    providers can never be affected.
+    """
+
+    if not is_local_ollama_base_url(base_url):
+        return False, "not_local_ollama"
+
+    if not is_ollama_server_available(base_url, timeout=0.8):
+        return False, "already_stopped"
+
+    commands = []
+
+    if sys.platform.startswith("win"):
+        commands.append(["taskkill", "/IM", "ollama.exe", "/F", "/T"])
+    elif sys.platform == "darwin":
+        commands.append(["pkill", "-TERM", "-f", "ollama"])
+    else:
+        commands.append(["pkill", "-TERM", "-f", "ollama"])
+
+    last_error = ""
+
+    for command in commands:
+        try:
+            subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=normalize_runtime_timeout(timeout, default=5.0),
+                check=False,
+            )
+        except Exception as exc:
+            last_error = str(exc)
+
+    deadline = time.monotonic() + normalize_runtime_timeout(timeout, default=5.0)
+
+    while time.monotonic() < deadline:
+        if not is_ollama_server_available(base_url, timeout=0.5):
+            return True, "stopped"
+
+        time.sleep(0.25)
+
+    if not is_ollama_server_available(base_url, timeout=0.5):
+        return True, "stopped"
+
+    return False, f"stop_timeout{': ' + last_error if last_error else ''}"
+
+
+def restart_local_ollama_server(base_url=None, wait_seconds=12.0):
+    """Restart a local Ollama server and wait for it to answer /api/tags."""
+
+    if not is_local_ollama_base_url(base_url):
+        return OllamaRestartResult(
+            available=False,
+            stopped_existing=False,
+            attempted_start=False,
+            executable=None,
+            status="not_local_ollama",
+            message="Restart is available only for local Ollama at localhost:11434.",
+        )
+
+    stopped_existing, stop_status = terminate_local_ollama_server(base_url)
+
+    start_result = start_ollama_server_if_available(
+        base_url, wait_seconds=wait_seconds
+    )
+
+    if start_result.available:
+        stop_fragment = (
+            "Existing Ollama process was stopped first. "
+            if stopped_existing
+            else "No running local Ollama process needed to be stopped. "
+        )
+        return OllamaRestartResult(
+            available=True,
+            stopped_existing=stopped_existing,
+            attempted_start=start_result.attempted_start,
+            executable=start_result.executable,
+            status=f"restarted:{stop_status}:{start_result.status}",
+            message=stop_fragment + start_result.message,
+            process=start_result.process,
+        )
+
+    return OllamaRestartResult(
+        available=False,
+        stopped_existing=stopped_existing,
+        attempted_start=start_result.attempted_start,
+        executable=start_result.executable,
+        status=f"restart_failed:{stop_status}:{start_result.status}",
+        message=(
+            f"Ollama restart failed after stop status '{stop_status}'. "
+            f"{start_result.message}"
+        ),
+        process=start_result.process,
+    )
 
 
 def iter_exception_chain(error):

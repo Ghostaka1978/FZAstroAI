@@ -126,6 +126,12 @@ class ChatWorker(QThread):
             return response_text
 
         try:
+            request_started_at = time.perf_counter()
+            log_debug(
+                "ChatWorker.run request starting",
+                f"model={self.model}, vision={self.vision_request}, messages={len(self.messages)}",
+            )
+
             request_params = {
                 "model": self.model,
                 "messages": self.messages,
@@ -154,8 +160,20 @@ class ChatWorker(QThread):
                 self.base_url, self.api_key, timeout=RUNTIME_CHAT_TIMEOUT_SECONDS
             )
             self.stream = chat_client.chat.completions.create(**request_params)
+            log_debug(
+                "ChatWorker.run stream opened",
+                f"model={self.model}, elapsed={time.perf_counter() - request_started_at:.2f}s",
+            )
+            first_chunk_seen = False
 
             for chunk in self.stream:
+                if not first_chunk_seen:
+                    first_chunk_seen = True
+                    log_debug(
+                        "ChatWorker.run first stream chunk",
+                        f"model={self.model}, elapsed={time.perf_counter() - request_started_at:.2f}s",
+                    )
+
                 if self.should_stop():
                     self.stopped_response.emit(build_combined_response())
                     return

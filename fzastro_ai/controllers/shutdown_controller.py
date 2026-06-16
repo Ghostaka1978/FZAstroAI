@@ -4,6 +4,11 @@ import warnings
 
 from PySide6.QtCore import QTimer
 
+try:
+    from shiboken6 import isValid as _qt_is_valid
+except Exception:  # pragma: no cover - PySide6 normally provides shiboken6
+    _qt_is_valid = None
+
 from ..logging_utils import log_debug, log_exception, log_warning
 from ..memory_store import save_persistent_memory
 from ..runtime import should_stop_owned_ollama_on_exit, stop_owned_ollama_process
@@ -11,6 +16,68 @@ from ..runtime import should_stop_owned_ollama_on_exit, stop_owned_ollama_proces
 
 class ShutdownControllerMixin:
     """Main-window close handling and cooperative worker shutdown."""
+
+    @staticmethod
+    def _is_valid_qobject(obj):
+        """Return False when a Python Qt wrapper points at a deleted C++ object."""
+        if obj is None:
+            return False
+
+        if _qt_is_valid is None:
+            return True
+
+        try:
+            return bool(_qt_is_valid(obj))
+        except RuntimeError:
+            return False
+        except Exception:
+            # If validity probing itself fails, keep shutdown conservative and
+            # let the guarded operation below catch/log at debug level.
+            return True
+
+    @staticmethod
+    def _qobject_is_running(obj, context="Qt worker isRunning"):
+        if not ShutdownControllerMixin._is_valid_qobject(obj):
+            return False
+
+        try:
+            return bool(obj.isRunning())
+        except RuntimeError as exc:
+            log_debug(context, exc)
+            return False
+        except Exception as exc:
+            log_exception(context, exc)
+            return False
+
+    @staticmethod
+    def _delete_qobject_later(obj, context="Qt worker deleteLater"):
+        if not ShutdownControllerMixin._is_valid_qobject(obj):
+            return False
+
+        try:
+            obj.deleteLater()
+            return True
+        except RuntimeError as exc:
+            log_debug(context, exc)
+            return False
+        except Exception as exc:
+            log_exception(context, exc)
+            return False
+
+    @staticmethod
+    def _stop_qobject_worker(obj, context="Qt worker stop"):
+        if not ShutdownControllerMixin._is_valid_qobject(obj):
+            return False
+
+        try:
+            obj.stop()
+            return True
+        except RuntimeError as exc:
+            log_debug(context, exc)
+            return False
+        except Exception as exc:
+            log_exception(context, exc)
+            return False
 
     @staticmethod
     def _disconnect_qt_signal(signal, slot=None, context="Qt signal disconnect"):
@@ -99,61 +166,66 @@ class ShutdownControllerMixin:
 
         chat_worker = getattr(self, "worker", None)
 
-        if chat_worker is not None and chat_worker.isRunning():
-            try:
-                chat_worker.token_received.disconnect()
-            except Exception as exc:
-                log_exception("FZAstroAI.closeEvent line 13949", exc)
-                pass
+        if chat_worker is not None:
+            if not self._is_valid_qobject(chat_worker):
+                self.worker = None
+            elif self._qobject_is_running(
+                chat_worker, "FZAstroAI.closeEvent chat isRunning"
+            ):
+                self._disconnect_qt_signal(
+                    chat_worker.token_received,
+                    context="FZAstroAI.closeEvent chat token disconnect",
+                )
+                self._disconnect_qt_signal(
+                    chat_worker.error_received,
+                    context="FZAstroAI.closeEvent chat error disconnect",
+                )
+                self._disconnect_qt_signal(
+                    chat_worker.finished_response,
+                    context="FZAstroAI.closeEvent chat finished disconnect",
+                )
+                self._disconnect_qt_signal(
+                    chat_worker.stopped_response,
+                    context="FZAstroAI.closeEvent chat stopped disconnect",
+                )
 
-            try:
-                chat_worker.error_received.disconnect()
-            except Exception as exc:
-                log_exception("FZAstroAI.closeEvent line 13954", exc)
-                pass
-
-            try:
-                chat_worker.finished_response.disconnect()
-            except Exception as exc:
-                log_exception("FZAstroAI.closeEvent line 13959", exc)
-                pass
-
-            try:
-                chat_worker.stopped_response.disconnect()
-            except Exception as exc:
-                log_exception("FZAstroAI.closeEvent line 13964", exc)
-                pass
-
-            chat_worker.stop()
-            workers.append(chat_worker)
+                self._stop_qobject_worker(
+                    chat_worker, "FZAstroAI.closeEvent chat stop"
+                )
+                workers.append(chat_worker)
 
         decision_worker = getattr(self, "decision_worker", None)
 
         if decision_worker is not None:
-            try:
-                decision_worker.decision_ready.disconnect()
-            except Exception as exc:
-                log_exception("FZAstroAI.closeEvent line 13975", exc)
-                pass
-
-            try:
-                decision_worker.error_received.disconnect()
-            except Exception as exc:
-                log_exception("FZAstroAI.closeEvent line 13980", exc)
-                pass
-
-            try:
-                decision_worker.stopped.disconnect()
-            except Exception as exc:
-                log_exception("FZAstroAI.closeEvent line 13985", exc)
-                pass
-
-            decision_worker.stop()
-
-            if decision_worker.isRunning():
-                workers.append(decision_worker)
+            if not self._is_valid_qobject(decision_worker):
+                self.decision_worker = None
             else:
-                decision_worker.deleteLater()
+                self._disconnect_qt_signal(
+                    decision_worker.decision_ready,
+                    context="FZAstroAI.closeEvent decision_ready disconnect",
+                )
+                self._disconnect_qt_signal(
+                    decision_worker.error_received,
+                    context="FZAstroAI.closeEvent decision error disconnect",
+                )
+                self._disconnect_qt_signal(
+                    decision_worker.stopped,
+                    context="FZAstroAI.closeEvent decision stopped disconnect",
+                )
+
+                self._stop_qobject_worker(
+                    decision_worker, "FZAstroAI.closeEvent decision stop"
+                )
+
+                if self._qobject_is_running(
+                    decision_worker, "FZAstroAI.closeEvent decision isRunning"
+                ):
+                    workers.append(decision_worker)
+                else:
+                    self._delete_qobject_later(
+                        decision_worker, "FZAstroAI.closeEvent decision deleteLater"
+                    )
+                    self.decision_worker = None
 
         web_worker = getattr(self, "web_worker", None)
 
@@ -254,6 +326,41 @@ class ShutdownControllerMixin:
                 workers.append(astro_worker)
             else:
                 astro_worker.deleteLater()
+
+        ollama_restart_worker = getattr(self, "ollama_restart_worker", None)
+
+        if ollama_restart_worker is not None:
+            if not self._is_valid_qobject(ollama_restart_worker):
+                self.ollama_restart_worker = None
+            else:
+                self._disconnect_qt_signal(
+                    ollama_restart_worker.restart_ready,
+                    context="FZAstroAI.closeEvent ollama restart_ready disconnect",
+                )
+                self._disconnect_qt_signal(
+                    ollama_restart_worker.error_received,
+                    context="FZAstroAI.closeEvent ollama restart error disconnect",
+                )
+                self._disconnect_qt_signal(
+                    ollama_restart_worker.stopped,
+                    context="FZAstroAI.closeEvent ollama restart stopped disconnect",
+                )
+
+                if self._qobject_is_running(
+                    ollama_restart_worker,
+                    "FZAstroAI.closeEvent ollama restart isRunning",
+                ):
+                    self._stop_qobject_worker(
+                        ollama_restart_worker,
+                        "FZAstroAI.closeEvent ollama restart stop",
+                    )
+                    workers.append(ollama_restart_worker)
+                else:
+                    self._delete_qobject_later(
+                        ollama_restart_worker,
+                        "FZAstroAI.closeEvent ollama restart deleteLater",
+                    )
+                    self.ollama_restart_worker = None
 
         model_discovery_worker = getattr(self, "model_discovery_worker", None)
 
@@ -360,16 +467,38 @@ class ShutdownControllerMixin:
                 knowledge_worker.deleteLater()
 
         for stopped_worker in list(getattr(self, "_stopped_decision_workers", [])):
-            if stopped_worker.isRunning():
+            if not self._is_valid_qobject(stopped_worker):
+                try:
+                    self._stopped_decision_workers.remove(stopped_worker)
+                except (AttributeError, ValueError):
+                    pass
+                continue
+
+            if self._qobject_is_running(
+                stopped_worker, "FZAstroAI.closeEvent stopped decision isRunning"
+            ):
                 workers.append(stopped_worker)
             else:
-                stopped_worker.deleteLater()
+                self._delete_qobject_later(
+                    stopped_worker, "FZAstroAI.closeEvent stopped decision deleteLater"
+                )
 
         for stopped_worker in list(getattr(self, "_stopped_web_workers", [])):
-            if stopped_worker.isRunning():
+            if not self._is_valid_qobject(stopped_worker):
+                try:
+                    self._stopped_web_workers.remove(stopped_worker)
+                except (AttributeError, ValueError):
+                    pass
+                continue
+
+            if self._qobject_is_running(
+                stopped_worker, "FZAstroAI.closeEvent stopped web isRunning"
+            ):
                 workers.append(stopped_worker)
             else:
-                stopped_worker.deleteLater()
+                self._delete_qobject_later(
+                    stopped_worker, "FZAstroAI.closeEvent stopped web deleteLater"
+                )
 
         unique_workers = []
 
@@ -434,7 +563,7 @@ class ShutdownControllerMixin:
             except (AttributeError, ValueError):
                 pass
 
-            worker.deleteLater()
+            self._delete_qobject_later(worker, "FZAstroAI.closeEvent finished worker deleteLater")
 
             if not self._closing_workers:
                 self._allow_close = True

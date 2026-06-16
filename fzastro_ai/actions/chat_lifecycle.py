@@ -496,6 +496,35 @@ class ChatLifecycleMixin:
             )
             return
 
+        # Attached local files should not be delayed by the Auto web-routing
+        # model.  A prompt such as "Inspect the attached file" is already fully
+        # answerable from the local attachment and vision-capable model.  Keep
+        # the web path only for explicit external/current/URL requests or when
+        # the user has intentionally selected Web Always.
+        if files and web_mode != "Always":
+            try:
+                attached_file_needs_web = bool(
+                    self.explicitly_requests_external_information(text)
+                    or self.has_explicit_http_url(text)
+                    or self.is_deterministic_url_tool_request(text)
+                )
+            except Exception as error:
+                log_exception("FZAstroAI.send_message attached-file web preflight", error)
+                attached_file_needs_web = False
+
+            if not attached_file_needs_web:
+                self.stats_label.setText("Inspecting attached file locally... • 0.00s")
+                self.send_message_after_web(
+                    text,
+                    [],
+                    display_text=display_text,
+                    files=files,
+                    show_user=False,
+                    include_document_knowledge=False,
+                    model_override=model_override,
+                )
+                return
+
         self.start_web_decision(
             text,
             display_text,

@@ -1,4 +1,5 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QMessageBox
 
 
 def _app_module():
@@ -80,6 +81,24 @@ def refresh_workspace_context(self):
             "Refresh the available model list from the configured API.\n" + tooltip
         )
 
+    quick_restart_button = getattr(self, "quick_restart_ollama_button", None)
+
+    if quick_restart_button is not None:
+        quick_restart_button.setToolTip(
+            "Stop and restart the local Ollama server, then refresh models.\n"
+            "Use this when a local model is stuck before the first token.\n"
+            + tooltip
+        )
+
+    restart_button = getattr(self, "restart_ollama_button", None)
+
+    if restart_button is not None:
+        restart_button.setToolTip(
+            "Stop and restart the local Ollama server, then refresh models.\n"
+            "This affects only a local localhost:11434 Ollama endpoint.\n"
+            + tooltip
+        )
+
     web_box = getattr(self, "web_box", None)
 
     if web_box is not None:
@@ -104,6 +123,13 @@ def sync_runtime_client(self):
 
 def _set_model_refresh_enabled(self, enabled):
     for attr_name in ("refresh_models_button", "quick_refresh_models_button"):
+        button = getattr(self, attr_name, None)
+        if button is not None:
+            button.setEnabled(bool(enabled))
+
+
+def _set_ollama_restart_enabled(self, enabled):
+    for attr_name in ("restart_ollama_button", "quick_restart_ollama_button"):
         button = getattr(self, attr_name, None)
         if button is not None:
             button.setEnabled(bool(enabled))
@@ -276,3 +302,146 @@ def refresh_models(self):
     worker.ollama_process_started.connect(handle_ollama_process_started)
     worker.finished.connect(handle_finished)
     worker.start()
+
+
+
+def _finish_ollama_restart_worker(self, worker):
+    if worker is getattr(self, "ollama_restart_worker", None):
+        self.ollama_restart_worker = None
+
+    _set_ollama_restart_enabled(self, True)
+    _set_model_refresh_enabled(self, True)
+
+    try:
+        worker.deleteLater()
+    except Exception:
+        pass
+
+
+def _handle_ollama_restart_ready(self, worker, message, process):
+    if worker is not getattr(self, "ollama_restart_worker", None):
+        return
+
+    if process is not None:
+        self._fzastro_owned_ollama_process = process
+
+    self.model_provider_status_message = str(message or "Ollama restarted.")
+    self.stats_label.setText("Ollama restarted. Refreshing models...")
+    self.refresh_workspace_context()
+    self.refresh_models()
+
+
+
+def _handle_ollama_restart_error(self, worker, error_message):
+    if worker is not getattr(self, "ollama_restart_worker", None):
+        return
+
+    clean_error = str(error_message or "Ollama restart failed.").strip()
+    self.model_provider_status_message = clean_error
+    self.stats_label.setText(clean_error)
+    self.refresh_workspace_context()
+
+
+
+def _start_ollama_restart_worker(self):
+    app_module = _app_module()
+    base_url = self.current_base_url()
+
+    if not app_module.is_local_ollama_base_url(base_url):
+        QMessageBox.information(
+            self,
+            "Restart local Ollama",
+            "Restart is available only when the provider is local Ollama at localhost:11434.",
+        )
+        return
+
+    existing_worker = getattr(self, "ollama_restart_worker", None)
+
+    if existing_worker is not None and existing_worker.isRunning():
+        self.stats_label.setText("Ollama restart is already running...")
+        return
+
+    self.model_provider_status_message = "Restarting local Ollama..."
+    self.stats_label.setText("Restarting local Ollama server...")
+    self.refresh_workspace_context()
+    _set_ollama_restart_enabled(self, False)
+    _set_model_refresh_enabled(self, False)
+
+    worker = app_module.OllamaRestartWorker(base_url)
+    self.ollama_restart_worker = worker
+
+    def handle_ready(message, process, current_worker=worker):
+        _handle_ollama_restart_ready(self, current_worker, message, process)
+
+    def handle_error(error_message, current_worker=worker):
+        _handle_ollama_restart_error(self, current_worker, error_message)
+
+    def handle_stopped(current_worker=worker):
+        if current_worker is getattr(self, "ollama_restart_worker", None):
+            self.stats_label.setText("Ollama restart stopped.")
+
+    def handle_finished(current_worker=worker):
+        _finish_ollama_restart_worker(self, current_worker)
+
+    worker.restart_ready.connect(handle_ready)
+    worker.error_received.connect(handle_error)
+    worker.stopped.connect(handle_stopped)
+    worker.finished.connect(handle_finished)
+    worker.start()
+
+
+
+def restart_ollama(self):
+    """User action: restart the local Ollama server and refresh models."""
+
+    app_module = _app_module()
+    base_url = self.current_base_url()
+
+    if not app_module.is_local_ollama_base_url(base_url):
+        QMessageBox.information(
+            self,
+            "Restart local Ollama",
+            "Restart is available only for the local Ollama endpoint: http://localhost:11434/v1.",
+        )
+        return
+
+    active_worker = getattr(self, "worker", None)
+
+    if active_worker is not None and active_worker.isRunning():
+        reply = QMessageBox.question(
+            self,
+            "Stop reply and restart Ollama?",
+            (
+                "A model reply is still running. Stop that reply first, then restart "
+                "the local Ollama server?"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            self.stop_generation()
+        except Exception:
+            pass
+
+        QTimer.singleShot(700, lambda: _start_ollama_restart_worker(self))
+        return
+
+    reply = QMessageBox.question(
+        self,
+        "Restart local Ollama?",
+        (
+            "This will stop the local Ollama server process and start it again, "
+            "then refresh the model list. Continue?"
+        ),
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No,
+    )
+
+    if reply != QMessageBox.Yes:
+        return
+
+    _start_ollama_restart_worker(self)

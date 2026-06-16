@@ -4,6 +4,7 @@ from .document_maintenance_worker import DocumentKnowledgeMaintenanceWorker
 from .gpu_monitor_worker import GpuMonitorWorker
 from .memory_extraction_worker import MemoryExtractionWorker
 from .model_discovery_worker import ModelDiscoveryWorker
+from .ollama_restart_worker import OllamaRestartWorker
 from .python_execution_worker import (
     PythonExecutionWorker,
     resolve_python_execution_interpreter,
@@ -23,6 +24,7 @@ __all__ = [
     "GpuMonitorWorker",
     "MemoryExtractionWorker",
     "ModelDiscoveryWorker",
+    "OllamaRestartWorker",
     "PythonExecutionWorker",
     "WebDecisionWorker",
     "WebSearchWorker",

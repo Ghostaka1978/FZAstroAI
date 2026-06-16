@@ -140,6 +140,7 @@ from .logging_utils import log_exception, log_warning
 from .prompts import DEFAULT_CORE_SYSTEM_PROMPT
 from .knowledge_library import DocumentKnowledgeLibrary
 from .runtime import (
+    is_local_ollama_base_url,
     is_ollama_base_url,
     is_runtime_connection_error,
     make_runtime_client,
@@ -154,6 +155,7 @@ from .workers import (
     GpuMonitorWorker,
     MemoryExtractionWorker,
     ModelDiscoveryWorker,
+    OllamaRestartWorker,
     PythonExecutionWorker,
     WebDecisionWorker,
     WebSearchWorker,
@@ -236,6 +238,7 @@ from .model_controls import (
     current_base_url as _current_base_url,
     current_model_name as _current_model_name,
     refresh_models as _refresh_models,
+    restart_ollama as _restart_ollama,
     refresh_workspace_context as _refresh_workspace_context,
     sync_runtime_client as _sync_runtime_client,
 )
@@ -754,6 +757,7 @@ class FZAstroAI(
     current_model_name = _current_model_name
     sync_runtime_client = _sync_runtime_client
     refresh_models = _refresh_models
+    restart_ollama = _restart_ollama
 
     def _format_path_for_diagnostics(self, path_value):
         return format_path_for_diagnostics(path_value)
@@ -854,12 +858,16 @@ class FZAstroAI(
         self.current_generation_budget_tokens = 0
         self.last_stream_render = 0
         self.last_rendered_stream_text = ""
+        self.current_generation_model = ""
+        self.current_request_requires_vision = False
+        self._next_no_token_log_at = 0.0
         self.stream_render_interval_ms = 100
         self.stream_render_timer = QTimer(self)
         self.stream_render_timer.setSingleShot(True)
         self.stream_render_timer.timeout.connect(self.render_pending_stream_message)
         self.response_char_count = 0
         self.worker = None
+        self.ollama_restart_worker = None
         self.python_worker = None
         self.astro_worker = None
         self.gpu_monitor = None
@@ -1020,6 +1028,12 @@ class FZAstroAI(
         self.refresh_models_button = QPushButton("Refresh Models")
         self.refresh_models_button.clicked.connect(self.refresh_models)
 
+        self.restart_ollama_button = QPushButton("Restart Local Ollama")
+        self.restart_ollama_button.setToolTip(
+            "Stop and restart the local Ollama server, then refresh the model list."
+        )
+        self.restart_ollama_button.clicked.connect(self.restart_ollama)
+
         self.quick_refresh_models_button = self._create_toolbar_button(
             "↻",
             "quickRefreshModelsButton",
@@ -1029,6 +1043,16 @@ class FZAstroAI(
         )
         self.quick_refresh_models_button.clicked.connect(self.refresh_models)
         self.quick_refresh_models_button.setAccessibleName("Refresh model list")
+
+        self.quick_restart_ollama_button = self._create_toolbar_button(
+            "⏻",
+            "quickRestartOllamaButton",
+            "Restart local Ollama server",
+            width=36,
+            height=36,
+        )
+        self.quick_restart_ollama_button.clicked.connect(self.restart_ollama)
+        self.quick_restart_ollama_button.setAccessibleName("Restart local Ollama server")
 
         self.model_box = QComboBox()
         self.model_box.setObjectName("quickModelBox")
@@ -1090,6 +1114,7 @@ class FZAstroAI(
         runtime_layout.addWidget(self.api_key_input)
 
         runtime_layout.addWidget(self.refresh_models_button)
+        runtime_layout.addWidget(self.restart_ollama_button)
 
         sidebar_layout.addWidget(runtime_card)
         sidebar_layout.addStretch()
@@ -1404,6 +1429,7 @@ class FZAstroAI(
         quick_bar_layout.addWidget(model_quick_label)
         quick_bar_layout.addWidget(self.model_box)
         quick_bar_layout.addWidget(self.quick_refresh_models_button)
+        quick_bar_layout.addWidget(self.quick_restart_ollama_button)
         quick_bar_layout.addWidget(web_quick_label)
         quick_bar_layout.addWidget(self.web_box)
 
@@ -4176,7 +4202,7 @@ class FZAstroAI(
     def show_runtime_model_status_dialog(self):
         base_url = self.server_url.text().strip()
         model_name = self.current_model_name()
-        is_local_ollama = is_ollama_base_url(base_url)
+        is_local_ollama = is_local_ollama_base_url(base_url)
         owned_ollama = getattr(self, "_fzastro_owned_ollama_process", None)
         owned_status = "started by FZAstro" if owned_ollama is not None else "not owned"
         gpu_text = (
@@ -4739,8 +4765,43 @@ class FZAstroAI(
             except RuntimeError:
                 pass
 
+        generation_model = (
+            str(getattr(self, "current_generation_model", "") or "").strip()
+            or self.current_model_name()
+        )
+
+        if chars == 0 and self.worker is not None and self.worker.isRunning():
+            if getattr(self, "current_request_requires_vision", False):
+                wait_state = (
+                    "waiting for first token • vision model may still be loading image"
+                )
+            else:
+                wait_state = "waiting for first token"
+
+            if elapsed >= 35:
+                wait_state += " • use Stop, then Restart Ollama if it remains stuck"
+
+            next_log_at = float(getattr(self, "_next_no_token_log_at", 0.0) or 0.0)
+
+            if elapsed >= 15 and elapsed >= next_log_at:
+                log_warning(
+                    "FZAstroAI generation still waiting for first token",
+                    (
+                        f"model={generation_model}, "
+                        f"vision={getattr(self, 'current_request_requires_vision', False)}, "
+                        f"elapsed={elapsed:.1f}s"
+                    ),
+                )
+                self._next_no_token_log_at = elapsed + 20.0
+
+            self.stats_label.setText(
+                f"{generation_model} • {elapsed:.2f}s • {wait_state} • "
+                f"{context_fragment}"
+            )
+            return
+
         self.stats_label.setText(
-            f"{self.current_model_name()} • "
+            f"{generation_model} • "
             f"{elapsed:.2f}s • "
             f"out {chars} chars/~{approx_tokens} tok • "
             f"{context_fragment} • "

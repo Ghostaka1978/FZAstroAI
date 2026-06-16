@@ -887,6 +887,9 @@ class WebNewsActionsMixin:
         self.pending_stream_text = ""
         self.last_stream_render = 0
         self.last_rendered_stream_text = ""
+        self.current_generation_model = ""
+        self.current_request_requires_vision = False
+        self._next_no_token_log_at = 0.0
         self.stream_render_timer.stop()
         self._last_thoughts_text = ""
         self.global_thought_box.setMarkdown("")
@@ -1285,6 +1288,10 @@ class WebNewsActionsMixin:
             model_capabilities is not None and "vision" in model_capabilities
         )
 
+        self.current_generation_model = model
+        self.current_request_requires_vision = bool(request_requires_vision)
+        self._next_no_token_log_at = 15.0
+
         # Imported PDF charts and images must never be silently discarded.
         # Switch to an installed vision model, or explain clearly why the visual
         # evidence cannot be inspected.
@@ -1444,6 +1451,36 @@ class WebNewsActionsMixin:
     def start_web_decision(
         self, text, display_text, files, force_search=False, model_override=None
     ):
+        # Safety guard for direct callers: local attachments should not depend on
+        # the web/tool router unless the user explicitly asks for external data.
+        # This avoids intermittent timeouts/stalls when a local vision request is
+        # sent through WebDecisionWorker in Auto mode.
+        if files and not force_search:
+            try:
+                attached_file_needs_web = bool(
+                    self.explicitly_requests_external_information(text)
+                    or self.has_explicit_http_url(text)
+                    or self.is_deterministic_url_tool_request(text)
+                )
+            except Exception as error:
+                log_exception("FZAstroAI.start_web_decision attached-file preflight", error)
+                attached_file_needs_web = False
+
+            if not attached_file_needs_web:
+                self._pending_web_request = None
+                self.current_news_sources = {}
+                self.stats_label.setText("Inspecting attached file locally... • 0.00s")
+                self.send_message_after_web(
+                    text,
+                    [],
+                    display_text=display_text,
+                    files=files,
+                    show_user=False,
+                    include_document_knowledge=False,
+                    model_override=model_override,
+                )
+                return
+
         # Document excerpts are opt-in at first. They become enabled only when
         # the request explicitly/contextually references the local library or
         # when the conservative preflight below proves a strong local match.
