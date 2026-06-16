@@ -2,11 +2,9 @@
 
 import importlib.resources as resources
 from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parent
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
-astro_datas=[] + web_companion_static_datas
+astro_datas = []
 for package_name in ("astroquery", "astropy", "skyfield"):
     astro_datas += collect_data_files(package_name)
 
@@ -62,15 +60,6 @@ def add_astroquery_simbad_data(filename):
 for simbad_filename in ("query_criteria_fields.json",):
     add_astroquery_simbad_data(simbad_filename)
 
-
-
-# Web Companion static UI files
-web_companion_static_datas = [
-    (
-        str(PROJECT_ROOT / "fzastro_ai" / "web_companion" / "static" / "index.html"),
-        "fzastro_ai/web_companion/static",
-    ),
-]
 
 a = Analysis(
     ['main.py'],

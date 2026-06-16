@@ -1,8 +1,3 @@
-# Compatibility labels retained for tests/docs while the visible UI now prefers LAN mode.
-_WEB_COMPANION_LEGACY_LOCAL_LABEL = "Start Local Web Server"
-_WEB_COMPANION_LEGACY_AUTOSTART_LABEL = "Auto-start local server with desktop"
-
-
 import base64
 import hashlib
 import html
@@ -1268,7 +1263,7 @@ class FZAstroAI(
         web_layout.addWidget(self.web_companion_status_label)
 
         self.web_companion_auto_start_checkbox = QCheckBox(
-            "Auto-start LAN server with desktop"
+            "Auto-start local server with desktop"
         )
         self.web_companion_auto_start_checkbox.setToolTip(
             "When enabled, FZAstro AI starts the local Web Companion hidden in the background on desktop startup."
@@ -1281,7 +1276,7 @@ class FZAstroAI(
         )
         web_layout.addWidget(self.web_companion_auto_start_checkbox)
 
-        self.web_companion_start_button = QPushButton("Start LAN Web Server")
+        self.web_companion_start_button = QPushButton("Start Local Web Server")
         self.web_companion_start_button.clicked.connect(
             self.start_web_companion_local_from_sidebar
         )
@@ -2158,7 +2153,7 @@ class FZAstroAI(
         return status
 
     def start_web_companion_background(self):
-        status = self.web_companion.start(lan=True)
+        status = self.web_companion.start(lan=False)
         self.update_web_companion_button(status)
         if not status.running:
             log_warning("Web Companion local start failed", status.message)
@@ -2271,7 +2266,7 @@ class FZAstroAI(
             )
             label.setText(
                 f"Status: {state}\n"
-                f"LAN URL: {status.url}\n"
+                f"Current URL: {status.url}\n"
                 f"LAN/iPad URL: {extra_url if status.lan else lan_web_url(self.web_companion.port)}\n"
                 f"Owner: {owner if status.running else 'none'}\n"
                 f"{status.message}"

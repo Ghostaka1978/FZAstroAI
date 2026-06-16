@@ -185,7 +185,7 @@ class WebCompanionProcess:
         if existing.owned and self.is_owned_running():
             self.stop()
 
-        self.lan = True
+        self.lan = bool(lan)
         env = os.environ.copy()
         env["FZASTRO_WEB_PORT"] = str(self.port)
 
@@ -205,17 +205,14 @@ class WebCompanionProcess:
                 str(self.port),
             ]
 
-        args.append("--lan")
-        env["FZASTRO_WEB_ALLOW_LAN"] = "1"
+        if self.lan:
+            args.append("--lan")
+            env["FZASTRO_WEB_ALLOW_LAN"] = "1"
 
         clean_token = str(token or "").strip()
         if clean_token:
             env["FZASTRO_WEB_TOKEN"] = clean_token
         elif self.lan and not env.get("FZASTRO_WEB_TOKEN"):
-            env["FZASTRO_WEB_TOKEN"] = "fzastro"
-            clean_token = "fzastro"
-
-        if False:
             return WebCompanionStatus(
                 running=False,
                 owned=False,
