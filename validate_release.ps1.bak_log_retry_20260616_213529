@@ -28,42 +28,6 @@ function Write-Warn {
 
 $ErrorActionPreference = "Stop"
 
-function Write-ValidationLog {
-    param(
-        [Parameter(Mandatory=$true)][string]$Path,
-        [Parameter(Mandatory=$false)][AllowNull()][object]$Value
-    )
-
-    $text = [string]$Value
-    $dir = Split-Path -Parent $Path
-    if ($dir -and -not (Test-Path $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
-
-    for ($i = 1; $i -le 40; $i++) {
-        try {
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($text + [Environment]::NewLine)
-            $fs = [System.IO.File]::Open(
-                $Path,
-                [System.IO.FileMode]::Append,
-                [System.IO.FileAccess]::Write,
-                [System.IO.FileShare]::ReadWrite
-            )
-            try {
-                $fs.Write($bytes, 0, $bytes.Length)
-            } finally {
-                $fs.Dispose()
-            }
-            return
-        } catch {
-            Start-Sleep -Milliseconds (150 + ($i * 25))
-        }
-    }
-
-    Write-Warning "Could not write to validation log after retries: $Path"
-}
-
-
 
 function Initialize-StageProgress {
     param(
@@ -248,8 +212,8 @@ function Invoke-NativeCommand {
     }
 
     $argumentLine = ConvertTo-NativeArgumentLine -Arguments $Arguments
-    Write-ValidationLog -Path $LogPath -Value "`n[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Description"
-    Write-ValidationLog -Path $LogPath -Value ("COMMAND: {0} {1}" -f $CommandPath, $argumentLine)
+    Add-Content -Path $LogPath -Value "`n[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Description"
+    Add-Content -Path $LogPath -Value ("COMMAND: {0} {1}" -f $CommandPath, $argumentLine)
 
     $tempBase = Join-Path $logDirectory ([Guid]::NewGuid().ToString("N"))
     $stdoutPath = "$tempBase.stdout.log"
@@ -263,17 +227,17 @@ function Invoke-NativeCommand {
         if (Test-Path $stderrPath) { $stderrText = Get-Content -Path $stderrPath -Raw -ErrorAction SilentlyContinue }
 
         if ($stdoutText) {
-            Write-ValidationLog -Path $LogPath -Value "`n[stdout]"
-            Write-ValidationLog -Path $LogPath -Value $stdoutText
+            Add-Content -Path $LogPath -Value "`n[stdout]"
+            Add-Content -Path $LogPath -Value $stdoutText
             if ($VerboseOutput) { Write-Host $stdoutText }
         }
         if ($stderrText) {
-            Write-ValidationLog -Path $LogPath -Value "`n[stderr]"
-            Write-ValidationLog -Path $LogPath -Value $stderrText
+            Add-Content -Path $LogPath -Value "`n[stderr]"
+            Add-Content -Path $LogPath -Value $stderrText
             if ($VerboseOutput) { Write-Host $stderrText }
         }
 
-        Write-ValidationLog -Path $LogPath -Value ("EXIT CODE: {0}" -f $process.ExitCode)
+        Add-Content -Path $LogPath -Value ("EXIT CODE: {0}" -f $process.ExitCode)
         return [int]$process.ExitCode
     }
     finally {
@@ -509,14 +473,14 @@ Show-StageStep "Check EXE and manifest data"
 if (-not (Test-Path $ExePath)) { throw "EXE not found: $ExePath" }
 $hash = (Get-FileHash $ExePath -Algorithm SHA256).Hash
 $sizeMB = [Math]::Round((Get-Item $ExePath).Length / 1MB, 2)
-Write-ValidationLog -Path $ValidationLog -Value "EXE: $ExePath"
-Write-ValidationLog -Path $ValidationLog -Value "SHA256: $hash"
-Write-ValidationLog -Path $ValidationLog -Value "SizeMB: $sizeMB"
+Add-Content -Path $ValidationLog -Value "EXE: $ExePath"
+Add-Content -Path $ValidationLog -Value "SHA256: $hash"
+Add-Content -Path $ValidationLog -Value "SizeMB: $sizeMB"
 
 $VersionFile = Join-Path $ProjectRoot "VERSION.txt"
 if (Test-Path $VersionFile) {
     $version = (Get-Content $VersionFile -Raw).Trim()
-    if ($version -match "^1\.0\.0$") { Write-ValidationLog -Path $ValidationLog -Value "VERSION.txt reports $version" }
+    if ($version -match "^1\.0\.0$") { Add-Content -Path $ValidationLog -Value "VERSION.txt reports $version" }
     else { Write-Warning "VERSION.txt does not look like v1.0.0: $version" }
 }
 else { Write-Warning "VERSION.txt not found" }
@@ -627,7 +591,7 @@ if (-not $SkipLaunch) {
     $HadFZAstroAppDir = Test-Path Env:FZASTRO_APP_DIR
     $PreviousFZAstroAppDir = $env:FZASTRO_APP_DIR
     $env:FZASTRO_APP_DIR = $SmokeAppDir
-    Write-ValidationLog -Path $ValidationLog -Value "Smoke test FZASTRO_APP_DIR: $SmokeAppDir"
+    Add-Content -Path $ValidationLog -Value "Smoke test FZASTRO_APP_DIR: $SmokeAppDir"
     try {
         $proc = Start-Process -FilePath $ExePath -PassThru
         Start-Sleep -Seconds 8

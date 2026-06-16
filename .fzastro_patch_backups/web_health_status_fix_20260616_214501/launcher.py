@@ -19,7 +19,7 @@ DEFAULT_WEB_PORT = int(os.environ.get("FZASTRO_WEB_PORT", "7860"))
 DEFAULT_LOCAL_HOST = "127.0.0.1"
 DEFAULT_LAN_HOST = "0.0.0.0"
 WEB_HEALTH_TIMEOUT_SECONDS = 0.8
-WEB_START_WAIT_SECONDS = 10.0
+WEB_START_WAIT_SECONDS = 4.0
 
 
 @dataclass
@@ -96,62 +96,27 @@ class WebCompanionProcess:
         return self.process is not None and self.process.poll() is None
 
     def is_running(self) -> bool:
-        """Return True only when the HTTP health endpoint actually responds."""
-        return is_web_companion_available(self.port)
+        return self.is_owned_running() or is_web_companion_available(self.port)
 
     def status(self) -> WebCompanionStatus:
-        health_ok = is_web_companion_available(self.port)
-        owned_alive = self.is_owned_running()
-        active_url = self.lan_url if self.lan else self.local_url
-
-        if owned_alive and health_ok:
+        if self.is_owned_running():
             return WebCompanionStatus(
                 running=True,
                 owned=True,
-                url=active_url,
+                url=self.lan_url if self.lan else self.local_url,
                 message="Web Companion is running from the desktop app.",
                 pid=self.process.pid if self.process else None,
                 lan=self.lan,
             )
 
-        if owned_alive and not health_ok:
-            return WebCompanionStatus(
-                running=False,
-                owned=True,
-                url=active_url,
-                message=(
-                    "Desktop web process exists, but /api/health is not responding. "
-                    "Click Stop, then Start again. "
-                    f"Log: {self.log_file}"
-                ),
-                pid=self.process.pid if self.process else None,
-                lan=self.lan,
-            )
-
-        if self.process is not None and self.process.poll() is not None:
-            pid = self.process.pid
-            code = self.process.returncode
-            self.process = None
-            return WebCompanionStatus(
-                running=False,
-                owned=False,
-                url=active_url,
-                message=(
-                    f"Web Companion process {pid} exited with code {code}. "
-                    f"See log: {self.log_file}"
-                ),
-                pid=pid,
-                lan=self.lan,
-            )
-
-        if health_ok:
+        if is_web_companion_available(self.port):
             return WebCompanionStatus(
                 running=True,
                 owned=False,
                 url=self.lan_url,
                 message=(
                     "Web Companion is already running externally/manual. "
-                    "Use the LAN/iPad URL if it was started with LAN mode."
+                    "Use the LAN/iPad URL if it was started with -Lan."
                 ),
                 pid=None,
                 lan=True,
@@ -170,11 +135,6 @@ class WebCompanionProcess:
         existing = self.status()
         if existing.running:
             return existing
-
-        # If a desktop-owned process exists but health is dead/stale, kill it
-        # before starting a fresh server.
-        if existing.owned and self.is_owned_running():
-            self.stop()
 
         self.lan = bool(lan)
         env = os.environ.copy()
@@ -215,7 +175,6 @@ class WebCompanionProcess:
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
         log_handle = self.log_file.open("a", encoding="utf-8")
         log_handle.write("\n--- starting FZAstro Web Companion ---\n")
-        log_handle.write("args: " + " ".join(args) + "\n")
         log_handle.flush()
 
         try:
@@ -249,34 +208,27 @@ class WebCompanionProcess:
                 break
             if is_web_companion_available(self.port):
                 return self.status()
-            time.sleep(0.2)
+            time.sleep(0.15)
 
         if self.process.poll() is not None:
-            pid = self.process.pid
-            code = self.process.returncode
             log_warning(
                 "Web Companion subprocess exited during startup",
-                f"pid={pid}, code={code}, log={self.log_file}",
+                f"pid={self.process.pid}, code={self.process.returncode}, log={self.log_file}",
             )
-            self.process = None
             return WebCompanionStatus(
                 running=False,
                 owned=False,
                 url=self.lan_url if self.lan else self.local_url,
                 message=f"Web Companion exited during startup. See {self.log_file}",
-                pid=pid,
+                pid=self.process.pid,
                 lan=self.lan,
             )
 
         return WebCompanionStatus(
-            running=False,
+            running=True,
             owned=True,
             url=self.lan_url if self.lan else self.local_url,
-            message=(
-                "Web Companion process started, but /api/health did not respond. "
-                "Click Stop, then Start again. "
-                f"See log: {self.log_file}"
-            ),
+            message="Web Companion is starting in the background.",
             pid=self.process.pid,
             lan=self.lan,
         )

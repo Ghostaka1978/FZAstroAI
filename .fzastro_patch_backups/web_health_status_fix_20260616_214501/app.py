@@ -2274,7 +2274,7 @@ class FZAstroAI(
 
         stop_button = getattr(self, "web_companion_stop_button", None)
         if stop_button is not None:
-            stop_button.setEnabled(bool(status.owned))
+            stop_button.setEnabled(bool(status.running and status.owned))
 
         start_button = getattr(self, "web_companion_start_button", None)
         if start_button is not None:

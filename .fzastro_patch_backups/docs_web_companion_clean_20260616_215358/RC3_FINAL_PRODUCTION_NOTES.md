@@ -30,15 +30,3 @@ The About window and docs should show:
 ```text
 FZAstro AI v1.0.0 (Version 1 RC 3 Final Production)
 ```
-
-## Web Companion addition
-
-RC 3 now includes the Web Companion foundation and polished LAN/mobile workflow:
-
-* LAN / iPad access through the host PC IP
-* Token-protected browser interface
-* Daily News Brief in the web UI
-* Astro Tools toolbar in the web UI
-* LOOKUP image rendering
-* Site Planner map picker with automatic timezone resolution
-* Hidden settings drawer for a cleaner mobile layout
