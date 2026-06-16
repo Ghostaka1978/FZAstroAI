@@ -18,86 +18,6 @@ from .logging_utils import log_debug, log_exception, log_warning
 IMAGE_FILE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 
-_TEXT_ATTACHMENT_LANGUAGE_BY_EXTENSION = {
-    ".py": "python",
-    ".pyw": "python",
-    ".ps1": "powershell",
-    ".bat": "bat",
-    ".cmd": "bat",
-    ".sh": "bash",
-    ".js": "javascript",
-    ".ts": "typescript",
-    ".jsx": "jsx",
-    ".tsx": "tsx",
-    ".json": "json",
-    ".jsonl": "json",
-    ".md": "markdown",
-    ".txt": "text",
-    ".csv": "csv",
-    ".xml": "xml",
-    ".html": "html",
-    ".htm": "html",
-    ".css": "css",
-    ".toml": "toml",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".ini": "ini",
-    ".cfg": "ini",
-    ".sql": "sql",
-}
-
-
-def attachment_language_for_filename(file_name):
-    """Return a Markdown fence language for a text/code attachment."""
-    extension = os.path.splitext(str(file_name or "").lower())[1]
-    return _TEXT_ATTACHMENT_LANGUAGE_BY_EXTENSION.get(extension, "text")
-
-
-def _count_text_lines(text):
-    text = str(text or "")
-
-    if not text:
-        return 0
-
-    return len(text.splitlines())
-
-
-def _format_text_attachment_block(file_path, extracted_text):
-    """Build an explicit model-facing block for a non-image attachment.
-
-    The old prompt format used only ``Attached file: name`` followed by raw text.
-    Some local models answered as if no file existed, especially for large source
-    files. This stronger envelope keeps the legacy marker for memory extraction
-    while making the current attachment impossible to miss in the model prompt.
-    """
-    file_name = os.path.basename(str(file_path))
-    language = attachment_language_for_filename(file_name)
-
-    try:
-        file_size = os.path.getsize(file_path)
-    except OSError:
-        file_size = None
-
-    size_text = _format_size(file_size) if file_size is not None else "unknown"
-    extracted_text = str(extracted_text or "")
-    line_count = _count_text_lines(extracted_text)
-
-    return (
-        f"Attached file: {file_name}\n"
-        "Attachment metadata:\n"
-        f"- Filename: {file_name}\n"
-        f"- Size: {size_text}\n"
-        f"- Extracted characters: {len(extracted_text)}\n"
-        f"- Extracted lines: {line_count}\n"
-        "- Status: attached file content is included below and should be used as evidence for this request.\n\n"
-        f"BEGIN ATTACHED FILE: {file_name}\n"
-        f"~~~{language}\n"
-        f"{extracted_text}\n"
-        "~~~\n"
-        f"END ATTACHED FILE: {file_name}"
-    )
-
-
 class AttachmentReadError(ValueError):
     """Raised when a chat attachment cannot be safely read into memory."""
 
@@ -300,7 +220,7 @@ def prepare_content(text, files):
                 log_debug("SENT TO MODEL", len(extracted_text))
 
                 file_text_blocks.append(
-                    _format_text_attachment_block(file_path, extracted_text)
+                    f"Attached file: {file_name}\n\n{extracted_text}"
                 )
             except AttachmentTooLargeError as error:
                 log_warning("prepare_content file attachment too large", error)

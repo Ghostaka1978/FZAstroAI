@@ -11,7 +11,6 @@ import uuid
 from PySide6.QtCore import QTimer
 
 from ..config import PYTHON_APPLICATION_CAPABILITY_PROMPT, PYTHON_AUTO_TEST_PROMPT
-from ..conversation_context import build_recent_chat_context
 from ..logging_utils import log_debug, log_exception
 from ..memory_store import (
     build_persistent_memory_context,
@@ -1064,7 +1063,6 @@ class WebNewsActionsMixin:
         self.persistent_memory_data = memory_data
         save_persistent_memory(memory_data)
         memory_context = build_persistent_memory_context(memory_data, stored_user_text)
-        recent_chat_context = build_recent_chat_context(self.messages[:-1])
         knowledge_context = ""
         knowledge_visual_files = []
         knowledge_results = []
@@ -1225,20 +1223,6 @@ class WebNewsActionsMixin:
                 return
 
         request_user_content = prepare_content(text, request_files_for_model)
-
-        if request_files_for_model:
-            try:
-                attachment_names = ", ".join(
-                    os.path.basename(str(path)) for path in request_files_for_model
-                )
-                content_size = len(str(request_user_content))
-                log_debug(
-                    "MODEL ATTACHMENT CONTEXT",
-                    f"count={len(request_files_for_model)}, files={attachment_names}, chars={content_size}",
-                )
-            except Exception as error:
-                log_exception("FZAstroAI attachment context diagnostic", error)
-
         python_execution_context = "\n\n" + PYTHON_APPLICATION_CAPABILITY_PROMPT.strip()
 
         if python_auto_test_request:
@@ -1248,7 +1232,6 @@ class WebNewsActionsMixin:
 
         combined_system_prompt = (
             system_prompt
-            + recent_chat_context
             + memory_context
             + knowledge_context
             + python_execution_context

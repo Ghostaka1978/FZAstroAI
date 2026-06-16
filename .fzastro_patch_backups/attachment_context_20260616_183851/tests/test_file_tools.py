@@ -47,26 +47,3 @@ def test_prepare_content_reports_oversized_text_file_without_replacing_prompt(
     assert content.startswith("Read this")
     assert "Could not read this file" in content
     assert "too large to attach directly" in content
-
-
-
-def test_prepare_content_wraps_python_attachment_in_explicit_context(tmp_path):
-    source_file = tmp_path / "astro_lookup.py"
-    source_file.write_text("def lookup_target(name):\n    return name.upper()\n", encoding="utf-8")
-
-    content = file_tools.prepare_content("Inspect the attached file.", [str(source_file)])
-
-    assert isinstance(content, str)
-    assert content.startswith("Inspect the attached file.")
-    assert "Attached file: astro_lookup.py" in content
-    assert "Attachment metadata:" in content
-    assert "Extracted lines: 2" in content
-    assert "BEGIN ATTACHED FILE: astro_lookup.py" in content
-    assert "~~~python" in content
-    assert "def lookup_target(name):" in content
-    assert "END ATTACHED FILE: astro_lookup.py" in content
-
-
-def test_attachment_language_for_filename_defaults_to_text():
-    assert file_tools.attachment_language_for_filename("module.py") == "python"
-    assert file_tools.attachment_language_for_filename("notes.unknown") == "text"
