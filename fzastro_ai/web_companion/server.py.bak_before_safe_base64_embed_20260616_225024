@@ -1,0 +1,683 @@
+from __future__ import annotations
+
+import sys
+
+import json
+import os
+import time
+from datetime import datetime
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any, Iterable, Literal
+from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, HTMLResponse
+from starlette.concurrency import run_in_threadpool
+
+from ..config import (
+    APP_DIR,
+    APP_NAME,
+    APP_VERSION,
+    APP_VERSION_LABEL,
+    BASE_URL,
+    DAILY_NEWS_CACHE_FILE,
+    DEFAULT_MODEL_NAME,
+    RUNTIME_CHAT_TIMEOUT_SECONDS,
+)
+from ..logging_utils import log_exception, log_warning
+from ..runtime import (
+
+WEB_COMPANION_INDEX_HTML = '<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8" />\n  <meta name="viewport" content="width=device-width, initial-scale=1" />\n  <title>FZAstro AI Web Companion</title>\n  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQFq9K33D1lzROQBAruBq9Ur8t5YcNs=" crossorigin="" />\n  <style>\n    :root {\n      color-scheme: dark;\n      --bg: #06101a;\n      --panel: rgba(11, 24, 37, 0.94);\n      --panel2: rgba(16, 34, 53, 0.94);\n      --panel3: rgba(255, 255, 255, 0.045);\n      --text: #edf5ff;\n      --muted: #96aabe;\n      --line: #20384f;\n      --line-soft: rgba(120, 188, 255, 0.18);\n      --accent: #78bcff;\n      --accent2: #a58cff;\n      --bad: #ff8c8c;\n      --good: #9ee6a8;\n      --warn: #f7d47c;\n      --shadow: 0 20px 55px rgba(0, 0, 0, 0.28);\n    }\n\n    * { box-sizing: border-box; }\n    html, body { height: 100%; }\n\n    body {\n      margin: 0;\n      overflow: hidden;\n      background:\n        radial-gradient(circle at 10% 0%, rgba(91, 151, 218, 0.26), transparent 34rem),\n        radial-gradient(circle at 92% 100%, rgba(116, 82, 191, 0.22), transparent 35rem),\n        linear-gradient(180deg, #071019, #050b12 68%);\n      color: var(--text);\n      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;\n    }\n\n    a { color: var(--accent); text-decoration: none; }\n    a:hover { text-decoration: underline; }\n\n    header.app-header {\n      display: flex;\n      gap: 1rem;\n      justify-content: space-between;\n      align-items: center;\n      min-height: 3.8rem;\n      padding: 0.72rem clamp(0.8rem, 1.8vw, 1.3rem);\n      border-bottom: 1px solid var(--line);\n      background: rgba(7, 16, 25, 0.82);\n      backdrop-filter: blur(18px);\n      position: sticky;\n      top: 0;\n      z-index: 10;\n    }\n\n    .brand { display: flex; align-items: center; gap: 0.72rem; min-width: 0; }\n    .logo {\n      width: 2.15rem;\n      height: 2.15rem;\n      border-radius: 13px;\n      display: grid;\n      place-items: center;\n      border: 1px solid rgba(120, 188, 255, 0.45);\n      background: linear-gradient(135deg, rgba(120, 188, 255, 0.18), rgba(157, 132, 255, 0.18));\n      box-shadow: 0 0 24px rgba(120, 188, 255, 0.14);\n      flex: 0 0 auto;\n    }\n\n    h1 { margin: 0; font-size: 1.02rem; letter-spacing: 0.01em; }\n    .subtitle { color: var(--muted); font-size: 0.76rem; margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n    .top-actions { display: flex; gap: 0.52rem; align-items: center; }\n\n    .shell {\n      display: grid;\n      grid-template-columns: minmax(0, 1fr) 17.5rem;\n      gap: 0.75rem;\n      padding: 0.72rem clamp(0.65rem, 1.5vw, 1rem) 0.85rem;\n      height: calc(100dvh - 3.8rem);\n      min-height: 0;\n      overflow: hidden;\n    }\n\n    .card {\n      border: 1px solid var(--line);\n      background: var(--panel);\n      border-radius: 19px;\n      box-shadow: var(--shadow);\n      overflow: hidden;\n    }\n\n    .chat-card {\n      display: flex;\n      flex-direction: column;\n      min-height: 0;\n      height: 100%;\n      overflow: hidden;\n    }\n\n    .chat-head {\n      display: flex;\n      gap: 0.75rem;\n      justify-content: space-between;\n      align-items: center;\n      padding: 0.82rem 0.92rem;\n      border-bottom: 1px solid var(--line);\n      flex: 0 0 auto;\n    }\n\n    .chat-title { font-weight: 780; }\n    .chat-subtitle { color: var(--muted); font-size: 0.78rem; margin-top: 0.1rem; }\n\n    .tool-ribbon {\n      flex: 0 0 auto;\n      display: flex;\n      gap: 0.55rem;\n      align-items: stretch;\n      padding: 0.64rem 0.82rem;\n      border-bottom: 1px solid var(--line);\n      background: rgba(255, 255, 255, 0.025);\n      overflow-x: auto;\n      scrollbar-gutter: stable;\n    }\n\n    .lookup-combo {\n      display: flex;\n      align-items: stretch;\n      flex: 0 1 28rem;\n      min-width: 19rem;\n    }\n    .lookup-combo input {\n      flex: 1 1 auto;\n      border-top-right-radius: 0;\n      border-bottom-right-radius: 0;\n      min-width: 8rem;\n    }\n    .lookup-combo button {\n      width: auto;\n      min-width: 8.8rem;\n      border-top-left-radius: 0;\n      border-bottom-left-radius: 0;\n      margin-left: -1px;\n    }\n    .tool-ribbon button.tool {\n      width: auto;\n      min-width: 9.2rem;\n      flex: 1 0 auto;\n      padding-inline: 1rem;\n    }\n\n    .messages {\n      flex: 1 1 0;\n      min-height: 0;\n      min-block-size: 0;\n      height: auto;\n      max-height: none;\n      overflow-y: scroll;\n      overflow-x: hidden;\n      overscroll-behavior: contain;\n      -webkit-overflow-scrolling: touch;\n      padding: 0.95rem;\n      display: flex;\n      flex-direction: column;\n      gap: 0.82rem;\n      background: rgba(3, 8, 13, 0.22);\n      scrollbar-gutter: stable;\n      scroll-behavior: smooth;\n    }\n\n    .messages::-webkit-scrollbar, .control-panel::-webkit-scrollbar { width: 0.78rem; }\n    .messages::-webkit-scrollbar-thumb, .control-panel::-webkit-scrollbar-thumb { background: rgba(120, 188, 255, 0.18); border-radius: 999px; border: 3px solid rgba(5, 12, 20, 0.85); }\n\n    .msg {\n      flex: 0 0 auto;\n      border: 1px solid rgba(255, 255, 255, 0.08);\n      border-radius: 18px;\n      max-width: min(64rem, 94%);\n      line-height: 1.58;\n      word-wrap: break-word;\n      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);\n      overflow: hidden;\n    }\n\n    .msg.user { align-self: flex-end; background: rgba(120, 188, 255, 0.15); }\n    .msg.assistant { align-self: flex-start; background: rgba(255, 255, 255, 0.055); }\n    .msg.system { align-self: center; max-width: 100%; background: rgba(247, 212, 124, 0.1); color: var(--warn); font-size: 0.86rem; box-shadow: none; }\n\n    .msg-meta {\n      display: flex;\n      align-items: center;\n      justify-content: space-between;\n      gap: 0.7rem;\n      border-bottom: 1px solid rgba(255, 255, 255, 0.07);\n      padding: 0.52rem 0.76rem;\n      color: var(--muted);\n      font-size: 0.75rem;\n      background: rgba(255, 255, 255, 0.035);\n    }\n\n    .msg-body { padding: 0.82rem 0.95rem; white-space: pre-wrap; }\n    .msg-body.html { white-space: normal; }\n    .msg-body h1, .msg-body h2, .msg-body h3 { margin: 0.2rem 0 0.65rem; line-height: 1.2; }\n    .msg-body h1 { font-size: 1.35rem; }\n    .msg-body h2 { font-size: 1.05rem; color: #d9ebff; }\n    .msg-body ul { margin: 0.45rem 0 0.9rem 1.2rem; padding: 0; }\n    .msg-body li { margin: 0.28rem 0; }\n    .msg-body p { margin: 0.45rem 0; }\n    .msg-body pre, .msg-body code { white-space: pre-wrap; }\n\n    .image-strip { display: grid; gap: 0.7rem; padding: 0 0.95rem 0.95rem; }\n    .image-strip img {\n      width: 100%;\n      max-height: 42vh;\n      object-fit: contain;\n      border-radius: 14px;\n      border: 1px solid rgba(255, 255, 255, 0.1);\n      background: #02060a;\n    }\n\n    .composer {\n      flex: 0 0 auto;\n      display: grid;\n      gap: 0.62rem;\n      padding: 0.82rem 0.92rem;\n      border-top: 1px solid var(--line);\n    }\n\n    textarea {\n      resize: vertical;\n      min-height: 4.4rem;\n      max-height: 10rem;\n      line-height: 1.5;\n    }\n\n    .statusbar {\n      flex: 0 0 auto;\n      display: flex;\n      flex-wrap: wrap;\n      gap: 0.42rem;\n      align-items: center;\n      padding: 0 0.92rem 0.8rem;\n      color: var(--muted);\n      font-size: 0.78rem;\n    }\n\n    aside.control-panel {\n      display: grid;\n      align-content: start;\n      gap: 0;\n      overflow-y: auto;\n      max-height: 100%;\n      min-height: 0;\n    }\n\n    .panel-section { padding: 0.85rem; }\n    .panel-section + .panel-section { border-top: 1px solid var(--line); }\n    .section-title { font-weight: 760; margin: 0 0 0.25rem; }\n    .section-hint { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.68rem; }\n\n    label { color: var(--muted); font-size: 0.74rem; display: block; margin-bottom: 0.3rem; }\n    input, select, textarea, button {\n      width: 100%;\n      border: 1px solid var(--line);\n      border-radius: 12px;\n      background: var(--panel2);\n      color: var(--text);\n      padding: 0.64rem 0.72rem;\n      font: inherit;\n    }\n\n    button {\n      cursor: pointer;\n      border-color: rgba(120, 188, 255, 0.45);\n      background: linear-gradient(180deg, rgba(120, 188, 255, 0.28), rgba(74, 131, 190, 0.2));\n      font-weight: 700;\n      white-space: nowrap;\n    }\n\n    button.secondary { background: rgba(255, 255, 255, 0.04); border-color: var(--line); }\n    button.tool { text-align: center; }\n    button:disabled { opacity: 0.58; cursor: not-allowed; }\n\n    .row { display: flex; gap: 0.55rem; align-items: center; }\n    .row > * { flex: 1; }\n    .grid { display: grid; gap: 0.62rem; }\n    .two { grid-template-columns: 1fr 1fr; }\n\n    details {\n      border: 1px solid var(--line);\n      border-radius: 14px;\n      background: rgba(255, 255, 255, 0.03);\n      overflow: hidden;\n    }\n    summary { cursor: pointer; padding: 0.68rem 0.74rem; color: #dcecff; font-weight: 650; }\n    details .details-body { padding: 0 0.74rem 0.78rem; display: grid; gap: 0.62rem; }\n\n    .pill {\n      display: inline-flex;\n      align-items: center;\n      gap: 0.35rem;\n      border: 1px solid var(--line);\n      border-radius: 999px;\n      padding: 0.28rem 0.56rem;\n      background: rgba(255, 255, 255, 0.04);\n      color: var(--muted);\n      white-space: nowrap;\n    }\n    .good { color: var(--good); }\n    .bad { color: var(--bad); }\n    .warn { color: var(--warn); }\n    .muted { color: var(--muted); }\n\n    .news-source {\n      display: inline-flex;\n      align-items: center;\n      border: 1px solid rgba(120, 188, 255, 0.25);\n      border-radius: 999px;\n      padding: 0.08rem 0.42rem;\n      margin-left: 0.18rem;\n      font-size: 0.76rem;\n      background: rgba(120, 188, 255, 0.09);\n      color: #bfe0ff;\n      vertical-align: baseline;\n    }\n\n    .mini-note { color: var(--muted); font-size: 0.76rem; line-height: 1.4; }\n    .site-summary { color: #cfe6ff; font-size: 0.8rem; line-height: 1.45; }\n\n    .modal-backdrop {\n      position: fixed;\n      inset: 0;\n      z-index: 100;\n      display: none;\n      place-items: center;\n      padding: 1rem;\n      background: rgba(0, 0, 0, 0.58);\n      backdrop-filter: blur(10px);\n    }\n    .modal-backdrop.open { display: grid; }\n    .modal {\n      width: min(62rem, 96vw);\n      max-height: min(48rem, 92vh);\n      display: grid;\n      grid-template-rows: auto minmax(0, 1fr) auto;\n      border: 1px solid var(--line);\n      border-radius: 22px;\n      background: rgba(8, 18, 29, 0.98);\n      box-shadow: 0 25px 90px rgba(0, 0, 0, 0.45);\n      overflow: hidden;\n    }\n    .modal-head, .modal-foot { padding: 0.9rem 1rem; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 0.7rem; }\n    .modal-foot { border-bottom: 0; border-top: 1px solid var(--line); }\n    .modal-body { min-height: 0; overflow: hidden; padding: 1rem; display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 0.85rem; }\n    .site-map {\n      width: 100%;\n      height: min(58vh, 34rem);\n      min-height: 30rem;\n      border: 1px solid var(--line);\n      border-radius: 18px;\n      overflow: hidden;\n      background: #07111c;\n      position: relative;\n    }\n    .site-map .leaflet-container,\n    .leaflet-container {\n      width: 100%;\n      height: 100%;\n      background: #07111c;\n      overflow: hidden;\n      touch-action: pan-x pan-y;\n    }\n\n    /* Minimal Leaflet layout fallback. Some privacy browsers block the CDN CSS while the JS still loads. */\n    .leaflet-pane,\n    .leaflet-tile,\n    .leaflet-marker-icon,\n    .leaflet-marker-shadow,\n    .leaflet-tile-container,\n    .leaflet-pane > svg,\n    .leaflet-pane > canvas,\n    .leaflet-zoom-box,\n    .leaflet-image-layer,\n    .leaflet-layer { position: absolute; left: 0; top: 0; }\n    .leaflet-container { font: 12px/1.5 system-ui, sans-serif; }\n    .leaflet-tile { filter: saturate(0.88) brightness(0.92); user-select: none; -webkit-user-drag: none; }\n    .leaflet-tile-pane { z-index: 200; }\n    .leaflet-overlay-pane { z-index: 400; }\n    .leaflet-shadow-pane { z-index: 500; }\n    .leaflet-marker-pane { z-index: 600; }\n    .leaflet-tooltip-pane { z-index: 650; }\n    .leaflet-popup-pane { z-index: 700; }\n    .leaflet-control { position: relative; z-index: 800; pointer-events: auto; }\n    .leaflet-top, .leaflet-bottom { position: absolute; z-index: 900; pointer-events: none; }\n    .leaflet-top { top: 0; } .leaflet-bottom { bottom: 0; }\n    .leaflet-left { left: 0; } .leaflet-right { right: 0; }\n    .leaflet-control-zoom { margin: 10px; border: 1px solid rgba(0,0,0,0.25); border-radius: 10px; overflow: hidden; box-shadow: 0 6px 18px rgba(0,0,0,0.25); }\n    .leaflet-control-zoom a { display: block; width: 30px; height: 30px; line-height: 30px; text-align: center; background: rgba(8,18,29,0.92); color: #eaf5ff; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.12); }\n    .leaflet-control-attribution { margin: 0 8px 6px 0; padding: 2px 6px; border-radius: 8px; background: rgba(8,18,29,0.78); color: #c6d7e8; }\n    .fz-site-marker { width: 20px; height: 20px; margin-left: -10px; margin-top: -10px; border-radius: 999px; border: 3px solid #fff; background: #78bcff; box-shadow: 0 0 0 5px rgba(120,188,255,0.28), 0 8px 24px rgba(0,0,0,0.35); }\n\n    .fallback-map {\n      width: 100%; height: 100%; min-height: 26rem;\n      position: relative;\n      cursor: crosshair;\n      background:\n        linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px),\n        linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px),\n        radial-gradient(circle at 50% 45%, rgba(65, 128, 190, 0.45), transparent 18rem),\n        linear-gradient(180deg, #123251, #0a1624);\n      background-size: 10% 10%, 10% 10%, auto, auto;\n    }\n    .fallback-map::after {\n      content: "Click the grid to select approximate latitude/longitude";\n      position: absolute; left: 1rem; bottom: 1rem; color: #d9ecff; background: rgba(0,0,0,0.38); padding: 0.45rem 0.62rem; border-radius: 999px; font-size: 0.78rem;\n    }\n\n\n\n    /* Collapsible settings drawer. The main workspace stays full-width by default. */\n    .shell { grid-template-columns: minmax(0, 1fr); }\n\n    .settings-toggle {\n      width: 2.45rem !important;\n      height: 2.45rem;\n      padding: 0;\n      display: inline-grid;\n      place-items: center;\n      font-size: 1.18rem;\n      line-height: 1;\n    }\n\n    .settings-scrim {\n      position: fixed;\n      inset: 3.8rem 0 0 0;\n      z-index: 55;\n      opacity: 0;\n      pointer-events: none;\n      background: rgba(0, 0, 0, 0.36);\n      backdrop-filter: blur(3px);\n      transition: opacity 160ms ease;\n    }\n\n    body.settings-open .settings-scrim {\n      opacity: 1;\n      pointer-events: auto;\n    }\n\n    aside.control-panel {\n      position: fixed !important;\n      top: calc(3.8rem + 0.72rem);\n      right: 0.72rem;\n      bottom: 0.85rem;\n      z-index: 60;\n      width: min(22.5rem, calc(100vw - 1.2rem));\n      max-height: none;\n      min-height: 0;\n      transform: translateX(calc(100% + 1.2rem));\n      opacity: 0.99;\n      pointer-events: none;\n      transition: transform 190ms ease, box-shadow 190ms ease;\n      box-shadow: 0 25px 90px rgba(0, 0, 0, 0.46);\n    }\n\n    body.settings-open aside.control-panel {\n      transform: translateX(0);\n      pointer-events: auto;\n    }\n\n    .panel-drawer-head {\n      display: flex;\n      justify-content: space-between;\n      align-items: flex-start;\n      gap: 0.75rem;\n      padding: 0.85rem;\n      border-bottom: 1px solid var(--line);\n      background: rgba(255, 255, 255, 0.035);\n    }\n\n    .panel-drawer-head .section-hint { margin-bottom: 0; }\n\n    .drawer-close {\n      width: 2.2rem !important;\n      height: 2.2rem;\n      padding: 0;\n      display: inline-grid;\n      place-items: center;\n      border-radius: 999px;\n      font-size: 1.12rem;\n    }\n\n    body:not(.settings-open) .control-panel {\n      visibility: hidden;\n    }\n\n    body.settings-open .control-panel {\n      visibility: visible;\n    }\n\n    @media (max-width: 1120px) {\n      .shell { grid-template-columns: minmax(0, 1fr) 15.5rem; }\n      .tool-ribbon button.tool { min-width: 8.2rem; }\n    }\n\n    @media (max-width: 980px) {\n      body { overflow: hidden; }\n      .shell { grid-template-columns: 1fr; height: calc(100dvh - 3.8rem); min-height: 0; overflow: hidden; }\n      .chat-card { min-height: 0; height: 100%; }\n      .messages { min-height: 0; }\n      .subtitle { white-space: normal; }\n      .tool-ribbon { overflow-x: auto; }\n      .lookup-combo { min-width: 18rem; }\n      .modal-body { grid-template-columns: 1fr; overflow: auto; }\n      .site-map { height: 52vh; min-height: 22rem; }\n    }\n\n    @media (max-width: 600px) {\n      header.app-header { align-items: flex-start; }\n      .top-actions { flex-wrap: wrap; justify-content: flex-end; }\n      .tool-ribbon { align-items: stretch; }\n      .lookup-combo { min-width: 16rem; }\n      .tool-ribbon button.tool { min-width: 8rem; }\n      .row, .two { display: grid; grid-template-columns: 1fr; }\n      .msg { max-width: 100%; }\n    }\n  </style>\n</head>\n<body>\n  <header class="app-header">\n    <div class="brand">\n      <div class="logo">✦</div>\n      <div>\n        <h1>FZAstro AI</h1>\n        <div class="subtitle">Web Companion · local AI, astro tools, daily news</div>\n      </div>\n    </div>\n    <div class="top-actions">\n      <span class="pill" id="topStatus">Starting…</span>\n      <button class="secondary" id="checkStatusBtn" style="width:auto;">Status</button>\n      <button class="secondary settings-toggle" id="settingsToggleBtn" aria-label="Open settings" aria-controls="settingsPanel" aria-expanded="false">☰</button>\n    </div>\n  </header>\n\n  <div class="settings-scrim" id="settingsScrim" aria-hidden="true"></div>\n\n  <main class="shell">\n    <section class="card chat-card">\n      <div class="chat-head">\n        <div>\n          <div class="chat-title">Main Chat</div>\n          <div class="chat-subtitle">Run news, LOOKUP, SEEING, TARGETS, and normal chat from this main workspace.</div>\n        </div>\n        <button class="secondary" id="clearBtn" style="width:auto;">Clear</button>\n      </div>\n\n      <div class="tool-ribbon" aria-label="FZAstro quick tools">\n        <div class="lookup-combo" title="Object lookup">\n          <input id="lookupQuery" value="M31" aria-label="Object lookup" />\n          <button class="tool" id="lookupBtn">🔭 LOOKUP</button>\n        </div>\n        <button class="tool" id="dailyNewsBtn">📰 Daily News</button>\n        <button class="tool" id="seeingBtn">🌙 SEEING</button>\n        <button class="tool" id="targetsBtn">🎯 TARGETS</button>\n        <button class="tool" id="sitePlannerBtn">🗺 Site Planner</button>\n      </div>\n\n      <div class="messages" id="messages"></div>\n\n      <div class="composer">\n        <textarea id="prompt" placeholder="Ask the local model, or use a top tool button…"></textarea>\n        <div class="row">\n          <button id="sendBtn">Send</button>\n          <button class="secondary" id="stopHintBtn" title="Streaming stop will be added in a later patch." disabled>Stop</button>\n        </div>\n      </div>\n      <div class="statusbar" id="statusbar"></div>\n    </section>\n\n    <aside class="control-panel card" id="settingsPanel" aria-label="Web Companion settings">\n      <div class="panel-drawer-head">\n        <div>\n          <div class="section-title">Settings</div>\n          <div class="section-hint">Model, token, runtime, and access details.</div>\n        </div>\n        <button class="secondary drawer-close" id="settingsCloseBtn" aria-label="Close settings">×</button>\n      </div>\n      <div class="panel-section">\n        <div class="section-title">Model</div>\n        <div class="section-hint">Keep the working area clean. Advanced runtime details stay collapsed.</div>\n        <div class="grid">\n          <div>\n            <label for="modelSelect">Model</label>\n            <select id="modelSelect"></select>\n          </div>\n          <button class="secondary" id="refreshModelsBtn">Refresh models</button>\n          <div>\n            <label for="tokenInput">Web token, if LAN mode uses one</label>\n            <input id="tokenInput" placeholder="Token" type="password" />\n          </div>\n          <details>\n            <summary>Advanced runtime</summary>\n            <div class="details-body">\n              <div>\n                <label for="baseUrl">Runtime URL</label>\n                <input id="baseUrl" value="http://localhost:11434/v1" />\n              </div>\n              <div class="two grid">\n                <div>\n                  <label for="numPredict">Max tokens</label>\n                  <input id="numPredict" type="number" min="64" max="32768" value="4096" />\n                </div>\n                <div>\n                  <label for="temperature">Temperature</label>\n                  <input id="temperature" type="number" min="0" max="2" step="0.05" value="0.3" />\n                </div>\n              </div>\n            </div>\n          </details>\n        </div>\n      </div>\n\n      <div class="panel-section">\n        <div class="section-title">Current site</div>\n        <div class="section-hint">Used by SEEING and TARGETS. Open Site Planner to select from a map.</div>\n        <div class="site-summary" id="siteSummary">39.784080, -3.999020 · 660 m · Europe/Madrid</div>\n      </div>\n\n      <div class="panel-section">\n        <div class="section-title">Access</div>\n        <div class="section-hint">For iPad/Mac use the LAN URL shown by the desktop app.</div>\n        <div class="mini-note" id="accessNote">Local page loaded. Use LAN mode in the desktop app to open this from another device.</div>\n      </div>\n    </aside>\n  </main>\n\n  <div class="modal-backdrop" id="siteModal" role="dialog" aria-modal="true" aria-labelledby="siteModalTitle">\n    <div class="modal">\n      <div class="modal-head">\n        <div>\n          <div class="chat-title" id="siteModalTitle">Site Planner</div>\n          <div class="chat-subtitle">Click the map, use browser location, or type coordinates. Timezone is resolved automatically.</div>\n        </div>\n        <button class="secondary" id="siteCloseBtn" style="width:auto;">Close</button>\n      </div>\n      <div class="modal-body">\n        <div id="siteMap" class="site-map"></div>\n        <div class="grid">\n          <div class="two grid">\n            <div>\n              <label for="latInput">Latitude</label>\n              <input id="latInput" value="39.78408" />\n            </div>\n            <div>\n              <label for="lonInput">Longitude</label>\n              <input id="lonInput" value="-3.99902" />\n            </div>\n          </div>\n          <div class="two grid">\n            <div>\n              <label for="elevInput">Elevation m</label>\n              <input id="elevInput" value="660" />\n            </div>\n            <div>\n              <label for="tzInput">Timezone</label>\n              <input id="tzInput" value="Europe/Madrid" placeholder="Auto" />\n            </div>\n          </div>\n          <button id="useBrowserLocationBtn">Use this device location</button>\n          <button class="secondary" id="resolveTimezoneBtn">Resolve timezone</button>\n          <div class="mini-note" id="timezoneNote">Timezone: Europe/Madrid</div>\n        </div>\n      </div>\n      <div class="modal-foot">\n        <div class="mini-note">SEEING and TARGETS use this selected site automatically.</div>\n        <button id="siteApplyBtn" style="width:auto; min-width: 11rem;">Use selected site</button>\n      </div>\n    </div>\n  </div>\n\n  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>\n  <script>\n    const messagesEl = document.getElementById(\'messages\');\n    const statusbar = document.getElementById(\'statusbar\');\n    const topStatus = document.getElementById(\'topStatus\');\n    const modelSelect = document.getElementById(\'modelSelect\');\n    const baseUrl = document.getElementById(\'baseUrl\');\n    const tokenInput = document.getElementById(\'tokenInput\');\n    const promptEl = document.getElementById(\'prompt\');\n    const sendBtn = document.getElementById(\'sendBtn\');\n    const numPredict = document.getElementById(\'numPredict\');\n    const temperature = document.getElementById(\'temperature\');\n    const accessNote = document.getElementById(\'accessNote\');\n    const siteSummary = document.getElementById(\'siteSummary\');\n    const siteModal = document.getElementById(\'siteModal\');\n    const siteMapEl = document.getElementById(\'siteMap\');\n    const timezoneNote = document.getElementById(\'timezoneNote\');\n    const settingsToggleBtn = document.getElementById(\'settingsToggleBtn\');\n    const settingsCloseBtn = document.getElementById(\'settingsCloseBtn\');\n    const settingsScrim = document.getElementById(\'settingsScrim\');\n\n    let siteMap = null;\n    let siteMarker = null;\n    let lastSiteResolve = 0;\n\n    messagesEl.addEventListener(\'wheel\', event => {\n      // Keep mouse-wheel movement inside the transcript.\n      if (messagesEl.scrollHeight <= messagesEl.clientHeight) return;\n      const maxTop = messagesEl.scrollHeight - messagesEl.clientHeight;\n      const nextTop = Math.max(0, Math.min(maxTop, messagesEl.scrollTop + event.deltaY));\n      if (nextTop !== messagesEl.scrollTop) {\n        messagesEl.scrollTop = nextTop;\n        event.preventDefault();\n      }\n      event.stopPropagation();\n    }, { passive: false });\n\n    function setSettingsOpen(open) {\n      document.body.classList.toggle(\'settings-open\', open);\n      if (settingsToggleBtn) {\n        settingsToggleBtn.setAttribute(\'aria-expanded\', open ? \'true\' : \'false\');\n        settingsToggleBtn.setAttribute(\'aria-label\', open ? \'Close settings\' : \'Open settings\');\n      }\n    }\n\n    settingsToggleBtn?.addEventListener(\'click\', () => {\n      setSettingsOpen(!document.body.classList.contains(\'settings-open\'));\n    });\n    settingsCloseBtn?.addEventListener(\'click\', () => setSettingsOpen(false));\n    settingsScrim?.addEventListener(\'click\', () => setSettingsOpen(false));\n    document.addEventListener(\'keydown\', event => {\n      if (event.key === \'Escape\') setSettingsOpen(false);\n    });\n\n    tokenInput.value = localStorage.getItem(\'fzastro_web_token\') || \'\';\n    tokenInput.addEventListener(\'change\', () => {\n      localStorage.setItem(\'fzastro_web_token\', tokenInput.value.trim());\n      checkStatus();\n      refreshModels();\n    });\n\n    function headers(json = true) {\n      const h = {};\n      if (json) h[\'Content-Type\'] = \'application/json\';\n      const token = tokenInput.value.trim();\n      if (token) h[\'X-FZAstro-Token\'] = token;\n      return h;\n    }\n\n    function escapeHtml(text) {\n      return String(text ?? \'\').replace(/[&<>\'"]/g, ch => ({\n        \'&\': \'&amp;\', \'<\': \'&lt;\', \'>\': \'&gt;\', "\'": \'&#39;\', \'"\': \'&quot;\'\n      }[ch]));\n    }\n\n    function escapeAttr(text) { return escapeHtml(text).replace(/`/g, \'&#96;\'); }\n\n    function scrollChatToBottom() {\n      requestAnimationFrame(() => {\n        messagesEl.scrollTop = messagesEl.scrollHeight;\n      });\n    }\n\n    function setStatus(parts) {\n      statusbar.innerHTML = parts.map(p => `<span class="pill">${p}</span>`).join(\'\');\n    }\n\n    function setTop(text, cls = \'\') {\n      topStatus.className = `pill ${cls}`.trim();\n      topStatus.textContent = text;\n    }\n\n    function messageShell(role, title = \'\') {\n      const div = document.createElement(\'article\');\n      div.className = `msg ${role}`;\n      if (title) {\n        const meta = document.createElement(\'div\');\n        meta.className = \'msg-meta\';\n        meta.innerHTML = `<span>${escapeHtml(title)}</span><span>${new Date().toLocaleTimeString([], {hour: \'2-digit\', minute: \'2-digit\'})}</span>`;\n        div.appendChild(meta);\n      }\n      const body = document.createElement(\'div\');\n      body.className = \'msg-body\';\n      div.appendChild(body);\n      messagesEl.appendChild(div);\n      scrollChatToBottom();\n      return { div, body };\n    }\n\n    function addMessage(role, text, options = {}) {\n      const { body, div } = messageShell(role, options.title || \'\');\n      if (options.html) {\n        body.classList.add(\'html\');\n        body.innerHTML = text || \'\';\n      } else {\n        body.textContent = text || \'\';\n      }\n      if (options.images && options.images.length) {\n        const strip = document.createElement(\'div\');\n        strip.className = \'image-strip\';\n        for (const src of options.images) {\n          const img = document.createElement(\'img\');\n          img.loading = \'lazy\';\n          img.src = src;\n          img.alt = options.title || \'FZAstro image result\';\n          img.addEventListener(\'load\', scrollChatToBottom, { once: true });\n          strip.appendChild(img);\n        }\n        div.appendChild(strip);\n      }\n      scrollChatToBottom();\n      return body;\n    }\n\n    function sourceHost(url) {\n      try {\n        const host = new URL(url).hostname.replace(/^www\\./, \'\');\n        return host || \'Source\';\n      } catch (_) {\n        return \'Source\';\n      }\n    }\n\n    function sourceDisplayName(source, id) {\n      const name = String(source?.name || source?.source_name || \'\').trim();\n      if (name && name.toLowerCase() !== \'source\') return name;\n      const host = sourceHost(source?.url || \'\');\n      if (host && host !== \'Source\') return host;\n      return \'Source\';\n    }\n\n    function markdownToHtml(markdown, sources = {}) {\n      const lines = String(markdown || \'\').split(/\\r?\\n/);\n      let html = \'\';\n      let inList = false;\n      const closeList = () => { if (inList) { html += \'</ul>\'; inList = false; } };\n      const inline = (text) => escapeHtml(text).replace(/\\[(NEWS_\\d{4,})\\]/g, (m, id) => {\n        const source = sources[id];\n        if (source && source.url) {\n          const label = sourceDisplayName(source, id);\n          const tooltip = [label, source.title || \'\'].filter(Boolean).join(\' · \');\n          return `<a class="news-source" href="${escapeAttr(source.url)}" title="${escapeAttr(tooltip)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;\n        }\n        return \'<span class="news-source">Source</span>\';\n      });\n\n      for (const raw of lines) {\n        const line = raw.trim();\n        if (!line) { closeList(); continue; }\n        if (line.startsWith(\'# \')) { closeList(); html += `<h1>${inline(line.slice(2))}</h1>`; continue; }\n        if (line.startsWith(\'## \')) { closeList(); html += `<h2>${inline(line.slice(3))}</h2>`; continue; }\n        if (line.startsWith(\'### \')) { closeList(); html += `<h3>${inline(line.slice(4))}</h3>`; continue; }\n        if (line.startsWith(\'- \')) {\n          if (!inList) { html += \'<ul>\'; inList = true; }\n          html += `<li>${inline(line.slice(2))}</li>`;\n          continue;\n        }\n        closeList();\n        html += `<p>${inline(line)}</p>`;\n      }\n      closeList();\n      return html || \'<p>No content returned.</p>\';\n    }\n\n    function looksLikeHtml(text) {\n      return /^\\s*<(div|table|section|article|h\\d|p|ul|ol)\\b/i.test(String(text || \'\'));\n    }\n\n    function assetTokenQuery() {\n      const token = tokenInput.value.trim();\n      return token ? `&fzastro_token=${encodeURIComponent(token)}` : \'\';\n    }\n\n    function fileUrls(files) {\n      const stamp = Date.now();\n      return (files || [])\n        .filter(path => /\\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(String(path)))\n        .map(path => `/api/assets/file?path=${encodeURIComponent(path)}${assetTokenQuery()}&v=${stamp}`);\n    }\n\n    async function apiJson(url, options = {}) {\n      const response = await fetch(url, options);\n      const data = await response.json().catch(() => ({}));\n      if (!response.ok) throw new Error(data.detail || data.error || response.statusText);\n      return data;\n    }\n\n    async function checkStatus() {\n      try {\n        const data = await apiJson(\'/api/status\', { headers: headers(false) });\n        setTop(data.ollama_available ? \'Ollama online\' : \'Ollama offline\', data.ollama_available ? \'good\' : \'warn\');\n        setStatus([\n          data.ollama_available ? \'<span class="good">Ollama online</span>\' : \'<span class="warn">Ollama offline</span>\',\n          `Model: ${escapeHtml(data.default_model)}`,\n          data.auth_required ? \'Token required\' : \'No token\',\n          data.lan_enabled ? \'LAN mode\' : \'Local mode\'\n        ]);\n        if (data.base_url) baseUrl.value = data.base_url;\n        accessNote.textContent = data.lan_enabled ? \'LAN mode is enabled. Open this page from your iPad/Mac using the PC LAN URL.\' : \'Local mode is enabled. Start LAN / iPad Mode from the desktop app for mobile access.\';\n      } catch (err) {\n        setTop(\'Token needed\', \'warn\');\n        setStatus([`<span class="bad">Status: ${escapeHtml(err.message)}</span>`]);\n      }\n    }\n\n    async function refreshModels() {\n      modelSelect.innerHTML = \'<option>Loading…</option>\';\n      try {\n        const url = `/api/models?base_url=${encodeURIComponent(baseUrl.value.trim())}`;\n        const data = await apiJson(url, { headers: headers(false) });\n        modelSelect.innerHTML = \'\';\n        for (const model of data.models || []) {\n          const opt = document.createElement(\'option\');\n          opt.value = model;\n          opt.textContent = model;\n          modelSelect.appendChild(opt);\n        }\n        setStatus([`${(data.models || []).length} model(s) loaded`]);\n      } catch (err) {\n        modelSelect.innerHTML = \'<option>qwen3:32b</option>\';\n        setStatus([`<span class="bad">Model refresh: ${escapeHtml(err.message)}</span>`]);\n      }\n    }\n\n    async function sendChat() {\n      const prompt = promptEl.value.trim();\n      if (!prompt) return;\n      promptEl.value = \'\';\n      addMessage(\'user\', prompt, { title: \'You\' });\n      const assistant = addMessage(\'assistant\', \'\', { title: modelSelect.value || \'Assistant\' });\n      sendBtn.disabled = true;\n      setStatus([\'Generating…\']);\n\n      try {\n        const response = await fetch(\'/api/chat/stream\', {\n          method: \'POST\',\n          headers: headers(true),\n          body: JSON.stringify({\n            prompt,\n            model: modelSelect.value || \'qwen3:32b\',\n            base_url: baseUrl.value.trim(),\n            num_predict: Number(numPredict.value || 4096),\n            temperature: Number(temperature.value || 0.3),\n            think_enabled: true,\n            stream_reasoning: false\n          })\n        });\n\n        if (!response.ok) {\n          const data = await response.json().catch(() => ({}));\n          throw new Error(data.detail || data.error || response.statusText);\n        }\n\n        const reader = response.body.getReader();\n        const decoder = new TextDecoder();\n        let buffer = \'\';\n        while (true) {\n          const { value, done } = await reader.read();\n          if (done) break;\n          buffer += decoder.decode(value, { stream: true });\n          const events = buffer.split(\'\\n\\n\');\n          buffer = events.pop();\n          for (const block of events) {\n            const lines = block.split(\'\\n\');\n            const event = (lines.find(l => l.startsWith(\'event:\')) || \'\').slice(6).trim();\n            const dataLine = (lines.find(l => l.startsWith(\'data:\')) || \'\').slice(5).trim();\n            if (!dataLine) continue;\n            const data = JSON.parse(dataLine);\n            if (event === \'token\') {\n              assistant.textContent += data.text || \'\';\n              scrollChatToBottom();\n            } else if (event === \'error\') {\n              assistant.textContent += `\\n\\n[Error] ${data.message}`;\n              setStatus([`<span class="bad">${escapeHtml(data.message)}</span>`]);\n            } else if (event === \'done\') {\n              setStatus([`Done`, `Model: ${escapeHtml(data.model)}`, `Reasoning hidden: ${data.reasoning_chars || 0} chars`]);\n            } else if (event === \'status\') {\n              setStatus([escapeHtml(data.message || \'Starting\')]);\n            }\n          }\n        }\n      } catch (err) {\n        assistant.textContent += `\\n\\n[Error] ${err.message}`;\n        setStatus([`<span class="bad">Chat: ${escapeHtml(err.message)}</span>`]);\n      } finally {\n        sendBtn.disabled = false;\n      }\n    }\n\n    function numericValue(id) { return Number(document.getElementById(id).value); }\n\n    function updateSiteSummary() {\n      const lat = numericValue(\'latInput\');\n      const lon = numericValue(\'lonInput\');\n      const elev = numericValue(\'elevInput\');\n      const tz = document.getElementById(\'tzInput\').value.trim() || \'Auto timezone\';\n      siteSummary.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)} · ${Number.isFinite(elev) ? elev : 0} m · ${tz}`;\n      timezoneNote.textContent = `Timezone: ${tz}`;\n    }\n\n    function locationPayload() {\n      return {\n        lat: numericValue(\'latInput\'),\n        lon: numericValue(\'lonInput\'),\n        elev: numericValue(\'elevInput\'),\n        tz: document.getElementById(\'tzInput\').value.trim() || null\n      };\n    }\n\n    async function resolveTimezoneFromServer(force = false) {\n      const now = Date.now();\n      if (!force && now - lastSiteResolve < 450) return;\n      lastSiteResolve = now;\n      try {\n        const payload = locationPayload();\n        const data = await apiJson(\'/api/location/resolve\', {\n          method: \'POST\',\n          headers: headers(true),\n          body: JSON.stringify(payload)\n        });\n        if (data.timezone) document.getElementById(\'tzInput\').value = data.timezone;\n        timezoneNote.textContent = data.local_time ? `Timezone: ${data.timezone} · Local: ${data.local_time}` : `Timezone: ${data.timezone || \'UTC\'}`;\n        updateSiteSummary();\n      } catch (err) {\n        const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || \'UTC\';\n        if (!document.getElementById(\'tzInput\').value.trim()) document.getElementById(\'tzInput\').value = browserTz;\n        timezoneNote.textContent = `Timezone fallback: ${document.getElementById(\'tzInput\').value || browserTz}`;\n        updateSiteSummary();\n      }\n    }\n\n    async function ensureTimezone() {\n      if (!document.getElementById(\'tzInput\').value.trim()) {\n        await resolveTimezoneFromServer(true);\n      }\n      return locationPayload();\n    }\n\n    function setSitePosition(lat, lon, elev = null, shouldResolve = true) {\n      document.getElementById(\'latInput\').value = Number(lat).toFixed(6);\n      document.getElementById(\'lonInput\').value = Number(lon).toFixed(6);\n      if (elev !== null && elev !== undefined && Number.isFinite(Number(elev))) {\n        document.getElementById(\'elevInput\').value = Number(elev).toFixed(0);\n      }\n      if (siteMarker && siteMap) {\n        const pos = [Number(lat), Number(lon)];\n        siteMarker.setLatLng(pos);\n        siteMap.setView(pos, Math.max(siteMap.getZoom() || 5, 5), { animate: false });\n      }\n      updateSiteSummary();\n      if (shouldResolve) resolveTimezoneFromServer(true);\n    }\n\n    function refreshSiteMapLayout() {\n      if (!siteMap) return;\n      const lat = numericValue(\'latInput\');\n      const lon = numericValue(\'lonInput\');\n      siteMap.invalidateSize({ animate: false });\n      siteMap.setView([lat, lon], Math.max(siteMap.getZoom() || 5, 5), { animate: false });\n      if (siteMarker) siteMarker.setLatLng([lat, lon]);\n    }\n\n    function openSitePlanner() {\n      siteModal.classList.add(\'open\');\n      initMapIfNeeded();\n      updateSiteSummary();\n      requestAnimationFrame(refreshSiteMapLayout);\n      setTimeout(refreshSiteMapLayout, 180);\n      setTimeout(refreshSiteMapLayout, 520);\n    }\n\n    function closeSitePlanner() { siteModal.classList.remove(\'open\'); }\n\n    function initFallbackMap() {\n      siteMapEl.innerHTML = \'<div class="fallback-map" id="fallbackMap"></div>\';\n      const fallback = document.getElementById(\'fallbackMap\');\n      fallback.addEventListener(\'click\', event => {\n        const rect = fallback.getBoundingClientRect();\n        const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));\n        const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));\n        const lon = x * 360 - 180;\n        const lat = 90 - y * 180;\n        setSitePosition(lat, lon);\n      });\n    }\n\n    function initMapIfNeeded() {\n      if (siteMap || siteMapEl.dataset.fallbackReady) return;\n      const lat = numericValue(\'latInput\');\n      const lon = numericValue(\'lonInput\');\n      if (!window.L) {\n        siteMapEl.dataset.fallbackReady = \'1\';\n        initFallbackMap();\n        return;\n      }\n      siteMap = L.map(\'siteMap\', {\n        worldCopyJump: true,\n        zoomControl: true,\n        preferCanvas: true\n      }).setView([lat, lon], 5);\n      L.tileLayer(\'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png\', {\n        maxZoom: 19,\n        minZoom: 2,\n        attribution: \'&copy; OpenStreetMap contributors\',\n        updateWhenIdle: false,\n        keepBuffer: 4\n      }).addTo(siteMap);\n      siteMarker = L.marker([lat, lon], { draggable: true, icon: L.divIcon({ className: \'fz-site-marker\', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(siteMap);\n      siteMarker.on(\'dragend\', () => {\n        const pos = siteMarker.getLatLng();\n        setSitePosition(pos.lat, pos.lng);\n      });\n      siteMap.on(\'click\', event => setSitePosition(event.latlng.lat, event.latlng.lng));\n      if (window.ResizeObserver) {\n        const observer = new ResizeObserver(() => refreshSiteMapLayout());\n        observer.observe(siteMapEl);\n      }\n    }\n\n    async function runAstro(endpoint, payload, title) {\n      const pending = addMessage(\'assistant\', \'Running…\', { title });\n      try {\n        const data = await apiJson(endpoint, {\n          method: \'POST\',\n          headers: headers(true),\n          body: JSON.stringify(payload)\n        });\n        const images = fileUrls(data.files || []);\n        pending.classList.add(\'html\');\n        pending.innerHTML = looksLikeHtml(data.text) ? data.text : markdownToHtml(data.text || JSON.stringify(data, null, 2));\n        if (images.length) {\n          const strip = document.createElement(\'div\');\n          strip.className = \'image-strip\';\n          for (const src of images) {\n            const img = document.createElement(\'img\');\n            img.loading = \'lazy\';\n            img.src = src;\n            img.alt = title;\n            img.addEventListener(\'load\', scrollChatToBottom, { once: true });\n            strip.appendChild(img);\n          }\n          pending.parentElement.appendChild(strip);\n        }\n        setStatus([`${escapeHtml(title)} done`]);\n        scrollChatToBottom();\n      } catch (err) {\n        pending.textContent = `Error: ${err.message}`;\n        setStatus([`<span class="bad">${escapeHtml(title)}: ${escapeHtml(err.message)}</span>`]);\n      }\n    }\n\n    async function runDailyNews(refresh = false) {\n      const pending = addMessage(\'assistant\', refresh ? \'Refreshing Daily News…\' : \'Fetching Daily News…\', { title: \'Daily News Brief\' });\n      try {\n        const data = await apiJson(`/api/news/daily?refresh=${refresh ? \'true\' : \'false\'}`, { headers: headers(false) });\n        pending.classList.add(\'html\');\n        pending.innerHTML = markdownToHtml(data.brief || \'\', data.sources || {});\n        const count = Object.keys(data.sources || {}).length;\n        setStatus([`Daily News ready`, `${count} source link(s)`]);\n        scrollChatToBottom();\n      } catch (err) {\n        pending.textContent = `Daily News error: ${err.message}`;\n        setStatus([`<span class="bad">Daily News: ${escapeHtml(err.message)}</span>`]);\n      }\n    }\n\n    document.getElementById(\'refreshModelsBtn\').addEventListener(\'click\', refreshModels);\n    document.getElementById(\'checkStatusBtn\').addEventListener(\'click\', checkStatus);\n    document.getElementById(\'clearBtn\').addEventListener(\'click\', () => { messagesEl.innerHTML = \'\'; });\n    sendBtn.addEventListener(\'click\', sendChat);\n    promptEl.addEventListener(\'keydown\', event => {\n      if (event.key === \'Enter\' && (event.ctrlKey || event.metaKey)) sendChat();\n    });\n\n    document.getElementById(\'dailyNewsBtn\').addEventListener(\'click\', () => runDailyNews(false));\n    document.getElementById(\'lookupBtn\').addEventListener(\'click\', () => runAstro(\'/api/astro/lookup\', {\n      query: document.getElementById(\'lookupQuery\').value.trim() || \'M31\',\n      with_image: true,\n      fov_deg: 2.337\n    }, \'LOOKUP\'));\n    document.getElementById(\'seeingBtn\').addEventListener(\'click\', async () => runAstro(\'/api/astro/seeing\', {\n      ...(await ensureTimezone()),\n      nights: 4\n    }, \'SEEING / Astro Night Planner\'));\n    document.getElementById(\'targetsBtn\').addEventListener(\'click\', async () => runAstro(\'/api/astro/targets\', {\n      ...(await ensureTimezone()),\n      limit: 10,\n      min_alt: 45\n    }, \'TARGETS\'));\n\n    document.getElementById(\'sitePlannerBtn\').addEventListener(\'click\', openSitePlanner);\n    document.getElementById(\'siteCloseBtn\').addEventListener(\'click\', closeSitePlanner);\n    document.getElementById(\'siteApplyBtn\').addEventListener(\'click\', () => { updateSiteSummary(); closeSitePlanner(); });\n    document.getElementById(\'resolveTimezoneBtn\').addEventListener(\'click\', () => resolveTimezoneFromServer(true));\n    document.getElementById(\'useBrowserLocationBtn\').addEventListener(\'click\', () => {\n      if (!navigator.geolocation) {\n        timezoneNote.textContent = \'Browser geolocation is not available.\';\n        return;\n      }\n      timezoneNote.textContent = \'Waiting for browser location permission…\';\n      navigator.geolocation.getCurrentPosition(position => {\n        setSitePosition(position.coords.latitude, position.coords.longitude, position.coords.altitude);\n      }, error => {\n        timezoneNote.textContent = `Location permission failed: ${error.message}`;\n      }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });\n    });\n\n    for (const id of [\'latInput\', \'lonInput\', \'elevInput\', \'tzInput\']) {\n      document.getElementById(id).addEventListener(\'change\', () => {\n        updateSiteSummary();\n        if (id === \'latInput\' || id === \'lonInput\') resolveTimezoneFromServer(true);\n      });\n    }\n\n    siteModal.addEventListener(\'click\', event => {\n      if (event.target === siteModal) closeSitePlanner();\n    });\n    document.addEventListener(\'keydown\', event => {\n      if (event.key === \'Escape\' && siteModal.classList.contains(\'open\')) closeSitePlanner();\n    });\n\n    addMessage(\'system\', \'Use the top toolbar for LOOKUP, Daily News, SEEING, TARGETS, and Site Planner. The chat transcript scrolls independently; Site Planner uses a map and auto-resolves timezone.\');\n    updateSiteSummary();\n    checkStatus();\n    refreshModels();\n  </script>\n</body>\n</html>\n'
+
+    format_runtime_model_unavailable_message,
+    is_local_ollama_base_url,
+    is_ollama_base_url,
+    is_ollama_server_available,
+    is_runtime_connection_error,
+    is_runtime_model_not_found_error,
+    make_runtime_client,
+    normalize_runtime_api_key,
+    normalize_runtime_base_url,
+    should_auto_start_ollama,
+    start_ollama_server_if_available,
+)
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+DEFAULT_WEB_HOST = os.environ.get("FZASTRO_WEB_HOST", "127.0.0.1")
+DEFAULT_WEB_PORT = int(os.environ.get("FZASTRO_WEB_PORT", "7860"))
+
+
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant", "tool"] = "user"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    prompt: str | None = None
+    messages: list[ChatMessage] | None = None
+    model: str = Field(default=DEFAULT_MODEL_NAME, min_length=1)
+    base_url: str | None = None
+    api_key: str | None = None
+    temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+    top_p: float = Field(default=0.95, ge=0.0, le=1.0)
+    think_enabled: bool = True
+    num_predict: int = Field(default=4096, ge=64, le=32768)
+    stream_reasoning: bool = False
+
+
+class AstroLookupRequest(BaseModel):
+    query: str = Field(min_length=1)
+    with_image: bool = False
+    fov_deg: float = Field(default=2.337, gt=0.0, le=20.0)
+
+
+class AstroLocationRequest(BaseModel):
+    lat: float = Field(ge=-90.0, le=90.0)
+    lon: float = Field(ge=-180.0, le=180.0)
+    elev: float = 0.0
+    tz: str | None = None
+
+
+class SiteResolveRequest(AstroLocationRequest):
+    pass
+
+
+class SeeingRequest(AstroLocationRequest):
+    nights: int = Field(default=4, ge=1, le=4)
+
+
+class TargetsRequest(AstroLocationRequest):
+    date: str | None = None
+    limit: int = Field(default=10, ge=1, le=50)
+    min_alt: float = Field(default=45.0, ge=0.0, le=89.0)
+
+
+def _web_token() -> str:
+    return str(os.environ.get("FZASTRO_WEB_TOKEN", "")).strip()
+
+
+def _public_network_enabled() -> bool:
+    value = str(os.environ.get("FZASTRO_WEB_ALLOW_LAN", "0")).strip().casefold()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _request_token(request: Any) -> str:
+    auth_header = str(request.headers.get("authorization", "")).strip()
+
+    if auth_header.casefold().startswith("bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+
+    header_token = str(request.headers.get("x-fzastro-token", "")).strip()
+    if header_token:
+        return header_token
+
+    # Normal fetch() calls send X-FZAstro-Token, but <img src="..."> cannot set
+    # custom headers. Allow image asset URLs to carry the same token as a query
+    # parameter so LOOKUP sky images render in LAN/iPad mode.
+    return str(
+        request.query_params.get("fzastro_token")
+        or request.query_params.get("token")
+        or ""
+    ).strip()
+
+
+def _model_to_dict(value: Any) -> dict[str, Any]:
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+
+    return value.dict()
+
+
+def _messages_from_request(payload: ChatRequest) -> list[dict[str, str]]:
+    if payload.messages:
+        return [_model_to_dict(message) for message in payload.messages]
+
+    clean_prompt = str(payload.prompt or "").strip()
+
+    if not clean_prompt:
+        raise ValueError("No prompt or messages were provided.")
+
+    return [{"role": "user", "content": clean_prompt}]
+
+
+def _reasoning_from_delta(delta: Any, delta_data: dict[str, Any]) -> str:
+    reasoning = (
+        getattr(delta, "thinking", None)
+        or getattr(delta, "reasoning", None)
+        or getattr(delta, "reasoning_content", None)
+    )
+
+    if not reasoning:
+        reasoning = (
+            delta_data.get("thinking")
+            or delta_data.get("reasoning")
+            or delta_data.get("reasoning_content")
+        )
+
+    delta_extra = getattr(delta, "model_extra", None)
+
+    if not reasoning and isinstance(delta_extra, dict):
+        reasoning = (
+            delta_extra.get("thinking")
+            or delta_extra.get("reasoning")
+            or delta_extra.get("reasoning_content")
+        )
+
+    return str(reasoning or "")
+
+
+def _chat_request_params(payload: ChatRequest, *, stream: bool) -> dict[str, Any]:
+    base_url = normalize_runtime_base_url(payload.base_url)
+    request_params: dict[str, Any] = {
+        "model": str(payload.model or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME,
+        "messages": _messages_from_request(payload),
+        "temperature": float(payload.temperature),
+        "top_p": float(payload.top_p),
+        "presence_penalty": 0.2,
+        "stream": bool(stream),
+    }
+
+    if is_ollama_base_url(base_url):
+        request_params["extra_body"] = {
+            "think": bool(payload.think_enabled),
+            "top_k": 20,
+            "options": {
+                "num_predict": int(payload.num_predict),
+                "repeat_penalty": 1.08,
+                "repeat_last_n": 64,
+            },
+        }
+
+    return request_params
+
+
+def _runtime_client_for(payload: ChatRequest):
+    return make_runtime_client(
+        payload.base_url,
+        payload.api_key,
+        timeout=RUNTIME_CHAT_TIMEOUT_SECONDS,
+    )
+
+
+def _sse(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _serialize_astro_result(result: Any) -> dict[str, Any]:
+    try:
+        data = asdict(result)
+    except TypeError:
+        data = {
+            "title": getattr(result, "title", "Astro tool"),
+            "text": getattr(result, "text", str(result)),
+            "files": getattr(result, "files", []),
+            "success": bool(getattr(result, "success", True)),
+            "source": getattr(result, "source", "Astro Tools"),
+            "metadata": getattr(result, "metadata", {}),
+        }
+
+    data["files"] = [str(path) for path in data.get("files") or []]
+    data["metadata"] = data.get("metadata") or {}
+    return data
+
+
+def _maybe_start_local_ollama(base_url: str) -> dict[str, Any]:
+    if not is_local_ollama_base_url(base_url):
+        return {"attempted": False, "available": False, "message": "not local Ollama"}
+
+    if is_ollama_server_available(base_url, timeout=0.8):
+        return {"attempted": False, "available": True, "message": "Ollama is running."}
+
+    if not should_auto_start_ollama():
+        return {
+            "attempted": False,
+            "available": False,
+            "message": "Ollama is not running and auto-start is disabled.",
+        }
+
+    result = start_ollama_server_if_available(base_url, wait_seconds=8.0)
+    return {
+        "attempted": bool(result.attempted_start),
+        "available": bool(result.available),
+        "status": result.status,
+        "message": result.message,
+        "executable": result.executable,
+    }
+
+
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg"}
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _allowed_asset_path(raw_path: str) -> Path:
+    candidate = Path(str(raw_path or "")).expanduser().resolve()
+    allowed_roots = [
+        Path(APP_DIR).resolve(),
+        Path(__file__).resolve().parents[2],
+    ]
+
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="File not found.")
+
+    if candidate.suffix.casefold() not in _IMAGE_SUFFIXES:
+        raise HTTPException(status_code=403, detail="Only image assets can be served.")
+
+    if not any(_is_relative_to(candidate, root) for root in allowed_roots):
+        raise HTTPException(
+            status_code=403, detail="File is outside allowed FZAstro folders."
+        )
+
+    return candidate
+
+
+def _source_sections_from_news_context(context: str) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    item: dict[str, str] | None = None
+
+    def commit_item() -> None:
+        nonlocal item
+        if current is not None and item and item.get("title"):
+            current.setdefault("items", []).append(item)
+        item = None
+
+    for raw_line in str(context or "").splitlines():
+        line = raw_line.strip()
+        if not line or line == "[NEWS HEADLINES]":
+            continue
+        if line.upper() == line and not line.startswith("-") and len(line) <= 64:
+            commit_item()
+            current = {"name": line.title(), "items": []}
+            sections.append(current)
+            continue
+        if line.startswith("- "):
+            commit_item()
+            item = {"title": line[2:].strip()}
+            continue
+        if item is None:
+            continue
+        if line.startswith("SourceID:"):
+            item["source_id"] = line.replace("SourceID:", "", 1).strip()
+        elif line.startswith("SourceName:"):
+            item["source_name"] = line.replace("SourceName:", "", 1).strip()
+        elif line.startswith("SourceURL:"):
+            item["url"] = line.replace("SourceURL:", "", 1).strip()
+        elif line.startswith("Summary:"):
+            item["summary"] = line.replace("Summary:", "", 1).strip()
+    commit_item()
+    return sections
+
+
+def _create_app_impl():
+    async def require_token(
+        request: Request, x_fzastro_token: str | None = Header(None)
+    ):
+        expected = _web_token()
+
+        if not expected:
+            return True
+
+        provided = x_fzastro_token or _request_token(request)
+
+        if provided != expected:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing FZAstro web token.",
+            )
+
+        return True
+
+    app = FastAPI(
+        title="FZAstro AI Web Companion",
+        version="0.1.0",
+        description="Local browser companion for FZAstro AI desktop engine.",
+    )
+
+    @app.get("/", include_in_schema=False)
+    async def index():
+        return HTMLResponse(content=WEB_COMPANION_INDEX_HTML)
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        icon_path = Path(__file__).resolve().parents[2] / "favicon.ico"
+        if icon_path.exists():
+            return FileResponse(icon_path)
+        raise HTTPException(status_code=404, detail="favicon not found")
+
+    @app.get(
+        "/api/assets/file",
+        dependencies=[Depends(require_token)],
+        include_in_schema=False,
+    )
+    async def asset_file(path: str):
+        return FileResponse(_allowed_asset_path(path))
+
+    @app.get("/api/health")
+    async def health():
+        return {
+            "ok": True,
+            "app": APP_NAME,
+            "version": APP_VERSION,
+            "label": APP_VERSION_LABEL,
+            "web_companion": "0.1.0",
+            "auth_required": bool(_web_token()),
+            "lan_enabled": _public_network_enabled(),
+            "time": int(time.time()),
+        }
+
+    @app.get("/api/status", dependencies=[Depends(require_token)])
+    async def status_endpoint():
+        base_url = normalize_runtime_base_url(BASE_URL)
+        ollama_available = is_ollama_server_available(base_url, timeout=0.8)
+        return {
+            "app": APP_NAME,
+            "label": APP_VERSION_LABEL,
+            "default_model": DEFAULT_MODEL_NAME,
+            "base_url": base_url,
+            "local_ollama": is_local_ollama_base_url(base_url),
+            "ollama_available": ollama_available,
+            "auth_required": bool(_web_token()),
+            "lan_enabled": _public_network_enabled(),
+        }
+
+    @app.get("/api/models", dependencies=[Depends(require_token)])
+    async def models_endpoint(base_url: str | None = None, api_key: str | None = None):
+        clean_base_url = normalize_runtime_base_url(base_url)
+        _maybe_start_local_ollama(clean_base_url)
+
+        try:
+            client = make_runtime_client(clean_base_url, api_key, timeout=12.0)
+            response = await run_in_threadpool(client.models.list)
+            models = sorted(
+                {str(model.id).strip() for model in response.data if model.id},
+                key=str.casefold,
+            )
+            return {"models": models or [DEFAULT_MODEL_NAME]}
+        except Exception as exc:
+            if is_runtime_connection_error(exc):
+                log_warning("Web companion model discovery provider unavailable", exc)
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "models": [DEFAULT_MODEL_NAME],
+                        "error": (
+                            "Model provider unavailable. Start Ollama or check "
+                            "the runtime URL."
+                        ),
+                    },
+                )
+
+            log_exception("Web companion model discovery failed", exc)
+            return JSONResponse(
+                status_code=500,
+                content={"models": [DEFAULT_MODEL_NAME], "error": str(exc)},
+            )
+
+    @app.post("/api/chat", dependencies=[Depends(require_token)])
+    async def chat_endpoint(payload: ChatRequest):
+        clean_base_url = normalize_runtime_base_url(payload.base_url)
+        _maybe_start_local_ollama(clean_base_url)
+
+        try:
+            client = _runtime_client_for(payload)
+            response = await run_in_threadpool(
+                client.chat.completions.create,
+                **_chat_request_params(payload, stream=False),
+            )
+            content = response.choices[0].message.content if response.choices else ""
+            return {"text": content or "", "model": payload.model}
+        except Exception as exc:
+            if is_runtime_model_not_found_error(exc):
+                raise HTTPException(
+                    status_code=404,
+                    detail=format_runtime_model_unavailable_message(
+                        payload.model, payload.base_url
+                    ),
+                ) from exc
+
+            if is_runtime_connection_error(exc):
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Model provider unavailable. Start Ollama or check "
+                        "the runtime URL."
+                    ),
+                ) from exc
+
+            log_exception("Web companion chat failed", exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.post("/api/chat/stream", dependencies=[Depends(require_token)])
+    async def chat_stream_endpoint(payload: ChatRequest):
+        def generate() -> Iterable[str]:
+            clean_base_url = normalize_runtime_base_url(payload.base_url)
+            start_info = _maybe_start_local_ollama(clean_base_url)
+            yield _sse("status", {"message": start_info.get("message", "Starting")})
+
+            full_text = ""
+            reasoning_text = ""
+
+            try:
+                client = _runtime_client_for(payload)
+                stream = client.chat.completions.create(
+                    **_chat_request_params(payload, stream=True)
+                )
+
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+
+                    delta = chunk.choices[0].delta
+
+                    try:
+                        delta_data = delta.model_dump()
+                    except Exception:
+                        delta_data = {}
+
+                    reasoning = _reasoning_from_delta(delta, delta_data)
+                    content = getattr(delta, "content", None) or delta_data.get(
+                        "content"
+                    )
+
+                    if reasoning:
+                        reasoning_text += reasoning
+                        if payload.stream_reasoning:
+                            yield _sse("reasoning", {"text": reasoning})
+
+                    if content:
+                        full_text += str(content)
+                        yield _sse("token", {"text": str(content)})
+
+                yield _sse(
+                    "done",
+                    {
+                        "text": full_text,
+                        "reasoning_chars": len(reasoning_text),
+                        "model": payload.model,
+                    },
+                )
+            except Exception as exc:
+                if is_runtime_model_not_found_error(exc):
+                    message = format_runtime_model_unavailable_message(
+                        payload.model, payload.base_url
+                    )
+                elif is_runtime_connection_error(exc):
+                    message = (
+                        "Model provider unavailable. Start Ollama or check "
+                        "the runtime URL."
+                    )
+                else:
+                    log_exception("Web companion streaming chat failed", exc)
+                    message = str(exc)
+
+                yield _sse("error", {"message": message})
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    @app.post("/api/location/resolve", dependencies=[Depends(require_token)])
+    async def location_resolve_endpoint(payload: SiteResolveRequest):
+        from ..astro_tools.engine import _resolve_timezone
+
+        lat = max(-90.0, min(90.0, float(payload.lat)))
+        lon = max(-180.0, min(180.0, float(payload.lon)))
+        fallback_tz = str(payload.tz or "").strip() or "UTC"
+        timezone_name = _resolve_timezone(lat, lon, fallback_tz)
+
+        try:
+            local_time = datetime.now(ZoneInfo(timezone_name)).strftime(
+                "%Y-%m-%d %H:%M"
+            )
+        except Exception:
+            timezone_name = "UTC"
+            local_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+
+        return {
+            "lat": lat,
+            "lon": lon,
+            "elev": float(payload.elev or 0.0),
+            "timezone": timezone_name,
+            "local_time": local_time,
+        }
+
+    @app.get("/api/news/daily", dependencies=[Depends(require_token)])
+    async def daily_news_endpoint(refresh: bool = False):
+        from ..news_tools import (
+            build_deterministic_daily_news_brief,
+            parse_news_sources,
+            perform_daily_news_search,
+        )
+
+        if refresh:
+            try:
+                DAILY_NEWS_CACHE_FILE.unlink(missing_ok=True)
+            except Exception as exc:
+                log_warning("Web companion daily news cache refresh failed", exc)
+
+        try:
+            context = await run_in_threadpool(perform_daily_news_search)
+            brief = build_deterministic_daily_news_brief(context)
+            return {
+                "title": "Daily News Brief",
+                "brief": brief,
+                "sources": parse_news_sources(context),
+                "sections": _source_sections_from_news_context(context),
+                "generated_at": int(time.time()),
+            }
+        except Exception as exc:
+            log_exception("Web companion daily news failed", exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @app.get("/api/astro/tools", dependencies=[Depends(require_token)])
+    async def astro_tools_endpoint():
+        return {
+            "tools": [
+                {
+                    "id": "lookup",
+                    "name": "LOOKUP",
+                    "description": (
+                        "Resolve an astronomy object and return coordinates/details."
+                    ),
+                },
+                {
+                    "id": "seeing",
+                    "name": "SEEING / Astro Night Planner",
+                    "description": (
+                        "Forecast cloud, moon, darkness, wind, and imaging score."
+                    ),
+                },
+                {
+                    "id": "targets",
+                    "name": "TARGETS",
+                    "description": (
+                        "Find astrophotography targets for a location and date."
+                    ),
+                },
+            ]
+        }
+
+    @app.post("/api/astro/lookup", dependencies=[Depends(require_token)])
+    async def astro_lookup_endpoint(payload: AstroLookupRequest):
+        from ..astro_tools.engine import lookup_object
+
+        result = await run_in_threadpool(
+            lookup_object,
+            payload.query,
+            with_image=payload.with_image,
+            fov_deg=payload.fov_deg,
+        )
+        return _serialize_astro_result(result)
+
+    @app.post("/api/astro/seeing", dependencies=[Depends(require_token)])
+    async def astro_seeing_endpoint(payload: SeeingRequest):
+        from ..astro_tools.engine import observing_forecast
+
+        result = await run_in_threadpool(
+            observing_forecast,
+            payload.lat,
+            payload.lon,
+            elev=payload.elev,
+            tz=payload.tz,
+            nights=payload.nights,
+        )
+        return _serialize_astro_result(result)
+
+    @app.post("/api/astro/targets", dependencies=[Depends(require_token)])
+    async def astro_targets_endpoint(payload: TargetsRequest):
+        from ..astro_tools.engine import best_targets
+
+        result = await run_in_threadpool(
+            best_targets,
+            payload.lat,
+            payload.lon,
+            elev=payload.elev,
+            date=payload.date,
+            limit=payload.limit,
+            min_alt=payload.min_alt,
+            tz=payload.tz,
+        )
+        return _serialize_astro_result(result)
+
+    return app
+
+
+def _web_index_path() -> Path:
+    """Return the packaged or source Web Companion index.html path."""
+    candidates = []
+
+    # Normal source/dev path.
+    candidates.append(Path(__file__).resolve().parent / "static" / "index.html")
+
+    # PyInstaller one-file extraction path.
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        candidates.append(
+            Path(mei) / "fzastro_ai" / "web_companion" / "static" / "index.html"
+        )
+
+    # PyInstaller/current working directory fallback.
+    candidates.append(
+        Path.cwd() / "fzastro_ai" / "web_companion" / "static" / "index.html"
+    )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    # Return first candidate so the error message is still useful.
+    return candidates[0]
+
+
+def create_app():
+    return _create_app_impl()
+
+
+app = create_app()
