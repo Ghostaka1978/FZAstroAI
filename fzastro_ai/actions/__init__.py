@@ -5,6 +5,7 @@ from .python_actions import PythonActionsMixin
 from .market_actions import MarketActionsMixin
 from .web_news_actions import WebNewsActionsMixin
 from .astro_actions import AstroActionsMixin
+from .voice_actions import VoiceActionsMixin
 
 __all__ = [
     "ChatLifecycleMixin",
@@ -12,4 +13,5 @@ __all__ = [
     "MarketActionsMixin",
     "WebNewsActionsMixin",
     "AstroActionsMixin",
+    "VoiceActionsMixin",
 ]

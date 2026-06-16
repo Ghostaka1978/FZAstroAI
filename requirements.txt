@@ -31,3 +31,7 @@ pytest>=8.0,<9
 
 # Code formatter used before builds and checked during validation
 black>=24.10,<26
+
+# Optional offline push-to-talk voice commands
+vosk>=0.3.45,<0.4
+sounddevice>=0.5,<0.6

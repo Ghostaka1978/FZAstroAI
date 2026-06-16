@@ -2,6 +2,10 @@ param(
     [string]$ProjectRoot = $PSScriptRoot,
     [string]$PythonExe = $env:FZASTRO_PYTHON,
     [string]$BuildRoot = "",
+    [string]$VoiceModelsRoot = $env:FZASTRO_VOICE_MODELS_DIR,
+    [string]$VoiceModelZip = "",
+    [switch]$SkipOfflineVoiceSetup,
+    [switch]$PersistVoiceEnvironment,
     [switch]$SkipDependencyInstall,
     [switch]$SkipFormat,
     [switch]$SkipValidationPrompt,
@@ -154,6 +158,31 @@ function Set-FZAstroBuildEnvironment {
     }
 }
 
+function Invoke-OfflineVoiceSetup {
+    param(
+        [string]$Root,
+        [string]$ModelsRoot,
+        [string]$ModelZipPath,
+        [switch]$PersistEnvironment,
+        [switch]$VerboseOutput
+    )
+
+    $VoiceSetupScript = Join-Path $Root "install_offline_voice.ps1"
+    if (-not (Test-Path $VoiceSetupScript)) {
+        throw "Offline voice setup script not found: $VoiceSetupScript"
+    }
+
+    $VoiceParams = @{}
+    if ($ModelsRoot) { $VoiceParams["VoiceModelsRoot"] = $ModelsRoot }
+    if ($ModelZipPath) { $VoiceParams["ModelZip"] = $ModelZipPath }
+    if ($PersistEnvironment) { $VoiceParams["PersistEnvironment"] = $true }
+    if ($VerboseOutput) { $VoiceParams["VerboseOutput"] = $true }
+
+    & $VoiceSetupScript @VoiceParams
+    if (-not $?) { throw "Offline voice setup failed." }
+}
+
+
 function ConvertTo-NativeArgumentLine {
     param([string[]]$Arguments)
 
@@ -261,7 +290,15 @@ Write-Host "Project: $ProjectRoot"
 Write-Host "Build:   $BuildRoot"
 Write-Host "Logs:    $LogDir"
 Write-Host ""
-Initialize-StageProgress -Activity "FZAstro AI deploy" -TotalSteps 1
+Initialize-StageProgress -Activity "FZAstro AI deploy" -TotalSteps 2
+if ($SkipOfflineVoiceSetup) {
+    Show-StageStep "Offline voice setup skipped"
+}
+else {
+    Show-StageStep "Offline voice model setup"
+    Invoke-OfflineVoiceSetup -Root $ProjectRoot -ModelsRoot $VoiceModelsRoot -ModelZipPath $VoiceModelZip -PersistEnvironment:$PersistVoiceEnvironment -VerboseOutput:$VerboseOutput
+}
+
 Show-StageStep "Clean/build workflow"
 
 $CleanParams = @{

@@ -2,13 +2,25 @@
 
 import importlib.resources as resources
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 astro_datas = []
 for package_name in ("astroquery", "astropy", "skyfield"):
     astro_datas += collect_data_files(package_name)
 
 playwright_datas = collect_data_files("playwright")
+
+voice_datas = []
+voice_binaries = []
+for package_name in ("vosk", "sounddevice", "_sounddevice_data"):
+    try:
+        voice_datas += collect_data_files(package_name)
+    except Exception:
+        pass
+    try:
+        voice_binaries += collect_dynamic_libs(package_name)
+    except Exception:
+        pass
 
 # Explicitly include Astropy SAMP data. If these files are missing in a
 # frozen app, Astropy falls back to old data.astropy.org URLs such as
@@ -52,7 +64,9 @@ for simbad_filename in ("query_criteria_fields.json",):
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=[
+        *voice_binaries,
+    ],
     datas=[
         ('favicon.ico', '.'),
         ('fzastro_ai/astro_tools/fzastro', 'fzastro_ai/astro_tools/fzastro'),
@@ -60,8 +74,14 @@ a = Analysis(
         ('fzastro_ai/resources/astropy_samp', 'fzastro_ai/resources/astropy_samp'),
         *astro_datas,
         *playwright_datas,
+        *voice_datas,
     ],
-    hiddenimports=[],
+    hiddenimports=[
+        "vosk",
+        "sounddevice",
+        "_sounddevice",
+        "_sounddevice_data",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

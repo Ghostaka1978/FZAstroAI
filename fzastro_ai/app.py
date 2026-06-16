@@ -21,7 +21,17 @@ from pathlib import Path
 
 import requests
 
-from PySide6.QtCore import QPoint, QPropertyAnimation, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import (
+    QPoint,
+    QPropertyAnimation,
+    QRectF,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -30,6 +40,7 @@ from PySide6.QtGui import (
     QKeySequence,
     QDesktopServices,
     QPainter,
+    QPen,
     QPixmap,
     QTextCursor,
 )
@@ -252,6 +263,7 @@ from .actions import (
     PythonActionsMixin,
     WebNewsActionsMixin,
     AstroActionsMixin,
+    VoiceActionsMixin,
 )
 from .file_tools import (
     IMAGE_FILE_EXTENSIONS,
@@ -779,6 +791,31 @@ def is_experimental_vision_model(model_name):
     )
 
 
+def make_microphone_icon(color="#e8ebef"):
+    """Create a compact monochrome microphone icon for the composer button."""
+
+    pixmap = QPixmap(28, 28)
+    pixmap.fill(Qt.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+
+    pen = QPen(QColor(color))
+    pen.setWidth(2)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+
+    painter.drawRoundedRect(QRectF(10.0, 4.0, 8.0, 14.0), 4.0, 4.0)
+    painter.drawArc(QRectF(6.5, 10.0, 15.0, 11.0), 200 * 16, 140 * 16)
+    painter.drawLine(14, 21, 14, 24)
+    painter.drawLine(10, 24, 18, 24)
+    painter.end()
+
+    return QIcon(pixmap)
+
+
 class FZAstroAI(
     ShutdownControllerMixin,
     AttachmentControlsMixin,
@@ -788,6 +825,7 @@ class FZAstroAI(
     MarketActionsMixin,
     WebNewsActionsMixin,
     AstroActionsMixin,
+    VoiceActionsMixin,
     QMainWindow,
 ):
     # History and persistent-memory UI methods are implemented in fzastro_ai.ui modules.
@@ -949,6 +987,7 @@ class FZAstroAI(
         self.ollama_restart_worker = None
         self.python_worker = None
         self.astro_worker = None
+        self.voice_worker = None
         self.gpu_monitor = None
         self._busy_control_states = []
         self.stop_in_progress = False
@@ -1696,6 +1735,20 @@ class FZAstroAI(
         self.action_button.setIcon(QIcon())
         self.action_button.clicked.connect(self.action_button_clicked)
 
+        self._voice_icon_idle = make_microphone_icon("#e8ebef")
+        self._voice_icon_recording = make_microphone_icon("#ffe2e6")
+        self.voice_button = QPushButton("")
+        self.voice_button.setObjectName("voiceButton")
+        self.voice_button.setFixedSize(composer_control_height, composer_control_height)
+        self.voice_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.voice_button.setCursor(Qt.PointingHandCursor)
+        self.voice_button.setToolTip("Offline push-to-talk voice command")
+        self.voice_button.setAccessibleName("Offline voice command")
+        self.voice_button.setCheckable(True)
+        self.voice_button.setIcon(self._voice_icon_idle)
+        self.voice_button.setIconSize(QSize(24, 24))
+        self.voice_button.clicked.connect(self.toggle_offline_voice_command)
+
         composer_toolbar = QFrame()
         composer_toolbar.setObjectName("composerToolbar")
         composer_toolbar_layout = QHBoxLayout(composer_toolbar)
@@ -1777,6 +1830,7 @@ class FZAstroAI(
         input_row.setAlignment(Qt.AlignVCenter)
         input_row.addWidget(self.attach_button, 0, Qt.AlignVCenter)
         input_row.addWidget(self.input_box, 1, Qt.AlignVCenter)
+        input_row.addWidget(self.voice_button, 0, Qt.AlignVCenter)
         input_row.addWidget(self.action_button, 0, Qt.AlignVCenter)
 
         self.thought_panel = QFrame()

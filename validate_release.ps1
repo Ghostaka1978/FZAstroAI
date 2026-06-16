@@ -347,6 +347,8 @@ function Assert-ReleaseManifest {
         "FZAstroAI.exe",
         "README.md",
         "RELEASE_VALIDATION.md",
+        "OFFLINE_VOICE_COMMANDS.md",
+        "install_offline_voice.ps1",
         "requirements.txt",
         "VERSION.txt",
         "release_manifest.txt"
@@ -366,7 +368,7 @@ function Assert-ReleaseManifest {
 
     $manifestPath = Join-Path $ReleaseDirectory "release_manifest.txt"
     $manifestText = Get-Content -Path $manifestPath -Raw
-    foreach ($requiredField in @("Generated:", "ProjectRoot:", "Python:", "BuildRoot:", "Version:", "EXE:", "SizeMB:", "SHA256:")) {
+    foreach ($requiredField in @("Generated:", "ProjectRoot:", "Python:", "BuildRoot:", "Version:", "VoiceModelsRoot:", "VoskModel:", "EXE:", "SizeMB:", "SHA256:")) {
         if ($manifestText -notmatch [regex]::Escape($requiredField)) {
             throw "release_manifest.txt is missing required field: $requiredField"
         }
@@ -409,6 +411,9 @@ function Assert-PyInstallerResourceConfiguration {
         "astropy",
         "skyfield",
         "playwright",
+        "vosk",
+        "sounddevice",
+        "_sounddevice_data",
         "astroquery\simbad\data",
         "astropy\samp\data",
         "astropy\vo\samp\data"
@@ -496,6 +501,7 @@ modules = [
     "PySide6", "openai", "requests", "bs4", "ddgs", "playwright",
     "markdown", "pygments", "PyPDF2", "fitz", "PIL", "pytesseract", "openpyxl", "PyInstaller",
     "astropy", "astroquery", "numpy", "matplotlib", "skyfield", "black",
+    "vosk", "sounddevice",
     "fzastro_ai.ui.llm_benchmark_dialog"
 ]
 for name in modules:

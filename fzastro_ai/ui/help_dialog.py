@@ -288,6 +288,34 @@ Workspace: New chat, History, Active context, Diagnostics, Help, About, GitHub r
 
 Prompt actions are inserted into the composer and are not sent automatically. Use **Code Lab** or **Add → Paste code** for Python, logs, JSON, shell commands, tracebacks, and config files. Python Run actions execute through the existing local Python runner.
 
+## Offline voice commands
+
+Use the **Voice** button beside the composer for local push-to-talk commands. This feature uses optional Vosk + sounddevice packages and does not send microphone audio to a cloud service.
+
+```text
+open seeing
+show targets
+solar map
+sun now
+site settings
+imaging settings
+open help
+model benchmark
+lookup M31
+lookup Andromeda
+lookup North America Nebula
+```
+
+Safe UI-opening commands execute immediately. Uncertain speech is inserted into the composer for review instead of being sent.
+
+Setup:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install vosk sounddevice
+```
+
+Extract a Vosk model to `%APPDATA%\FZAstroAIoice_models\` or set `FZASTRO_VOSK_MODEL` to the extracted model folder.
+
 ## 14. Document Knowledge Library
 
 Use the Document Knowledge Library for imported PDFs, books, notes, manuals, and technical documents.

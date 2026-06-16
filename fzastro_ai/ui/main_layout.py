@@ -133,6 +133,8 @@ class MainLayoutMixin:
         self.set_action_button_mode("send")
         self.input_box.setEnabled(True)
         self.attach_button.setEnabled(True)
+        if hasattr(self, "voice_button"):
+            self.voice_button.setEnabled(True)
         self.new_chat_button.setEnabled(True)
         self.history_button.setEnabled(True)
         self.help_button.setEnabled(True)

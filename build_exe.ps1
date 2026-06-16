@@ -650,7 +650,8 @@ import importlib
 modules = [
     "PySide6", "openai", "requests", "bs4", "ddgs", "playwright",
     "markdown", "pygments", "PyPDF2", "fitz", "PIL", "pytesseract", "openpyxl", "PyInstaller",
-    "astropy", "astroquery", "numpy", "matplotlib", "skyfield", "black"
+    "astropy", "astroquery", "numpy", "matplotlib", "skyfield", "black",
+    "vosk", "sounddevice"
 ]
 missing = []
 for name in modules:
@@ -772,6 +773,12 @@ $PyInstallerArgs = @(
     "--collect-data", "astropy",
     "--collect-data", "skyfield",
     "--collect-data", "playwright",
+    "--collect-all", "vosk",
+    "--collect-all", "sounddevice",
+    "--hidden-import", "vosk",
+    "--hidden-import", "sounddevice",
+    "--hidden-import", "_sounddevice",
+    "--hidden-import", "_sounddevice_data",
     "--distpath", $DistDir,
     "--workpath", $WorkDir,
     "--specpath", $SpecDir,
@@ -797,6 +804,8 @@ Show-StageStep "Prepare release folder"
 Copy-Item -Force $FinalExe $ReleaseExe
 Copy-Item -Force (Join-Path $ProjectRoot "README.md") $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $ProjectRoot "RELEASE_VALIDATION.md") $ReleaseDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $ProjectRoot "OFFLINE_VOICE_COMMANDS.md") $ReleaseDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $ProjectRoot "install_offline_voice.ps1") $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $RequirementsFile $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $VersionFile $ReleaseDir -ErrorAction SilentlyContinue
 
@@ -814,6 +823,8 @@ ProjectRoot: $ProjectRoot
 Python: $ResolvedPython
 BuildRoot: $BuildRoot
 Version: $VersionText
+VoiceModelsRoot: $env:FZASTRO_VOICE_MODELS_DIR
+VoskModel: $env:FZASTRO_VOSK_MODEL
 EXE: $ReleaseExe
 SizeMB: $SizeMB
 SHA256: $Hash

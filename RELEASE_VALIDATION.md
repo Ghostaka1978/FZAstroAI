@@ -191,6 +191,7 @@ The EXE bundles the Python app through PyInstaller, but these tools are external
 
 - Ollama and downloaded models. The app may auto-start an installed local Ollama server for `http://localhost:11434/v1`, but it does not install Ollama or pull models.
 - Bundled Playwright Chromium, or installed Edge/Chrome fallback for browser-backed web capture.
+- Offline voice model installed by `install_offline_voice.ps1`, normally under `%APPDATA%\FZAstroAI\voice_models`, or pointed to by `FZASTRO_VOSK_MODEL`.
 - Tesseract OCR, if OCR is needed.
 - A real local Python interpreter, if EXE Python execution or migrated ASTRO subprocess tools are needed.
 
@@ -198,6 +199,12 @@ For Python execution inside the EXE, set:
 
 ```powershell
 $env:FZASTRO_PYTHON=".\.venv\Scripts\python.exe"
+```
+
+For offline voice model setup from the project root, run:
+
+```powershell
+.\install_offline_voice.ps1 -PersistEnvironment
 ```
 
 For portable/test runtime data, set:

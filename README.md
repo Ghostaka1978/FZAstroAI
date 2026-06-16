@@ -136,11 +136,13 @@ Use the single release workflow command from the project root:
 powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 ```
 
-`deploy.ps1` calls `clean_build.ps1`, and `clean_build.ps1` starts `build_exe.ps1` automatically after cleaning previous build/cache output. At the end of a successful build, the build script displays a validation prompt asking whether to run `validate_release.ps1` immediately.
+`deploy.ps1` first prepares the offline voice model through `install_offline_voice.ps1`, then calls `clean_build.ps1`; `clean_build.ps1` starts `build_exe.ps1` automatically after cleaning previous build/cache output. Use `-SkipOfflineVoiceSetup` only when you intentionally want to skip Vosk model setup. At the end of a successful build, the build script displays a validation prompt asking whether to run `validate_release.ps1` immediately.
+
+Offline voice is icon-only in the composer. Click the microphone, speak, then pause; FZAstro AI auto-processes after silence. Say `what can I say` to open the grouped command guide. Voice now routes through the central Skill registry, so Daily News, Astro tools, Knowledge, Code Lab, Model Lab, Workspace, and market actions can be invoked through short phrases while risky actions ask for confirmation.
 
 Release build output is written one folder above the project root under `..\FZAstroAI_BUILD`. The scripts use `FZASTRO_PROJECT_ROOT`, `FZASTRO_BUILD_ROOT`, and `FZASTRO_PYTHON` to keep the build, validation, and packaged EXE launch deterministic.
 
-The deploy/build/validation scripts use a quiet progress display by default. They show a progress bar and the current cleanup, build, and validation stage while sending noisy pip, pytest, Black, and PyInstaller output to `..\FZAstroAI_BUILD\logs`. Use `-VerboseOutput` when full live command output is needed.
+The deploy/build/validation scripts use a quiet progress display by default. They show a progress bar and the current cleanup, build, offline voice setup, and validation stage while sending noisy pip, pytest, Black, and PyInstaller output to `..\FZAstroAI_BUILD\logs`. Use `-VerboseOutput` when full live command output is needed.
 
 The packaged release folder includes:
 
@@ -148,12 +150,14 @@ The packaged release folder includes:
 FZAstroAI.exe
 README.md
 RELEASE_VALIDATION.md
+OFFLINE_VOICE_COMMANDS.md
+install_offline_voice.ps1
 requirements.txt
 VERSION.txt
 release_manifest.txt
 ```
 
-The `release_manifest.txt` contains the EXE path, size, and SHA256 hash. `validate_release.ps1` verifies the release manifest, PyInstaller resource configuration, release artifact hygiene, and EXE smoke launch with isolated `smoke_appdata` through `FZASTRO_APP_DIR`. The pytest suite also includes optional GUI startup smoke coverage when PySide6 is installed.
+The `release_manifest.txt` contains the EXE path, size, SHA256 hash, and offline voice model environment information. `validate_release.ps1` verifies the release manifest, PyInstaller resource configuration, release artifact hygiene, and EXE smoke launch with isolated `smoke_appdata` through `FZASTRO_APP_DIR`. The pytest suite also includes optional GUI startup smoke coverage when PySide6 is installed.
 
 ## Python version policy
 
