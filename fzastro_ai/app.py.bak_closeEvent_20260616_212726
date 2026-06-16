@@ -2280,6 +2280,15 @@ class FZAstroAI(
         if start_button is not None:
             start_button.setEnabled(not status.running)
 
+    def closeEvent(self, event):
+        try:
+            if getattr(self, "web_companion", None) is not None:
+                self.web_companion.stop()
+        except Exception as exc:
+            log_exception("FZAstroAI.closeEvent web companion stop", exc)
+
+        super().closeEvent(event)
+
     def open_document_knowledge_library(self):
         dialog = QDialog(self)
         apply_window_defaults(dialog)

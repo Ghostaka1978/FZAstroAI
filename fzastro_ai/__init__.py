@@ -1,11 +1,7 @@
-"""FZAstro AI modular package.
-
-Keep package import lightweight so startup/import smoke tests can run without
-loading PySide6 UI modules or optional voice dependencies.
-"""
+"""FZAstro AI package metadata."""
 
 from __future__ import annotations
 
-from .config import APP_VERSION as __version__
+__version__ = "1.0.0"
 
 __all__ = ["__version__"]

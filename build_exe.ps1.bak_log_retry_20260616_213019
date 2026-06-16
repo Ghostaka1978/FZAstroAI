@@ -12,43 +12,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Write-BuildLog {
-    param(
-        [Parameter(Mandatory=$true)][string]$Path,
-        [Parameter(Mandatory=$false)][AllowNull()][object]$Value
-    )
-
-    $text = [string]$Value
-    $dir = Split-Path -Parent $Path
-    if ($dir -and -not (Test-Path $dir)) {
-        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-    }
-
-    for ($i = 1; $i -le 40; $i++) {
-        try {
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($text + [Environment]::NewLine)
-            $fs = [System.IO.File]::Open(
-                $Path,
-                [System.IO.FileMode]::Append,
-                [System.IO.FileAccess]::Write,
-                [System.IO.FileShare]::ReadWrite
-            )
-            try {
-                $fs.Write($bytes, 0, $bytes.Length)
-            } finally {
-                $fs.Dispose()
-            }
-            return
-        } catch {
-            Start-Sleep -Milliseconds (150 + ($i * 25))
-        }
-    }
-
-    # Final fallback: do not fail the whole build only because Dropbox locked the log.
-    Write-Warning "Could not write to build log after retries: $Path"
-}
-
-
 
 function Initialize-StageProgress {
     param(
@@ -233,8 +196,8 @@ function Invoke-NativeCommand {
     }
 
     $argumentLine = ConvertTo-NativeArgumentLine -Arguments $Arguments
-    Write-BuildLog -Path $LogPath -Value "`n[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Description"
-    Write-BuildLog -Path $LogPath -Value ("COMMAND: {0} {1}" -f $CommandPath, $argumentLine)
+    Add-Content -Path $LogPath -Value "`n[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Description"
+    Add-Content -Path $LogPath -Value ("COMMAND: {0} {1}" -f $CommandPath, $argumentLine)
 
     $tempBase = Join-Path $logDirectory ([Guid]::NewGuid().ToString("N"))
     $stdoutPath = "$tempBase.stdout.log"
@@ -248,17 +211,17 @@ function Invoke-NativeCommand {
         if (Test-Path $stderrPath) { $stderrText = Get-Content -Path $stderrPath -Raw -ErrorAction SilentlyContinue }
 
         if ($stdoutText) {
-            Write-BuildLog -Path $LogPath -Value "`n[stdout]"
-            Write-BuildLog -Path $LogPath -Value $stdoutText
+            Add-Content -Path $LogPath -Value "`n[stdout]"
+            Add-Content -Path $LogPath -Value $stdoutText
             if ($VerboseOutput) { Write-Host $stdoutText }
         }
         if ($stderrText) {
-            Write-BuildLog -Path $LogPath -Value "`n[stderr]"
-            Write-BuildLog -Path $LogPath -Value $stderrText
+            Add-Content -Path $LogPath -Value "`n[stderr]"
+            Add-Content -Path $LogPath -Value $stderrText
             if ($VerboseOutput) { Write-Host $stderrText }
         }
 
-        Write-BuildLog -Path $LogPath -Value ("EXIT CODE: {0}" -f $process.ExitCode)
+        Add-Content -Path $LogPath -Value ("EXIT CODE: {0}" -f $process.ExitCode)
         return [int]$process.ExitCode
     }
     finally {
@@ -547,7 +510,7 @@ function Install-PlaywrightChromiumBrowser {
     }
 
     if (Test-PlaywrightChromiumPayload -BrowsersDir $LocalBrowsersDir) {
-        Write-BuildLog -Path $BuildLog -Value "Playwright package-local Chromium payload found: $LocalBrowsersDir"
+        Add-Content -Path $BuildLog -Value "Playwright package-local Chromium payload found: $LocalBrowsersDir"
         return $LocalBrowsersDir
     }
 
@@ -557,7 +520,7 @@ function Install-PlaywrightChromiumBrowser {
     # fail loudly if the payload is still unavailable.
     $CacheBrowsersDir = Resolve-PlaywrightCacheBrowsersDir -PythonExe $PythonExe
     if (Copy-PlaywrightCacheToLocalBrowsers -SourceDir $CacheBrowsersDir -DestinationDir $LocalBrowsersDir) {
-        Write-BuildLog -Path $BuildLog -Value "Copied Playwright browser cache from $CacheBrowsersDir to package-local $LocalBrowsersDir."
+        Add-Content -Path $BuildLog -Value "Copied Playwright browser cache from $CacheBrowsersDir to package-local $LocalBrowsersDir."
     }
 
     if (Test-PlaywrightChromiumPayload -BrowsersDir $LocalBrowsersDir) {
@@ -644,7 +607,7 @@ if (-not $SkipDependencyInstall) {
 }
 else {
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-    Write-BuildLog -Path $BuildLog -Value "Dependency install skipped."
+    Add-Content -Path $BuildLog -Value "Dependency install skipped."
 }
 
 Show-StageStep "Install Playwright Chromium browser"
@@ -654,7 +617,7 @@ if (-not $SkipPlaywrightBrowserInstall) {
 }
 else {
     Write-Warning "Playwright Chromium browser install skipped. Frozen webpage screenshot/extraction will rely on installed Edge/Chrome fallback."
-    Write-BuildLog -Path $BuildLog -Value "Playwright Chromium browser install skipped."
+    Add-Content -Path $BuildLog -Value "Playwright Chromium browser install skipped."
 }
 
 Show-StageStep "Formatting source with Black before build"

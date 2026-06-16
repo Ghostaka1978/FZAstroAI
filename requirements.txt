@@ -35,3 +35,7 @@ black>=24.10,<26
 # Optional offline push-to-talk voice commands
 vosk>=0.3.45,<0.4
 sounddevice>=0.5,<0.6
+# Optional browser Web Companion backend
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+

@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FZAstro AI Web Companion</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIINfQFq9K33D1lzROQBAruBq9Ur8t5YcNs=" crossorigin="" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #06101a;
+      --panel: rgba(11, 24, 37, 0.94);
+      --panel2: rgba(16, 34, 53, 0.94);
+      --panel3: rgba(255, 255, 255, 0.045);
+      --text: #edf5ff;
+      --muted: #96aabe;
+      --line: #20384f;
+      --line-soft: rgba(120, 188, 255, 0.18);
+      --accent: #78bcff;
+      --accent2: #a58cff;
+      --bad: #ff8c8c;
+      --good: #9ee6a8;
+      --warn: #f7d47c;
+      --shadow: 0 20px 55px rgba(0, 0, 0, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 10% 0%, rgba(91, 151, 218, 0.26), transparent 34rem),
+        radial-gradient(circle at 92% 100%, rgba(116, 82, 191, 0.22), transparent 35rem),
+        linear-gradient(180deg, #071019, #050b12 68%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header.app-header {
+      display: flex;
+      gap: 1rem;
+      justify-content: space-between;
+      align-items: center;
+      min-height: 3.8rem;
+      padding: 0.72rem clamp(0.8rem, 1.8vw, 1.3rem);
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 16, 25, 0.82);
+      backdrop-filter: blur(18px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .brand { display: flex; align-items: center; gap: 0.72rem; min-width: 0; }
+    .logo {
+      width: 2.15rem;
+      height: 2.15rem;
+      border-radius: 13px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(120, 188, 255, 0.45);
+      background: linear-gradient(135deg, rgba(120, 188, 255, 0.18), rgba(157, 132, 255, 0.18));
+      box-shadow: 0 0 24px rgba(120, 188, 255, 0.14);
+      flex: 0 0 auto;
+    }
+
+    h1 { margin: 0; font-size: 1.02rem; letter-spacing: 0.01em; }
+    .subtitle { color: var(--muted); font-size: 0.76rem; margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .top-actions { display: flex; gap: 0.52rem; align-items: center; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 17.5rem;
+      gap: 0.75rem;
+      padding: 0.72rem clamp(0.65rem, 1.5vw, 1rem) 0.85rem;
+      height: calc(100dvh - 3.8rem);
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 19px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .chat-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .chat-head {
+      display: flex;
+      gap: 0.75rem;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.82rem 0.92rem;
+      border-bottom: 1px solid var(--line);
+      flex: 0 0 auto;
+    }
+
+    .chat-title { font-weight: 780; }
+    .chat-subtitle { color: var(--muted); font-size: 0.78rem; margin-top: 0.1rem; }
+
+    .tool-ribbon {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 0.55rem;
+      align-items: stretch;
+      padding: 0.64rem 0.82rem;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.025);
+      overflow-x: auto;
+      scrollbar-gutter: stable;
+    }
+
+    .lookup-combo {
+      display: flex;
+      align-items: stretch;
+      flex: 0 1 28rem;
+      min-width: 19rem;
+    }
+    .lookup-combo input {
+      flex: 1 1 auto;
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+      min-width: 8rem;
+    }
+    .lookup-combo button {
+      width: auto;
+      min-width: 8.8rem;
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      margin-left: -1px;
+    }
+    .tool-ribbon button.tool {
+      width: auto;
+      min-width: 9.2rem;
+      flex: 1 0 auto;
+      padding-inline: 1rem;
+    }
+
+    .messages {
+      flex: 1 1 0;
+      min-height: 0;
+      min-block-size: 0;
+      height: auto;
+      max-height: none;
+      overflow-y: scroll;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      padding: 0.95rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.82rem;
+      background: rgba(3, 8, 13, 0.22);
+      scrollbar-gutter: stable;
+      scroll-behavior: smooth;
+    }
+
+    .messages::-webkit-scrollbar, .control-panel::-webkit-scrollbar { width: 0.78rem; }
+    .messages::-webkit-scrollbar-thumb, .control-panel::-webkit-scrollbar-thumb { background: rgba(120, 188, 255, 0.18); border-radius: 999px; border: 3px solid rgba(5, 12, 20, 0.85); }
+
+    .msg {
+      flex: 0 0 auto;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      max-width: min(64rem, 94%);
+      line-height: 1.58;
+      word-wrap: break-word;
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+      overflow: hidden;
+    }
+
+    .msg.user { align-self: flex-end; background: rgba(120, 188, 255, 0.15); }
+    .msg.assistant { align-self: flex-start; background: rgba(255, 255, 255, 0.055); }
+    .msg.system { align-self: center; max-width: 100%; background: rgba(247, 212, 124, 0.1); color: var(--warn); font-size: 0.86rem; box-shadow: none; }
+
+    .msg-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.7rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      padding: 0.52rem 0.76rem;
+      color: var(--muted);
+      font-size: 0.75rem;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .msg-body { padding: 0.82rem 0.95rem; white-space: pre-wrap; }
+    .msg-body.html { white-space: normal; }
+    .msg-body h1, .msg-body h2, .msg-body h3 { margin: 0.2rem 0 0.65rem; line-height: 1.2; }
+    .msg-body h1 { font-size: 1.35rem; }
+    .msg-body h2 { font-size: 1.05rem; color: #d9ebff; }
+    .msg-body ul { margin: 0.45rem 0 0.9rem 1.2rem; padding: 0; }
+    .msg-body li { margin: 0.28rem 0; }
+    .msg-body p { margin: 0.45rem 0; }
+    .msg-body pre, .msg-body code { white-space: pre-wrap; }
+
+    .image-strip { display: grid; gap: 0.7rem; padding: 0 0.95rem 0.95rem; }
+    .image-strip img {
+      width: 100%;
+      max-height: 42vh;
+      object-fit: contain;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: #02060a;
+    }
+
+    .composer {
+      flex: 0 0 auto;
+      display: grid;
+      gap: 0.62rem;
+      padding: 0.82rem 0.92rem;
+      border-top: 1px solid var(--line);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 4.4rem;
+      max-height: 10rem;
+      line-height: 1.5;
+    }
+
+    .statusbar {
+      flex: 0 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.42rem;
+      align-items: center;
+      padding: 0 0.92rem 0.8rem;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    aside.control-panel {
+      display: grid;
+      align-content: start;
+      gap: 0;
+      overflow-y: auto;
+      max-height: 100%;
+      min-height: 0;
+    }
+
+    .panel-section { padding: 0.85rem; }
+    .panel-section + .panel-section { border-top: 1px solid var(--line); }
+    .section-title { font-weight: 760; margin: 0 0 0.25rem; }
+    .section-hint { color: var(--muted); font-size: 0.78rem; margin-bottom: 0.68rem; }
+
+    label { color: var(--muted); font-size: 0.74rem; display: block; margin-bottom: 0.3rem; }
+    input, select, textarea, button {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel2);
+      color: var(--text);
+      padding: 0.64rem 0.72rem;
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+      border-color: rgba(120, 188, 255, 0.45);
+      background: linear-gradient(180deg, rgba(120, 188, 255, 0.28), rgba(74, 131, 190, 0.2));
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    button.secondary { background: rgba(255, 255, 255, 0.04); border-color: var(--line); }
+    button.tool { text-align: center; }
+    button:disabled { opacity: 0.58; cursor: not-allowed; }
+
+    .row { display: flex; gap: 0.55rem; align-items: center; }
+    .row > * { flex: 1; }
+    .grid { display: grid; gap: 0.62rem; }
+    .two { grid-template-columns: 1fr 1fr; }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      overflow: hidden;
+    }
+    summary { cursor: pointer; padding: 0.68rem 0.74rem; color: #dcecff; font-weight: 650; }
+    details .details-body { padding: 0 0.74rem 0.78rem; display: grid; gap: 0.62rem; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.28rem 0.56rem;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .good { color: var(--good); }
+    .bad { color: var(--bad); }
+    .warn { color: var(--warn); }
+    .muted { color: var(--muted); }
+
+    .news-source {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid rgba(120, 188, 255, 0.25);
+      border-radius: 999px;
+      padding: 0.08rem 0.42rem;
+      margin-left: 0.18rem;
+      font-size: 0.76rem;
+      background: rgba(120, 188, 255, 0.09);
+      color: #bfe0ff;
+      vertical-align: baseline;
+    }
+
+    .mini-note { color: var(--muted); font-size: 0.76rem; line-height: 1.4; }
+    .site-summary { color: #cfe6ff; font-size: 0.8rem; line-height: 1.45; }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      place-items: center;
+      padding: 1rem;
+      background: rgba(0, 0, 0, 0.58);
+      backdrop-filter: blur(10px);
+    }
+    .modal-backdrop.open { display: grid; }
+    .modal {
+      width: min(62rem, 96vw);
+      max-height: min(48rem, 92vh);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(8, 18, 29, 0.98);
+      box-shadow: 0 25px 90px rgba(0, 0, 0, 0.45);
+      overflow: hidden;
+    }
+    .modal-head, .modal-foot { padding: 0.9rem 1rem; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 0.7rem; }
+    .modal-foot { border-bottom: 0; border-top: 1px solid var(--line); }
+    .modal-body { min-height: 0; overflow: hidden; padding: 1rem; display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 0.85rem; }
+    .site-map {
+      width: 100%;
+      height: min(58vh, 34rem);
+      min-height: 30rem;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      overflow: hidden;
+      background: #07111c;
+      position: relative;
+    }
+    .site-map .leaflet-container,
+    .leaflet-container {
+      width: 100%;
+      height: 100%;
+      background: #07111c;
+      overflow: hidden;
+      touch-action: pan-x pan-y;
+    }
+
+    /* Minimal Leaflet layout fallback. Some privacy browsers block the CDN CSS while the JS still loads. */
+    .leaflet-pane,
+    .leaflet-tile,
+    .leaflet-marker-icon,
+    .leaflet-marker-shadow,
+    .leaflet-tile-container,
+    .leaflet-pane > svg,
+    .leaflet-pane > canvas,
+    .leaflet-zoom-box,
+    .leaflet-image-layer,
+    .leaflet-layer { position: absolute; left: 0; top: 0; }
+    .leaflet-container { font: 12px/1.5 system-ui, sans-serif; }
+    .leaflet-tile { filter: saturate(0.88) brightness(0.92); user-select: none; -webkit-user-drag: none; }
+    .leaflet-tile-pane { z-index: 200; }
+    .leaflet-overlay-pane { z-index: 400; }
+    .leaflet-shadow-pane { z-index: 500; }
+    .leaflet-marker-pane { z-index: 600; }
+    .leaflet-tooltip-pane { z-index: 650; }
+    .leaflet-popup-pane { z-index: 700; }
+    .leaflet-control { position: relative; z-index: 800; pointer-events: auto; }
+    .leaflet-top, .leaflet-bottom { position: absolute; z-index: 900; pointer-events: none; }
+    .leaflet-top { top: 0; } .leaflet-bottom { bottom: 0; }
+    .leaflet-left { left: 0; } .leaflet-right { right: 0; }
+    .leaflet-control-zoom { margin: 10px; border: 1px solid rgba(0,0,0,0.25); border-radius: 10px; overflow: hidden; box-shadow: 0 6px 18px rgba(0,0,0,0.25); }
+    .leaflet-control-zoom a { display: block; width: 30px; height: 30px; line-height: 30px; text-align: center; background: rgba(8,18,29,0.92); color: #eaf5ff; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,0.12); }
+    .leaflet-control-attribution { margin: 0 8px 6px 0; padding: 2px 6px; border-radius: 8px; background: rgba(8,18,29,0.78); color: #c6d7e8; }
+    .fz-site-marker { width: 20px; height: 20px; margin-left: -10px; margin-top: -10px; border-radius: 999px; border: 3px solid #fff; background: #78bcff; box-shadow: 0 0 0 5px rgba(120,188,255,0.28), 0 8px 24px rgba(0,0,0,0.35); }
+
+    .fallback-map {
+      width: 100%; height: 100%; min-height: 26rem;
+      position: relative;
+      cursor: crosshair;
+      background:
+        linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px),
+        radial-gradient(circle at 50% 45%, rgba(65, 128, 190, 0.45), transparent 18rem),
+        linear-gradient(180deg, #123251, #0a1624);
+      background-size: 10% 10%, 10% 10%, auto, auto;
+    }
+    .fallback-map::after {
+      content: "Click the grid to select approximate latitude/longitude";
+      position: absolute; left: 1rem; bottom: 1rem; color: #d9ecff; background: rgba(0,0,0,0.38); padding: 0.45rem 0.62rem; border-radius: 999px; font-size: 0.78rem;
+    }
+
+
+
+    /* Collapsible settings drawer. The main workspace stays full-width by default. */
+    .shell { grid-template-columns: minmax(0, 1fr); }
+
+    .settings-toggle {
+      width: 2.45rem !important;
+      height: 2.45rem;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      font-size: 1.18rem;
+      line-height: 1;
+    }
+
+    .settings-scrim {
+      position: fixed;
+      inset: 3.8rem 0 0 0;
+      z-index: 55;
+      opacity: 0;
+      pointer-events: none;
+      background: rgba(0, 0, 0, 0.36);
+      backdrop-filter: blur(3px);
+      transition: opacity 160ms ease;
+    }
+
+    body.settings-open .settings-scrim {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    aside.control-panel {
+      position: fixed !important;
+      top: calc(3.8rem + 0.72rem);
+      right: 0.72rem;
+      bottom: 0.85rem;
+      z-index: 60;
+      width: min(22.5rem, calc(100vw - 1.2rem));
+      max-height: none;
+      min-height: 0;
+      transform: translateX(calc(100% + 1.2rem));
+      opacity: 0.99;
+      pointer-events: none;
+      transition: transform 190ms ease, box-shadow 190ms ease;
+      box-shadow: 0 25px 90px rgba(0, 0, 0, 0.46);
+    }
+
+    body.settings-open aside.control-panel {
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+
+    .panel-drawer-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.85rem;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .panel-drawer-head .section-hint { margin-bottom: 0; }
+
+    .drawer-close {
+      width: 2.2rem !important;
+      height: 2.2rem;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 999px;
+      font-size: 1.12rem;
+    }
+
+    body:not(.settings-open) .control-panel {
+      visibility: hidden;
+    }
+
+    body.settings-open .control-panel {
+      visibility: visible;
+    }
+
+    @media (max-width: 1120px) {
+      .shell { grid-template-columns: minmax(0, 1fr) 15.5rem; }
+      .tool-ribbon button.tool { min-width: 8.2rem; }
+    }
+
+    @media (max-width: 980px) {
+      body { overflow: hidden; }
+      .shell { grid-template-columns: 1fr; height: calc(100dvh - 3.8rem); min-height: 0; overflow: hidden; }
+      .chat-card { min-height: 0; height: 100%; }
+      .messages { min-height: 0; }
+      .subtitle { white-space: normal; }
+      .tool-ribbon { overflow-x: auto; }
+      .lookup-combo { min-width: 18rem; }
+      .modal-body { grid-template-columns: 1fr; overflow: auto; }
+      .site-map { height: 52vh; min-height: 22rem; }
+    }
+
+    @media (max-width: 600px) {
+      header.app-header { align-items: flex-start; }
+      .top-actions { flex-wrap: wrap; justify-content: flex-end; }
+      .tool-ribbon { align-items: stretch; }
+      .lookup-combo { min-width: 16rem; }
+      .tool-ribbon button.tool { min-width: 8rem; }
+      .row, .two { display: grid; grid-template-columns: 1fr; }
+      .msg { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="logo">✦</div>
+      <div>
+        <h1>FZAstro AI</h1>
+        <div class="subtitle">Web Companion · local AI, astro tools, daily news</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span class="pill" id="topStatus">Starting…</span>
+      <button class="secondary" id="checkStatusBtn" style="width:auto;">Status</button>
+      <button class="secondary settings-toggle" id="settingsToggleBtn" aria-label="Open settings" aria-controls="settingsPanel" aria-expanded="false">☰</button>
+    </div>
+  </header>
+
+  <div class="settings-scrim" id="settingsScrim" aria-hidden="true"></div>
+
+  <main class="shell">
+    <section class="card chat-card">
+      <div class="chat-head">
+        <div>
+          <div class="chat-title">Main Chat</div>
+          <div class="chat-subtitle">Run news, LOOKUP, SEEING, TARGETS, and normal chat from this main workspace.</div>
+        </div>
+        <button class="secondary" id="clearBtn" style="width:auto;">Clear</button>
+      </div>
+
+      <div class="tool-ribbon" aria-label="FZAstro quick tools">
+        <div class="lookup-combo" title="Object lookup">
+          <input id="lookupQuery" value="M31" aria-label="Object lookup" />
+          <button class="tool" id="lookupBtn">🔭 LOOKUP</button>
+        </div>
+        <button class="tool" id="dailyNewsBtn">📰 Daily News</button>
+        <button class="tool" id="seeingBtn">🌙 SEEING</button>
+        <button class="tool" id="targetsBtn">🎯 TARGETS</button>
+        <button class="tool" id="sitePlannerBtn">🗺 Site Planner</button>
+      </div>
+
+      <div class="messages" id="messages"></div>
+
+      <div class="composer">
+        <textarea id="prompt" placeholder="Ask the local model, or use a top tool button…"></textarea>
+        <div class="row">
+          <button id="sendBtn">Send</button>
+          <button class="secondary" id="stopHintBtn" title="Streaming stop will be added in a later patch." disabled>Stop</button>
+        </div>
+      </div>
+      <div class="statusbar" id="statusbar"></div>
+    </section>
+
+    <aside class="control-panel card" id="settingsPanel" aria-label="Web Companion settings">
+      <div class="panel-drawer-head">
+        <div>
+          <div class="section-title">Settings</div>
+          <div class="section-hint">Model, token, runtime, and access details.</div>
+        </div>
+        <button class="secondary drawer-close" id="settingsCloseBtn" aria-label="Close settings">×</button>
+      </div>
+      <div class="panel-section">
+        <div class="section-title">Model</div>
+        <div class="section-hint">Keep the working area clean. Advanced runtime details stay collapsed.</div>
+        <div class="grid">
+          <div>
+            <label for="modelSelect">Model</label>
+            <select id="modelSelect"></select>
+          </div>
+          <button class="secondary" id="refreshModelsBtn">Refresh models</button>
+          <div>
+            <label for="tokenInput">Web token, if LAN mode uses one</label>
+            <input id="tokenInput" placeholder="Token" type="password" />
+          </div>
+          <details>
+            <summary>Advanced runtime</summary>
+            <div class="details-body">
+              <div>
+                <label for="baseUrl">Runtime URL</label>
+                <input id="baseUrl" value="http://localhost:11434/v1" />
+              </div>
+              <div class="two grid">
+                <div>
+                  <label for="numPredict">Max tokens</label>
+                  <input id="numPredict" type="number" min="64" max="32768" value="4096" />
+                </div>
+                <div>
+                  <label for="temperature">Temperature</label>
+                  <input id="temperature" type="number" min="0" max="2" step="0.05" value="0.3" />
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">Current site</div>
+        <div class="section-hint">Used by SEEING and TARGETS. Open Site Planner to select from a map.</div>
+        <div class="site-summary" id="siteSummary">39.784080, -3.999020 · 660 m · Europe/Madrid</div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-title">Access</div>
+        <div class="section-hint">For iPad/Mac use the LAN URL shown by the desktop app.</div>
+        <div class="mini-note" id="accessNote">Local page loaded. Use LAN mode in the desktop app to open this from another device.</div>
+      </div>
+    </aside>
+  </main>
+
+  <div class="modal-backdrop" id="siteModal" role="dialog" aria-modal="true" aria-labelledby="siteModalTitle">
+    <div class="modal">
+      <div class="modal-head">
+        <div>
+          <div class="chat-title" id="siteModalTitle">Site Planner</div>
+          <div class="chat-subtitle">Click the map, use browser location, or type coordinates. Timezone is resolved automatically.</div>
+        </div>
+        <button class="secondary" id="siteCloseBtn" style="width:auto;">Close</button>
+      </div>
+      <div class="modal-body">
+        <div id="siteMap" class="site-map"></div>
+        <div class="grid">
+          <div class="two grid">
+            <div>
+              <label for="latInput">Latitude</label>
+              <input id="latInput" value="39.78408" />
+            </div>
+            <div>
+              <label for="lonInput">Longitude</label>
+              <input id="lonInput" value="-3.99902" />
+            </div>
+          </div>
+          <div class="two grid">
+            <div>
+              <label for="elevInput">Elevation m</label>
+              <input id="elevInput" value="660" />
+            </div>
+            <div>
+              <label for="tzInput">Timezone</label>
+              <input id="tzInput" value="Europe/Madrid" placeholder="Auto" />
+            </div>
+          </div>
+          <button id="useBrowserLocationBtn">Use this device location</button>
+          <button class="secondary" id="resolveTimezoneBtn">Resolve timezone</button>
+          <div class="mini-note" id="timezoneNote">Timezone: Europe/Madrid</div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div class="mini-note">SEEING and TARGETS use this selected site automatically.</div>
+        <button id="siteApplyBtn" style="width:auto; min-width: 11rem;">Use selected site</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    const messagesEl = document.getElementById('messages');
+    const statusbar = document.getElementById('statusbar');
+    const topStatus = document.getElementById('topStatus');
+    const modelSelect = document.getElementById('modelSelect');
+    const baseUrl = document.getElementById('baseUrl');
+    const tokenInput = document.getElementById('tokenInput');
+    const promptEl = document.getElementById('prompt');
+    const sendBtn = document.getElementById('sendBtn');
+    const numPredict = document.getElementById('numPredict');
+    const temperature = document.getElementById('temperature');
+    const accessNote = document.getElementById('accessNote');
+    const siteSummary = document.getElementById('siteSummary');
+    const siteModal = document.getElementById('siteModal');
+    const siteMapEl = document.getElementById('siteMap');
+    const timezoneNote = document.getElementById('timezoneNote');
+    const settingsToggleBtn = document.getElementById('settingsToggleBtn');
+    const settingsCloseBtn = document.getElementById('settingsCloseBtn');
+    const settingsScrim = document.getElementById('settingsScrim');
+
+    let siteMap = null;
+    let siteMarker = null;
+    let lastSiteResolve = 0;
+
+    messagesEl.addEventListener('wheel', event => {
+      // Keep mouse-wheel movement inside the transcript.
+      if (messagesEl.scrollHeight <= messagesEl.clientHeight) return;
+      const maxTop = messagesEl.scrollHeight - messagesEl.clientHeight;
+      const nextTop = Math.max(0, Math.min(maxTop, messagesEl.scrollTop + event.deltaY));
+      if (nextTop !== messagesEl.scrollTop) {
+        messagesEl.scrollTop = nextTop;
+        event.preventDefault();
+      }
+      event.stopPropagation();
+    }, { passive: false });
+
+    function setSettingsOpen(open) {
+      document.body.classList.toggle('settings-open', open);
+      if (settingsToggleBtn) {
+        settingsToggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        settingsToggleBtn.setAttribute('aria-label', open ? 'Close settings' : 'Open settings');
+      }
+    }
+
+    settingsToggleBtn?.addEventListener('click', () => {
+      setSettingsOpen(!document.body.classList.contains('settings-open'));
+    });
+    settingsCloseBtn?.addEventListener('click', () => setSettingsOpen(false));
+    settingsScrim?.addEventListener('click', () => setSettingsOpen(false));
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') setSettingsOpen(false);
+    });
+
+    tokenInput.value = localStorage.getItem('fzastro_web_token') || '';
+    tokenInput.addEventListener('change', () => {
+      localStorage.setItem('fzastro_web_token', tokenInput.value.trim());
+      checkStatus();
+      refreshModels();
+    });
+
+    function headers(json = true) {
+      const h = {};
+      if (json) h['Content-Type'] = 'application/json';
+      const token = tokenInput.value.trim();
+      if (token) h['X-FZAstro-Token'] = token;
+      return h;
+    }
+
+    function escapeHtml(text) {
+      return String(text ?? '').replace(/[&<>'"]/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[ch]));
+    }
+
+    function escapeAttr(text) { return escapeHtml(text).replace(/`/g, '&#96;'); }
+
+    function scrollChatToBottom() {
+      requestAnimationFrame(() => {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      });
+    }
+
+    function setStatus(parts) {
+      statusbar.innerHTML = parts.map(p => `<span class="pill">${p}</span>`).join('');
+    }
+
+    function setTop(text, cls = '') {
+      topStatus.className = `pill ${cls}`.trim();
+      topStatus.textContent = text;
+    }
+
+    function messageShell(role, title = '') {
+      const div = document.createElement('article');
+      div.className = `msg ${role}`;
+      if (title) {
+        const meta = document.createElement('div');
+        meta.className = 'msg-meta';
+        meta.innerHTML = `<span>${escapeHtml(title)}</span><span>${new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</span>`;
+        div.appendChild(meta);
+      }
+      const body = document.createElement('div');
+      body.className = 'msg-body';
+      div.appendChild(body);
+      messagesEl.appendChild(div);
+      scrollChatToBottom();
+      return { div, body };
+    }
+
+    function addMessage(role, text, options = {}) {
+      const { body, div } = messageShell(role, options.title || '');
+      if (options.html) {
+        body.classList.add('html');
+        body.innerHTML = text || '';
+      } else {
+        body.textContent = text || '';
+      }
+      if (options.images && options.images.length) {
+        const strip = document.createElement('div');
+        strip.className = 'image-strip';
+        for (const src of options.images) {
+          const img = document.createElement('img');
+          img.loading = 'lazy';
+          img.src = src;
+          img.alt = options.title || 'FZAstro image result';
+          img.addEventListener('load', scrollChatToBottom, { once: true });
+          strip.appendChild(img);
+        }
+        div.appendChild(strip);
+      }
+      scrollChatToBottom();
+      return body;
+    }
+
+    function sourceHost(url) {
+      try {
+        const host = new URL(url).hostname.replace(/^www\./, '');
+        return host || 'Source';
+      } catch (_) {
+        return 'Source';
+      }
+    }
+
+    function sourceDisplayName(source, id) {
+      const name = String(source?.name || source?.source_name || '').trim();
+      if (name && name.toLowerCase() !== 'source') return name;
+      const host = sourceHost(source?.url || '');
+      if (host && host !== 'Source') return host;
+      return 'Source';
+    }
+
+    function markdownToHtml(markdown, sources = {}) {
+      const lines = String(markdown || '').split(/\r?\n/);
+      let html = '';
+      let inList = false;
+      const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+      const inline = (text) => escapeHtml(text).replace(/\[(NEWS_\d{4,})\]/g, (m, id) => {
+        const source = sources[id];
+        if (source && source.url) {
+          const label = sourceDisplayName(source, id);
+          const tooltip = [label, source.title || ''].filter(Boolean).join(' · ');
+          return `<a class="news-source" href="${escapeAttr(source.url)}" title="${escapeAttr(tooltip)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
+        }
+        return '<span class="news-source">Source</span>';
+      });
+
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) { closeList(); continue; }
+        if (line.startsWith('# ')) { closeList(); html += `<h1>${inline(line.slice(2))}</h1>`; continue; }
+        if (line.startsWith('## ')) { closeList(); html += `<h2>${inline(line.slice(3))}</h2>`; continue; }
+        if (line.startsWith('### ')) { closeList(); html += `<h3>${inline(line.slice(4))}</h3>`; continue; }
+        if (line.startsWith('- ')) {
+          if (!inList) { html += '<ul>'; inList = true; }
+          html += `<li>${inline(line.slice(2))}</li>`;
+          continue;
+        }
+        closeList();
+        html += `<p>${inline(line)}</p>`;
+      }
+      closeList();
+      return html || '<p>No content returned.</p>';
+    }
+
+    function looksLikeHtml(text) {
+      return /^\s*<(div|table|section|article|h\d|p|ul|ol)\b/i.test(String(text || ''));
+    }
+
+    function assetTokenQuery() {
+      const token = tokenInput.value.trim();
+      return token ? `&fzastro_token=${encodeURIComponent(token)}` : '';
+    }
+
+    function fileUrls(files) {
+      const stamp = Date.now();
+      return (files || [])
+        .filter(path => /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(String(path)))
+        .map(path => `/api/assets/file?path=${encodeURIComponent(path)}${assetTokenQuery()}&v=${stamp}`);
+    }
+
+    async function apiJson(url, options = {}) {
+      const response = await fetch(url, options);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || data.error || response.statusText);
+      return data;
+    }
+
+    async function checkStatus() {
+      try {
+        const data = await apiJson('/api/status', { headers: headers(false) });
+        setTop(data.ollama_available ? 'Ollama online' : 'Ollama offline', data.ollama_available ? 'good' : 'warn');
+        setStatus([
+          data.ollama_available ? '<span class="good">Ollama online</span>' : '<span class="warn">Ollama offline</span>',
+          `Model: ${escapeHtml(data.default_model)}`,
+          data.auth_required ? 'Token required' : 'No token',
+          data.lan_enabled ? 'LAN mode' : 'Local mode'
+        ]);
+        if (data.base_url) baseUrl.value = data.base_url;
+        accessNote.textContent = data.lan_enabled ? 'LAN mode is enabled. Open this page from your iPad/Mac using the PC LAN URL.' : 'Local mode is enabled. Start LAN / iPad Mode from the desktop app for mobile access.';
+      } catch (err) {
+        setTop('Token needed', 'warn');
+        setStatus([`<span class="bad">Status: ${escapeHtml(err.message)}</span>`]);
+      }
+    }
+
+    async function refreshModels() {
+      modelSelect.innerHTML = '<option>Loading…</option>';
+      try {
+        const url = `/api/models?base_url=${encodeURIComponent(baseUrl.value.trim())}`;
+        const data = await apiJson(url, { headers: headers(false) });
+        modelSelect.innerHTML = '';
+        for (const model of data.models || []) {
+          const opt = document.createElement('option');
+          opt.value = model;
+          opt.textContent = model;
+          modelSelect.appendChild(opt);
+        }
+        setStatus([`${(data.models || []).length} model(s) loaded`]);
+      } catch (err) {
+        modelSelect.innerHTML = '<option>qwen3:32b</option>';
+        setStatus([`<span class="bad">Model refresh: ${escapeHtml(err.message)}</span>`]);
+      }
+    }
+
+    async function sendChat() {
+      const prompt = promptEl.value.trim();
+      if (!prompt) return;
+      promptEl.value = '';
+      addMessage('user', prompt, { title: 'You' });
+      const assistant = addMessage('assistant', '', { title: modelSelect.value || 'Assistant' });
+      sendBtn.disabled = true;
+      setStatus(['Generating…']);
+
+      try {
+        const response = await fetch('/api/chat/stream', {
+          method: 'POST',
+          headers: headers(true),
+          body: JSON.stringify({
+            prompt,
+            model: modelSelect.value || 'qwen3:32b',
+            base_url: baseUrl.value.trim(),
+            num_predict: Number(numPredict.value || 4096),
+            temperature: Number(temperature.value || 0.3),
+            think_enabled: true,
+            stream_reasoning: false
+          })
+        });
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.detail || data.error || response.statusText);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const events = buffer.split('\n\n');
+          buffer = events.pop();
+          for (const block of events) {
+            const lines = block.split('\n');
+            const event = (lines.find(l => l.startsWith('event:')) || '').slice(6).trim();
+            const dataLine = (lines.find(l => l.startsWith('data:')) || '').slice(5).trim();
+            if (!dataLine) continue;
+            const data = JSON.parse(dataLine);
+            if (event === 'token') {
+              assistant.textContent += data.text || '';
+              scrollChatToBottom();
+            } else if (event === 'error') {
+              assistant.textContent += `\n\n[Error] ${data.message}`;
+              setStatus([`<span class="bad">${escapeHtml(data.message)}</span>`]);
+            } else if (event === 'done') {
+              setStatus([`Done`, `Model: ${escapeHtml(data.model)}`, `Reasoning hidden: ${data.reasoning_chars || 0} chars`]);
+            } else if (event === 'status') {
+              setStatus([escapeHtml(data.message || 'Starting')]);
+            }
+          }
+        }
+      } catch (err) {
+        assistant.textContent += `\n\n[Error] ${err.message}`;
+        setStatus([`<span class="bad">Chat: ${escapeHtml(err.message)}</span>`]);
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    function numericValue(id) { return Number(document.getElementById(id).value); }
+
+    function updateSiteSummary() {
+      const lat = numericValue('latInput');
+      const lon = numericValue('lonInput');
+      const elev = numericValue('elevInput');
+      const tz = document.getElementById('tzInput').value.trim() || 'Auto timezone';
+      siteSummary.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)} · ${Number.isFinite(elev) ? elev : 0} m · ${tz}`;
+      timezoneNote.textContent = `Timezone: ${tz}`;
+    }
+
+    function locationPayload() {
+      return {
+        lat: numericValue('latInput'),
+        lon: numericValue('lonInput'),
+        elev: numericValue('elevInput'),
+        tz: document.getElementById('tzInput').value.trim() || null
+      };
+    }
+
+    async function resolveTimezoneFromServer(force = false) {
+      const now = Date.now();
+      if (!force && now - lastSiteResolve < 450) return;
+      lastSiteResolve = now;
+      try {
+        const payload = locationPayload();
+        const data = await apiJson('/api/location/resolve', {
+          method: 'POST',
+          headers: headers(true),
+          body: JSON.stringify(payload)
+        });
+        if (data.timezone) document.getElementById('tzInput').value = data.timezone;
+        timezoneNote.textContent = data.local_time ? `Timezone: ${data.timezone} · Local: ${data.local_time}` : `Timezone: ${data.timezone || 'UTC'}`;
+        updateSiteSummary();
+      } catch (err) {
+        const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        if (!document.getElementById('tzInput').value.trim()) document.getElementById('tzInput').value = browserTz;
+        timezoneNote.textContent = `Timezone fallback: ${document.getElementById('tzInput').value || browserTz}`;
+        updateSiteSummary();
+      }
+    }
+
+    async function ensureTimezone() {
+      if (!document.getElementById('tzInput').value.trim()) {
+        await resolveTimezoneFromServer(true);
+      }
+      return locationPayload();
+    }
+
+    function setSitePosition(lat, lon, elev = null, shouldResolve = true) {
+      document.getElementById('latInput').value = Number(lat).toFixed(6);
+      document.getElementById('lonInput').value = Number(lon).toFixed(6);
+      if (elev !== null && elev !== undefined && Number.isFinite(Number(elev))) {
+        document.getElementById('elevInput').value = Number(elev).toFixed(0);
+      }
+      if (siteMarker && siteMap) {
+        const pos = [Number(lat), Number(lon)];
+        siteMarker.setLatLng(pos);
+        siteMap.setView(pos, Math.max(siteMap.getZoom() || 5, 5), { animate: false });
+      }
+      updateSiteSummary();
+      if (shouldResolve) resolveTimezoneFromServer(true);
+    }
+
+    function refreshSiteMapLayout() {
+      if (!siteMap) return;
+      const lat = numericValue('latInput');
+      const lon = numericValue('lonInput');
+      siteMap.invalidateSize({ animate: false });
+      siteMap.setView([lat, lon], Math.max(siteMap.getZoom() || 5, 5), { animate: false });
+      if (siteMarker) siteMarker.setLatLng([lat, lon]);
+    }
+
+    function openSitePlanner() {
+      siteModal.classList.add('open');
+      initMapIfNeeded();
+      updateSiteSummary();
+      requestAnimationFrame(refreshSiteMapLayout);
+      setTimeout(refreshSiteMapLayout, 180);
+      setTimeout(refreshSiteMapLayout, 520);
+    }
+
+    function closeSitePlanner() { siteModal.classList.remove('open'); }
+
+    function initFallbackMap() {
+      siteMapEl.innerHTML = '<div class="fallback-map" id="fallbackMap"></div>';
+      const fallback = document.getElementById('fallbackMap');
+      fallback.addEventListener('click', event => {
+        const rect = fallback.getBoundingClientRect();
+        const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+        const y = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+        const lon = x * 360 - 180;
+        const lat = 90 - y * 180;
+        setSitePosition(lat, lon);
+      });
+    }
+
+    function initMapIfNeeded() {
+      if (siteMap || siteMapEl.dataset.fallbackReady) return;
+      const lat = numericValue('latInput');
+      const lon = numericValue('lonInput');
+      if (!window.L) {
+        siteMapEl.dataset.fallbackReady = '1';
+        initFallbackMap();
+        return;
+      }
+      siteMap = L.map('siteMap', {
+        worldCopyJump: true,
+        zoomControl: true,
+        preferCanvas: true
+      }).setView([lat, lon], 5);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        minZoom: 2,
+        attribution: '&copy; OpenStreetMap contributors',
+        updateWhenIdle: false,
+        keepBuffer: 4
+      }).addTo(siteMap);
+      siteMarker = L.marker([lat, lon], { draggable: true, icon: L.divIcon({ className: 'fz-site-marker', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(siteMap);
+      siteMarker.on('dragend', () => {
+        const pos = siteMarker.getLatLng();
+        setSitePosition(pos.lat, pos.lng);
+      });
+      siteMap.on('click', event => setSitePosition(event.latlng.lat, event.latlng.lng));
+      if (window.ResizeObserver) {
+        const observer = new ResizeObserver(() => refreshSiteMapLayout());
+        observer.observe(siteMapEl);
+      }
+    }
+
+    async function runAstro(endpoint, payload, title) {
+      const pending = addMessage('assistant', 'Running…', { title });
+      try {
+        const data = await apiJson(endpoint, {
+          method: 'POST',
+          headers: headers(true),
+          body: JSON.stringify(payload)
+        });
+        const images = fileUrls(data.files || []);
+        pending.classList.add('html');
+        pending.innerHTML = looksLikeHtml(data.text) ? data.text : markdownToHtml(data.text || JSON.stringify(data, null, 2));
+        if (images.length) {
+          const strip = document.createElement('div');
+          strip.className = 'image-strip';
+          for (const src of images) {
+            const img = document.createElement('img');
+            img.loading = 'lazy';
+            img.src = src;
+            img.alt = title;
+            img.addEventListener('load', scrollChatToBottom, { once: true });
+            strip.appendChild(img);
+          }
+          pending.parentElement.appendChild(strip);
+        }
+        setStatus([`${escapeHtml(title)} done`]);
+        scrollChatToBottom();
+      } catch (err) {
+        pending.textContent = `Error: ${err.message}`;
+        setStatus([`<span class="bad">${escapeHtml(title)}: ${escapeHtml(err.message)}</span>`]);
+      }
+    }
+
+    async function runDailyNews(refresh = false) {
+      const pending = addMessage('assistant', refresh ? 'Refreshing Daily News…' : 'Fetching Daily News…', { title: 'Daily News Brief' });
+      try {
+        const data = await apiJson(`/api/news/daily?refresh=${refresh ? 'true' : 'false'}`, { headers: headers(false) });
+        pending.classList.add('html');
+        pending.innerHTML = markdownToHtml(data.brief || '', data.sources || {});
+        const count = Object.keys(data.sources || {}).length;
+        setStatus([`Daily News ready`, `${count} source link(s)`]);
+        scrollChatToBottom();
+      } catch (err) {
+        pending.textContent = `Daily News error: ${err.message}`;
+        setStatus([`<span class="bad">Daily News: ${escapeHtml(err.message)}</span>`]);
+      }
+    }
+
+    document.getElementById('refreshModelsBtn').addEventListener('click', refreshModels);
+    document.getElementById('checkStatusBtn').addEventListener('click', checkStatus);
+    document.getElementById('clearBtn').addEventListener('click', () => { messagesEl.innerHTML = ''; });
+    sendBtn.addEventListener('click', sendChat);
+    promptEl.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) sendChat();
+    });
+
+    document.getElementById('dailyNewsBtn').addEventListener('click', () => runDailyNews(false));
+    document.getElementById('lookupBtn').addEventListener('click', () => runAstro('/api/astro/lookup', {
+      query: document.getElementById('lookupQuery').value.trim() || 'M31',
+      with_image: true,
+      fov_deg: 2.337
+    }, 'LOOKUP'));
+    document.getElementById('seeingBtn').addEventListener('click', async () => runAstro('/api/astro/seeing', {
+      ...(await ensureTimezone()),
+      nights: 4
+    }, 'SEEING / Astro Night Planner'));
+    document.getElementById('targetsBtn').addEventListener('click', async () => runAstro('/api/astro/targets', {
+      ...(await ensureTimezone()),
+      limit: 10,
+      min_alt: 45
+    }, 'TARGETS'));
+
+    document.getElementById('sitePlannerBtn').addEventListener('click', openSitePlanner);
+    document.getElementById('siteCloseBtn').addEventListener('click', closeSitePlanner);
+    document.getElementById('siteApplyBtn').addEventListener('click', () => { updateSiteSummary(); closeSitePlanner(); });
+    document.getElementById('resolveTimezoneBtn').addEventListener('click', () => resolveTimezoneFromServer(true));
+    document.getElementById('useBrowserLocationBtn').addEventListener('click', () => {
+      if (!navigator.geolocation) {
+        timezoneNote.textContent = 'Browser geolocation is not available.';
+        return;
+      }
+      timezoneNote.textContent = 'Waiting for browser location permission…';
+      navigator.geolocation.getCurrentPosition(position => {
+        setSitePosition(position.coords.latitude, position.coords.longitude, position.coords.altitude);
+      }, error => {
+        timezoneNote.textContent = `Location permission failed: ${error.message}`;
+      }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+    });
+
+    for (const id of ['latInput', 'lonInput', 'elevInput', 'tzInput']) {
+      document.getElementById(id).addEventListener('change', () => {
+        updateSiteSummary();
+        if (id === 'latInput' || id === 'lonInput') resolveTimezoneFromServer(true);
+      });
+    }
+
+    siteModal.addEventListener('click', event => {
+      if (event.target === siteModal) closeSitePlanner();
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && siteModal.classList.contains('open')) closeSitePlanner();
+    });
+
+    addMessage('system', 'Use the top toolbar for LOOKUP, Daily News, SEEING, TARGETS, and Site Planner. The chat transcript scrolls independently; Site Planner uses a map and auto-resolves timezone.');
+    updateSiteSummary();
+    checkStatus();
+    refreshModels();
+  </script>
+</body>
+</html>
