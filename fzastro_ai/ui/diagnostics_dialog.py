@@ -28,6 +28,7 @@ from ..config import (
     MEMORY_FILE,
 )
 from ..logging_utils import log_exception
+from .window_utils import apply_window_defaults
 from ..runtime import BASE_URL, is_ollama_base_url
 
 
@@ -178,6 +179,7 @@ def build_diagnostics_report(parent):
 def open_diagnostics_window(parent):
     """Open runtime diagnostics and log access."""
     dialog = QDialog(parent)
+    apply_window_defaults(dialog)
     dialog.setObjectName("helpDialog")
     dialog.setWindowTitle("FZAstro AI Diagnostics")
     dialog.resize(980, 760)

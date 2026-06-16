@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import html
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Any
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFontMetrics,
+    QGuiApplication,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -41,6 +50,7 @@ from ..astro_tools.sky_quality import (
 from ..workers.seeing_worker import SeeingWorker
 from ..workers.sky_quality_worker import SkyQualityFetchWorker
 from .astro_location_dialog import choose_astro_location
+from .window_utils import apply_window_defaults
 
 
 class CloudCoverageWidget(QWidget):
@@ -567,6 +577,52 @@ class SeeingNightPlannerWidget(QWidget):
         return max(0, min(100, 100 - pct))
 
     @staticmethod
+    def _record_cloud_cap(value: Any, has_dark: bool) -> int:
+        """Cap card score by the same cloud value printed on the card.
+
+        This keeps the planner honest: a card that says 60–70% cloud should not
+        keep the same score as a mostly clear card just because one twilight
+        point hit a darkness cap.
+        """
+        try:
+            pct = max(0, min(100, int(value)))
+        except Exception:
+            pct = 100
+        if has_dark:
+            if pct >= 85:
+                return 25
+            if pct >= 75:
+                return 35
+            if pct >= 65:
+                return 42
+            if pct >= 55:
+                return 48
+            if pct >= 45:
+                return 60
+            if pct >= 35:
+                return 70
+            if pct >= 25:
+                return 78
+            return 100
+        # When there is no astronomical darkness, keep the score useful for
+        # comparison but never let it read like a normal imaging night.
+        if pct >= 85:
+            return 8
+        if pct >= 75:
+            return 14
+        if pct >= 65:
+            return 22
+        if pct >= 55:
+            return 28
+        if pct >= 45:
+            return 34
+        if pct >= 35:
+            return 38
+        if pct >= 25:
+            return 42
+        return 45
+
+    @staticmethod
     def _cloud_condition(value: Any) -> str:
         try:
             pct = int(value)
@@ -603,6 +659,73 @@ class SeeingNightPlannerWidget(QWidget):
             return "☾"
         return "☾"
 
+    def _draw_moon_icon(self, painter: QPainter, rect: QRectF, phase: str) -> None:
+        """Draw a dark-theme moon icon with the unlit part dark, not white text."""
+        phase_l = str(phase or "").lower()
+        painter.save()
+        circle = QRectF(rect)
+        path = QPainterPath()
+        path.addEllipse(circle)
+        dark = QColor("#070a0e")
+        light = QColor("#e7edf5")
+        outline = QColor("#b8cee6")
+
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(Qt.NoPen)
+
+        def fill_left_half() -> None:
+            painter.fillPath(path, dark)
+            painter.setClipPath(path)
+            painter.fillRect(
+                QRectF(
+                    circle.left(), circle.top(), circle.width() / 2.0, circle.height()
+                ),
+                light,
+            )
+            painter.setClipping(False)
+
+        def fill_right_half() -> None:
+            painter.fillPath(path, dark)
+            painter.setClipPath(path)
+            painter.fillRect(
+                QRectF(
+                    circle.center().x(),
+                    circle.top(),
+                    circle.width() / 2.0,
+                    circle.height(),
+                ),
+                light,
+            )
+            painter.setClipping(False)
+
+        if "new" in phase_l:
+            painter.fillPath(path, dark)
+        elif "full" in phase_l:
+            painter.fillPath(path, light)
+        elif "first" in phase_l:
+            fill_right_half()
+        elif "last" in phase_l:
+            fill_left_half()
+        else:
+            waxing = "wax" in phase_l
+            crescent = "crescent" in phase_l
+            painter.fillPath(path, light)
+            painter.setClipPath(path)
+            shift = circle.width() * (0.42 if crescent else 0.92)
+            if waxing:
+                dark_rect = circle.translated(-shift, 0)
+            else:
+                dark_rect = circle.translated(shift, 0)
+            painter.setBrush(QBrush(dark))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(dark_rect)
+            painter.setClipping(False)
+
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(outline, 1.4))
+        painter.drawEllipse(circle.adjusted(0.8, 0.8, -0.8, -0.8))
+        painter.restore()
+
     @staticmethod
     def _safe_int(value: Any, default: int = 0) -> int:
         try:
@@ -610,11 +733,17 @@ class SeeingNightPlannerWidget(QWidget):
         except Exception:
             return default
 
+    def _imaging_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Rows that should drive night-imaging planner decisions."""
+        dark_rows = [row for row in rows if row.get("astro_dark") is True]
+        return dark_rows or rows
+
     def _best_row(self, block: dict[str, Any]) -> dict[str, Any]:
         rows = block.get("rows") if isinstance(block.get("rows"), list) else []
         if not rows:
             return {}
-        return max(rows, key=lambda row: self._safe_int(row.get("score")))
+        candidates = self._imaging_rows(rows)
+        return max(candidates, key=lambda row: self._safe_int(row.get("score")))
 
     def _block_metrics(self, block: dict[str, Any]) -> dict[str, Any]:
         rows = block.get("rows") if isinstance(block.get("rows"), list) else []
@@ -630,18 +759,29 @@ class SeeingNightPlannerWidget(QWidget):
                 "score_label": "Waiting",
                 "dark_count": 0,
                 "moon_up_count": 0,
+                "has_dark": False,
             }
-        cloud_values = [self._safe_int(row.get("cloud_mid_pct"), 100) for row in rows]
+        candidates = self._imaging_rows(rows)
+        cloud_values = [
+            self._safe_int(row.get("cloud_mid_pct"), 100) for row in candidates
+        ]
         seeing_values = [
-            self._quality_from_code(row.get("seeing_code"), 8) for row in rows
+            self._quality_from_code(row.get("seeing_code"), 8) for row in candidates
         ]
         trans_values = [
-            self._quality_from_code(row.get("transparency_code"), 8) for row in rows
+            self._quality_from_code(row.get("transparency_code"), 8)
+            for row in candidates
         ]
         cloud_pct = round(sum(cloud_values) / max(1, len(cloud_values)))
         seeing_quality = max(seeing_values) if seeing_values else 0
         trans_quality = max(trans_values) if trans_values else 0
-        score = self._safe_int(best.get("score"), 0)
+        dark_count = sum(1 for row in rows if row.get("astro_dark") is True)
+        has_dark = dark_count > 0
+        score = min(
+            self._safe_int(best.get("score"), 0),
+            self._record_cloud_cap(cloud_pct, has_dark),
+        )
+        moon_up_count = sum(1 for row in candidates if row.get("moon_up") is True)
         return {
             "best": best,
             "cloud_pct": cloud_pct,
@@ -650,8 +790,9 @@ class SeeingNightPlannerWidget(QWidget):
             "transparency_quality": trans_quality,
             "score": score,
             "score_label": score_label(score),
-            "dark_count": sum(1 for row in rows if row.get("astro_dark") is True),
-            "moon_up_count": sum(1 for row in rows if row.get("moon_up") is True),
+            "dark_count": dark_count,
+            "moon_up_count": moon_up_count,
+            "has_dark": has_dark,
         }
 
     def mousePressEvent(self, event):  # noqa: N802 - Qt override
@@ -743,10 +884,17 @@ class SeeingNightPlannerWidget(QWidget):
         row_gap = 10
         width = max(1.0, rect.width() - left - right)
         card_w = width
-        metric_w = max(120.0, (card_w - 520.0) / 3.0)
-        metric_x = left + 330
-        score_x = metric_x + metric_w * 3 + 16
-        score_w = max(78.0, card_w - (score_x - left) - 14)
+
+        # Responsive card columns. The old fixed 150 px date box clipped
+        # labels like "Wednesday 17" and squeezed the score bubble at smaller
+        # widths. Keep a protected date/moon area, three gauges, and a stable
+        # score block.
+        info_w = max(330.0, min(390.0, card_w * 0.32))
+        score_w = max(145.0, min(175.0, card_w * 0.16))
+        metric_x = left + info_w
+        score_x = left + card_w - score_w - 14
+        metric_total_w = max(320.0, score_x - metric_x - 14)
+        metric_w = max(106.0, metric_total_w / 3.0)
 
         painter.setPen(QColor("#cfe4ff"))
         painter.drawText(
@@ -757,7 +905,12 @@ class SeeingNightPlannerWidget(QWidget):
 
         for block_index, block in enumerate(self.blocks):
             y = top + block_index * (row_h + row_gap)
-            start_dt = self._parse_dt(block.get("start_iso")) or datetime.now()
+            start_dt = (
+                self._parse_dt(block.get("display_iso"))
+                or self._parse_dt(block.get("start_iso"))
+                or datetime.now()
+            )
+            day_label = str(block.get("day_label") or start_dt.strftime("%A %d"))
             metrics = self._block_metrics(block)
             best = metrics["best"] if isinstance(metrics.get("best"), dict) else {}
             best_index = self._safe_int(best.get("row_index"), -1)
@@ -785,47 +938,42 @@ class SeeingNightPlannerWidget(QWidget):
             moon_row = rows[len(rows) // 2] if rows else best
             moon_pct = moon_row.get("moon_pct", "—")
             moon_phase = str(moon_row.get("moon_phase") or "Moon")
-            moon_glyph = self._moon_glyph(moon_phase)
             painter.setPen(QColor("#f0f4f8"))
             font = painter.font()
             old_size = font.pointSize()
-            font.setPointSize(max(22, old_size + 9))
+            font.setPointSize(max(18, old_size + 6))
             font.setBold(True)
             painter.setFont(font)
-            painter.drawText(
-                QRectF(left + 22, y + 14, 150, 32),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                start_dt.strftime("%A %d"),
+            date_rect = QRectF(left + 22, y + 14, max(165.0, info_w - 148.0), 32)
+            date_text = QFontMetrics(font).elidedText(
+                day_label, Qt.ElideRight, int(date_rect.width())
             )
+            painter.drawText(date_rect, Qt.AlignLeft | Qt.AlignVCenter, date_text)
             font.setPointSize(old_size)
             font.setBold(False)
             painter.setFont(font)
             painter.setPen(QColor("#8fd0ff"))
-            painter.drawText(
-                QRectF(left + 24, y + 48, 145, 17),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                str(block.get("short_label", "")).split("→")[0].strip(),
+            short_rect = QRectF(left + 24, y + 48, max(160.0, info_w - 160.0), 17)
+            short_text = str(block.get("short_label", "")).split("→")[0].strip()
+            short_text = QFontMetrics(painter.font()).elidedText(
+                short_text, Qt.ElideRight, int(short_rect.width())
             )
+            painter.drawText(short_rect, Qt.AlignLeft | Qt.AlignVCenter, short_text)
 
-            moon_font = painter.font()
-            moon_old = moon_font.pointSize()
-            moon_font.setPointSize(max(27, moon_old + 13))
-            painter.setFont(moon_font)
-            painter.setPen(QColor("#dbe8f5"))
-            painter.drawText(
-                QRectF(left + 175, y + 13, 44, 38), Qt.AlignCenter, moon_glyph
+            moon_x = left + info_w - 150
+            moon_text_x = left + info_w - 96
+            self._draw_moon_icon(
+                painter, QRectF(moon_x + 5, y + 18, 34, 34), moon_phase
             )
-            moon_font.setPointSize(moon_old)
-            painter.setFont(moon_font)
             painter.setPen(QColor("#dce9f6"))
             painter.drawText(
-                QRectF(left + 224, y + 16, 88, 18),
+                QRectF(moon_text_x, y + 16, 92, 18),
                 Qt.AlignLeft | Qt.AlignVCenter,
                 moon_phase.split(" ")[0],
             )
             painter.setPen(QColor("#ffffff"))
             painter.drawText(
-                QRectF(left + 224, y + 38, 86, 18),
+                QRectF(moon_text_x, y + 38, 92, 18),
                 Qt.AlignLeft | Qt.AlignVCenter,
                 f"{moon_pct}% Moon",
             )
@@ -837,22 +985,23 @@ class SeeingNightPlannerWidget(QWidget):
                 condition,
                 self._quality_color(metrics.get("cloud_quality", 0)),
             )
-            dark_points = self._safe_int(metrics.get("dark_count"))
-            moon_points = self._safe_int(metrics.get("moon_up_count"))
-            painter.setPen(QColor("#91a6bb"))
-            painter.drawText(
-                QRectF(left + 174, y + 66, 140, 24),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                f"Dark {dark_points} pts · Moon up {moon_points} pts",
-            )
+            # Keep the moon/date area clean; dark and Moon-up counts are shown
+            # in the detailed forecast table and side panel, not under the icon.
 
-            # Three key gauges.
+            # Three key gauges. Cloud percentage is calculated from
+            # astronomical-darkness rows whenever the record has any, so it
+            # matches the score used for night imaging.
             cloud_pct = metrics.get("cloud_pct")
-            cloud_text = f"{cloud_pct if cloud_pct is not None else '—'}% cover"
+            has_dark = bool(metrics.get("has_dark"))
+            cloud_title = "☁ Night clouds" if has_dark else "☁ Clouds"
+            cloud_suffix = "night avg" if has_dark else "cover"
+            cloud_text = (
+                f"{cloud_pct if cloud_pct is not None else '—'}% {cloud_suffix}"
+            )
             self._draw_gauge(
                 painter,
                 QRectF(metric_x, y + 17, metric_w - 10, 66),
-                "☁ Clouds",
+                cloud_title,
                 metrics.get("cloud_quality", 0),
                 cloud_text,
             )
@@ -875,11 +1024,12 @@ class SeeingNightPlannerWidget(QWidget):
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(QColor("#101820")))
             painter.drawRoundedRect(QRectF(score_x, y + 15, score_w, 68), 10, 10)
+            score_title = "BEST SCORE" if metrics.get("has_dark") else "NO DARK"
             painter.setPen(score_color)
             painter.drawText(
                 QRectF(score_x + 12, y + 20, score_w - 24, 16),
                 Qt.AlignLeft | Qt.AlignVCenter,
-                "BEST SCORE",
+                score_title,
             )
             score_font = painter.font()
             score_old = score_font.pointSize()
@@ -902,11 +1052,17 @@ class SeeingNightPlannerWidget(QWidget):
                 str(metrics.get("score_label") or "—"),
             )
             painter.setPen(QColor("#91a6bb"))
-            painter.drawText(
-                QRectF(score_x + 70, y + 61, score_w - 82, 16),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                str(best.get("local_label") or "best hour"),
+            time_rect = QRectF(score_x + 70, y + 61, score_w - 82, 16)
+            if metrics.get("has_dark"):
+                time_label = str(best.get("local_label") or "best night hour")
+            else:
+                time_label = "No astro dark"
+            time_text = QFontMetrics(painter.font()).elidedText(
+                time_label,
+                Qt.ElideRight,
+                int(time_rect.width()),
             )
+            painter.drawText(time_rect, Qt.AlignLeft | Qt.AlignVCenter, time_text)
 
             if best_index >= 0:
                 self._hit_regions.append((card_rect, best_index))
@@ -914,6 +1070,37 @@ class SeeingNightPlannerWidget(QWidget):
 
 class SeeingDialog(QDialog):
     """Self-contained true astronomy SEEING viewer."""
+
+    def _prepare_window_chrome(self):
+        flags = (
+            self.windowFlags()
+            | Qt.Window
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
+        self.setWindowFlags(flags)
+
+    def _center_on_screen(self):
+        parent = self.parentWidget()
+        screen = None
+        try:
+            if parent is not None and parent.screen() is not None:
+                screen = parent.screen()
+        except Exception:
+            screen = None
+        if screen is None:
+            try:
+                screen = self.screen()
+            except Exception:
+                screen = None
+        if screen is None:
+            screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        frame = self.frameGeometry()
+        frame.moveCenter(screen.availableGeometry().center())
+        self.move(frame.topLeft())
 
     @staticmethod
     def _safe_int(value: Any, default: int = 0) -> int:
@@ -924,6 +1111,7 @@ class SeeingDialog(QDialog):
 
     def __init__(self, parent=None, location: dict[str, Any] | None = None):
         super().__init__(parent)
+        apply_window_defaults(self)
         self.location = dict(location or {})
         self.seeing_worker: SeeingWorker | None = None
         self.sky_quality_worker: SkyQualityFetchWorker | None = None
@@ -933,6 +1121,7 @@ class SeeingDialog(QDialog):
 
         self.setObjectName("seeingDialog")
         self.setWindowTitle("SEEING")
+        self._prepare_window_chrome()
         self.resize(1520, 940)
         self.setMinimumSize(1220, 780)
 
@@ -1011,10 +1200,16 @@ class SeeingDialog(QDialog):
         result_header = QHBoxLayout()
         result_title = QLabel("Astronomy seeing planner")
         result_title.setObjectName("astroLookupSectionTitle")
+        self.current_period_label = QLabel(self._current_night_period_text({}))
+        self.current_period_label.setObjectName("astroLookupStatusLabel")
+        self.current_period_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.current_period_label.setWordWrap(False)
         self.status_label = QLabel("Ready")
         self.status_label.setObjectName("astroLookupStatusLabel")
         self.status_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         result_header.addWidget(result_title)
+        result_header.addSpacing(12)
+        result_header.addWidget(self.current_period_label, 1)
         result_header.addStretch(1)
         result_header.addWidget(self.status_label)
         result_layout.addLayout(result_header)
@@ -1074,7 +1269,7 @@ class SeeingDialog(QDialog):
         planner_scroll = QScrollArea(self)
         planner_scroll.setObjectName("seeingPlannerScroll")
         planner_scroll.setWidgetResizable(True)
-        planner_scroll.setMinimumHeight(500)
+        planner_scroll.setMinimumHeight(420)
         planner_scroll.setFrameShape(QFrame.NoFrame)
         planner_scroll.setWidget(self.night_planner)
         left_column.addWidget(planner_scroll, 10)
@@ -1090,7 +1285,8 @@ class SeeingDialog(QDialog):
         table_title.setObjectName("astroLookupSectionTitle")
         self.table = QTableWidget(0, 10)
         self.table.setObjectName("seeingForecastTable")
-        self.table.setMaximumHeight(190)
+        self.table.setMinimumHeight(220)
+        self.table.setMaximumHeight(320)
         self.table.setHorizontalHeaderLabels(
             [
                 "Local",
@@ -1172,6 +1368,7 @@ class SeeingDialog(QDialog):
         root.addWidget(button_row)
 
         self.altitude_spin.editingFinished.connect(self.handle_altitude_edited)
+        QTimer.singleShot(0, self._center_on_screen)
         QTimer.singleShot(80, self.refresh_forecast)
         QTimer.singleShot(950, self._ensure_auto_sky_quality)
 
@@ -1328,6 +1525,128 @@ class SeeingDialog(QDialog):
         # shown because this is the only useful production mode for the window.
         return SEEING_PROVIDER_HYBRID
 
+    def _local_zone(self, result: dict[str, Any] | None = None):
+        tz_name = str(
+            (result or {}).get("tz") or self.location.get("tz") or "UTC"
+        ).strip()
+        try:
+            return ZoneInfo(tz_name or "UTC")
+        except Exception:
+            try:
+                return datetime.now().astimezone().tzinfo
+            except Exception:
+                return None
+
+    def _now_local(self, result: dict[str, Any] | None = None) -> datetime:
+        zone = self._local_zone(result)
+        if zone is not None:
+            try:
+                return datetime.now(zone)
+            except Exception:
+                pass
+        return datetime.now().astimezone()
+
+    def _parse_period_dt(
+        self, value: Any, result: dict[str, Any] | None = None
+    ) -> datetime | None:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                zone = self._local_zone(result)
+                if zone is not None:
+                    dt = dt.replace(tzinfo=zone)
+            return dt
+        except Exception:
+            return None
+
+    def _dark_periods_for_result(
+        self, result: dict[str, Any] | None = None
+    ) -> list[tuple[datetime, datetime]]:
+        payload = result or {}
+        zone = self._local_zone(payload)
+        astro_context = (
+            payload.get("astro_context")
+            if isinstance(payload.get("astro_context"), dict)
+            else {}
+        )
+        periods_raw = (
+            astro_context.get("dark_periods")
+            if isinstance(astro_context.get("dark_periods"), list)
+            else []
+        )
+        periods: list[tuple[datetime, datetime]] = []
+        for period in periods_raw:
+            if not isinstance(period, dict):
+                continue
+            start = self._parse_period_dt(period.get("start"), payload)
+            end = self._parse_period_dt(period.get("end"), payload)
+            if start is None or end is None:
+                continue
+            if zone is not None:
+                start = start.astimezone(zone)
+                end = end.astimezone(zone)
+            periods.append((start, end))
+        periods.sort(key=lambda item: item[0])
+        return periods
+
+    def _current_night_period_text(self, result: dict[str, Any] | None = None) -> str:
+        payload = result or {}
+        now = self._now_local(payload)
+        now_text = now.strftime("Now %a %d %b %H:%M")
+        note = str(payload.get("status_note") or "").strip()
+        periods = [
+            (start.astimezone(now.tzinfo), end.astimezone(now.tzinfo))
+            for start, end in self._dark_periods_for_result(payload)
+        ]
+        for start, end in periods:
+            if start <= now <= end:
+                return (
+                    f"{now_text} · current astro dark "
+                    f"{start.strftime('%a %d %H:%M')} → {end.strftime('%a %d %H:%M')}"
+                )
+        for start, end in periods:
+            if start > now:
+                prefix = "tonight" if start.date() == now.date() else "next astro dark"
+                return (
+                    f"{now_text} · {prefix} "
+                    f"{start.strftime('%a %d %H:%M')} → {end.strftime('%a %d %H:%M')}"
+                )
+        best_label = self._best_window_label(payload)
+        if "—" not in best_label:
+            return f"{now_text} · no astro dark · {best_label}"
+        if note:
+            return f"{now_text} · {note}"
+        return f"{now_text} · no astro-dark period loaded"
+
+    def _best_window_label(self, result: dict[str, Any] | None = None) -> str:
+        payload = result or {}
+        summary = (
+            payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        )
+        best_dt = self._parse_period_dt(summary.get("best_time"), payload)
+        if best_dt is None:
+            return "Best forecast hour —"
+        zone = self._local_zone(payload)
+        if zone is not None:
+            best_dt = best_dt.astimezone(zone)
+
+        period_text = ""
+        for start, end in self._dark_periods_for_result(payload):
+            if start <= best_dt <= end:
+                period_text = (
+                    f"Night {start.strftime('%a %d')}→{end.strftime('%a %d')} · "
+                )
+                break
+
+        best_dark = str(summary.get("best_dark") or "").lower()
+        if "astro dark" in best_dark:
+            kind = "best dark"
+        elif "twilight" in best_dark or "day" in best_dark:
+            kind = "best twilight"
+        else:
+            kind = "best forecast"
+        return f"{period_text}{kind} {best_dt.strftime('%a %d %H:%M')}"
+
     def choose_site(self):
         if self.seeing_worker is not None and self.seeing_worker.isRunning():
             return
@@ -1372,6 +1691,9 @@ class SeeingDialog(QDialog):
         )
         self.detail_browser.setHtml(self._detail_html({}))
         self.status_label.setText("Loading…")
+        self.current_period_label.setText(
+            self._current_night_period_text({"status_note": "Loading night period…"})
+        )
         self.progress_bar.show()
         self._set_controls_enabled(False)
 
@@ -1392,6 +1714,7 @@ class SeeingDialog(QDialog):
         self._result = dict(result or {})
         cache_text = "cached" if result.get("cache_used") else "live"
         self.status_label.setText(f"Loaded {cache_text} • {float(elapsed):.2f}s")
+        self.current_period_label.setText(self._current_night_period_text(result))
         self.sky_quality_card.setText(self._sky_quality_html(result))
         self.score_card.setText(self._score_card_html(result))
         self.summary_browser.setHtml(self._summary_html(result))
@@ -1408,6 +1731,9 @@ class SeeingDialog(QDialog):
         self.progress_bar.hide()
         self._set_controls_enabled(True)
         self.status_label.setText("Failed")
+        self.current_period_label.setText(
+            self._current_night_period_text({"status_note": "Night period unavailable"})
+        )
         self._day_blocks = []
         self.table.setRowCount(0)
         self.cloud_chart.set_rows([])
@@ -1483,6 +1809,44 @@ class SeeingDialog(QDialog):
         except Exception:
             return None
 
+    @staticmethod
+    def _record_cloud_cap(value: Any, has_dark: bool) -> int:
+        try:
+            pct = max(0, min(100, int(value)))
+        except Exception:
+            pct = 100
+        if has_dark:
+            if pct >= 85:
+                return 25
+            if pct >= 75:
+                return 35
+            if pct >= 65:
+                return 42
+            if pct >= 55:
+                return 48
+            if pct >= 45:
+                return 60
+            if pct >= 35:
+                return 70
+            if pct >= 25:
+                return 78
+            return 100
+        if pct >= 85:
+            return 8
+        if pct >= 75:
+            return 14
+        if pct >= 65:
+            return 22
+        if pct >= 55:
+            return 28
+        if pct >= 45:
+            return 34
+        if pct >= 35:
+            return 38
+        if pct >= 25:
+            return 42
+        return 45
+
     def _build_24h_blocks(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         dated_rows = []
         for index, row in enumerate(rows or []):
@@ -1505,32 +1869,46 @@ class SeeingDialog(QDialog):
             end = cursor + timedelta(hours=24)
             block_rows = [row for dt, row in dated_rows if cursor <= dt < end]
             if block_rows:
+                dark_rows = [row for row in block_rows if row.get("astro_dark") is True]
+                imaging_rows = dark_rows or block_rows
                 cloud_values = [
-                    int(row.get("cloud_mid_pct") or 0) for row in block_rows
+                    int(row.get("cloud_mid_pct") or 0) for row in imaging_rows
                 ]
                 seeing_values = [
-                    int(row.get("seeing_code") or 99) for row in block_rows
+                    int(row.get("seeing_code") or 99) for row in imaging_rows
                 ]
-                dark_count = sum(
-                    1 for row in block_rows if row.get("astro_dark") is True
-                )
+                dark_count = len(dark_rows)
                 moon_up_count = sum(
-                    1 for row in block_rows if row.get("moon_up") is True
+                    1 for row in imaging_rows if row.get("moon_up") is True
                 )
-                best = max(block_rows, key=lambda row: int(row.get("score") or 0))
-                moon_row = block_rows[len(block_rows) // 2]
+                best = max(imaging_rows, key=lambda row: int(row.get("score") or 0))
+                avg_cloud = round(sum(cloud_values) / max(1, len(cloud_values)))
+                block_score = min(
+                    int(best.get("score") or 0),
+                    self._record_cloud_cap(avg_cloud, bool(dark_rows)),
+                )
+                moon_row = imaging_rows[len(imaging_rows) // 2]
+                first_block_dt = self._row_local_dt(block_rows[0]) or cursor
+                # Display the card by the first actual forecast date, not by an
+                # artificial noon cursor. This avoids showing yesterday as the
+                # first planner card when 7Timer starts today before noon.
+                display_dt = (
+                    first_block_dt if first_block_dt.date() > cursor.date() else cursor
+                )
+                exact_range = f"{cursor.strftime('%a %Y-%m-%d %H:%M')} → {end.strftime('%a %H:%M')}"
                 blocks.append(
                     {
-                        "label": f"Record {block_index}: {cursor.strftime('%a %Y-%m-%d %H:%M')} → {end.strftime('%a %H:%M')} (24h)",
-                        "short_label": f"{cursor.strftime('%a %d %b %H:%M')} → {end.strftime('%a %H:%M')}",
+                        "label": f"Record {block_index}: {exact_range} (24h)",
+                        "short_label": f"{display_dt.strftime('%a %d %b')} · {cursor.strftime('%H:%M')} → {end.strftime('%a %H:%M')}",
+                        "day_label": display_dt.strftime("%A %d"),
+                        "display_iso": display_dt.isoformat(),
                         "start_iso": cursor.isoformat(),
                         "end_iso": end.isoformat(),
                         "rows": block_rows,
-                        "best_score": best.get("score"),
+                        "best_score": block_score,
                         "best_time": best.get("local_label"),
-                        "avg_cloud": round(
-                            sum(cloud_values) / max(1, len(cloud_values))
-                        ),
+                        "avg_cloud": avg_cloud,
+                        "avg_cloud_scope": "night" if dark_rows else "record",
                         "best_seeing_code": min(seeing_values),
                         "astro_dark_points": dark_count,
                         "moon_up_points": moon_up_count,
@@ -1548,19 +1926,61 @@ class SeeingDialog(QDialog):
         for index, block in enumerate(self._day_blocks):
             score = block.get("best_score")
             cloud = block.get("avg_cloud")
+            scope = str(block.get("avg_cloud_scope") or "record")
+            best_label = "best score"
+            cloud_label = "night cloud" if scope == "night" else "cloud"
             self.day_graph_combo.addItem(
-                f"Record {index + 1}: {block.get('short_label', f'24h {index + 1}')} · best {score if score is not None else '—'} · cloud {cloud if cloud is not None else '—'}%",
+                f"Record {index + 1}: {block.get('short_label', f'24h {index + 1}')} · {best_label} {score if score is not None else '—'} · {cloud_label} {cloud if cloud is not None else '—'}%",
                 index,
             )
         self.day_graph_combo.blockSignals(False)
         self.day_graph_combo.setEnabled(bool(self._day_blocks))
         if self._day_blocks:
-            best_index = self._best_block_index()
-            self.day_graph_combo.setCurrentIndex(best_index)
-            self._apply_record_filter(best_index, select_best=True)
+            start_index = self._current_or_next_dark_block_index()
+            self.day_graph_combo.setCurrentIndex(start_index)
+            self._apply_record_filter(start_index, select_best=True)
         else:
             self.night_planner.set_blocks([])
             self._populate_table([])
+
+    def _current_or_next_dark_block_index(self) -> int:
+        """Prefer the forecast block containing the current/next dark imaging period."""
+        if not self._day_blocks:
+            return 0
+        now = self._now_local(self._result)
+        current_block = -1
+        upcoming_index = -1
+        upcoming_dt: datetime | None = None
+        for index, block in enumerate(self._day_blocks):
+            start_dt = self._parse_period_dt(block.get("start_iso"), self._result)
+            end_dt = self._parse_period_dt(block.get("end_iso"), self._result)
+            if start_dt is not None and end_dt is not None:
+                try:
+                    start_dt = start_dt.astimezone(now.tzinfo)
+                    end_dt = end_dt.astimezone(now.tzinfo)
+                except Exception:
+                    pass
+                if start_dt <= now < end_dt:
+                    current_block = index
+            rows = block.get("rows") if isinstance(block.get("rows"), list) else []
+            for row in rows:
+                if row.get("astro_dark") is not True:
+                    continue
+                row_dt = self._row_local_dt(row)
+                if row_dt is None:
+                    continue
+                try:
+                    row_dt = row_dt.astimezone(now.tzinfo)
+                except Exception:
+                    pass
+                if row_dt >= now and (upcoming_dt is None or row_dt < upcoming_dt):
+                    upcoming_dt = row_dt
+                    upcoming_index = index
+        if upcoming_index >= 0:
+            return upcoming_index
+        if current_block >= 0:
+            return current_block
+        return self._best_block_index()
 
     def _best_block_index(self) -> int:
         best_index = 0
@@ -1626,10 +2046,15 @@ class SeeingDialog(QDialog):
         self._apply_record_filter(block_index, select_best=False)
 
     def _is_night_row(self, row: dict[str, Any]) -> bool:
+        """Return True only for astronomical darkness rows.
+
+        Twilight/day rows can have excellent seeing and low cloud, but they are
+        not useful night-imaging candidates and must not drive planner scores.
+        """
         if row.get("astro_dark") is True:
             return True
-        text = f"{row.get('astro_dark_text', '')} {row.get('sun_alt_text', '')}".lower()
-        return any(token in text for token in ("dark", "night", "twilight"))
+        text = str(row.get("astro_dark_text", "")).lower()
+        return text.startswith("astro dark")
 
     def _forecast_point_sort_key(
         self, row: dict[str, Any]
@@ -1839,6 +2264,38 @@ class SeeingDialog(QDialog):
         return mapping.get(int(bortle)) if bortle is not None else None
 
     @staticmethod
+    def _bortle_accent(bortle: int | None) -> tuple[str, str, str]:
+        """Return dark-theme-visible accent, label, and card background."""
+        try:
+            value = int(bortle) if bortle is not None else None
+        except Exception:
+            value = None
+        if value is None:
+            return "#91a6bb", "Not set", "#101820"
+        if value >= 8:
+            return "#f2f6fb", "Urban/white", "#202327"
+        if value >= 6:
+            return "#f2d56b", "Bright/yellow", "#211f12"
+        if value >= 4:
+            return "#92d7a7", "Suburban/green", "#0f1f17"
+        if value >= 2:
+            return "#8fd0ff", "Dark/blue", "#0e1b28"
+        return "#b59cff", "Pristine/violet", "#191427"
+
+    def _apply_sky_quality_card_style(self, accent: str, background: str) -> None:
+        if not hasattr(self, "sky_quality_card"):
+            return
+        self.sky_quality_card.setStyleSheet(
+            f"""
+            background-color: {background};
+            color: #e8edf2;
+            border: 1px solid {accent};
+            border-radius: 12px;
+            padding: 8px 10px;
+            """
+        )
+
+    @staticmethod
     def _sky_brightness_from_sqm(
         sqm: float | None,
     ) -> tuple[float | None, float | None]:
@@ -1927,6 +2384,8 @@ class SeeingDialog(QDialog):
 
         sqm_text = f"{sqm:.2f}" if sqm is not None else "Not set"
         bortle_text = f"Class {bortle}" if bortle is not None else "Not set"
+        bortle_color, bortle_band, bortle_background = self._bortle_accent(bortle)
+        self._apply_sky_quality_card_style(bortle_color, bortle_background)
         brightness_text = f"{brightness:.2f}" if brightness is not None else "—"
         artificial_text = f"{artificial:.2f}" if artificial is not None else "—"
         score = summary.get("best_score")
@@ -1935,7 +2394,7 @@ class SeeingDialog(QDialog):
         except Exception:
             score_text = "—"
         label = summary.get("best_score_label") or score_label(score)
-        best_time = html.escape(str(summary.get("best_time") or "—"))
+        best_slot = html.escape(self._best_window_label(result))
         cloud = html.escape(
             str(summary.get("best_cloud_compact") or summary.get("best_cloud") or "—")
         )
@@ -1943,15 +2402,11 @@ class SeeingDialog(QDialog):
         moon = html.escape(str(summary.get("best_moon") or "—"))
         seeing = html.escape(str(summary.get("best_seeing") or "—"))
         trans = html.escape(str(summary.get("best_transparency") or "—"))
-        note = html.escape(str(result.get("status_note") or ""))
-        if note:
-            best_time = note
         return f"""
         <div style="font-family:'Segoe UI Variable','Segoe UI',sans-serif;color:#e8edf2;white-space:nowrap;font-size:11px;line-height:1.15;">
-          <span style="color:#92d7a7;font-weight:850;">SQM</span> <b>{html.escape(sqm_text)}</b>
-          <span style="color:#516171;"> | </span><span style="color:#92d7a7;font-weight:850;">Bortle</span> <b>{html.escape(bortle_text)}</b>
-          <span style="color:#516171;"> | </span><span style="color:#91a6bb;font-weight:850;">Brightness</span> <b>{html.escape(brightness_text)}</b> <span style="color:#91a6bb;">mcd/m²</span>
-          <span style="color:#516171;"> | </span><span style="color:#91a6bb;font-weight:850;">Artificial</span> <b>{html.escape(artificial_text)}</b> <span style="color:#91a6bb;">mcd/m²</span>
+          <span style="color:{bortle_color};font-weight:850;">SQM</span> <b>{html.escape(sqm_text)}</b>
+          <span style="color:#516171;"> | </span><span style="color:{bortle_color};font-weight:850;">Bortle</span> <b style="color:{bortle_color};">{html.escape(bortle_text)}</b> <span style="color:#91a6bb;">{html.escape(bortle_band)}</span>
+          <span style="color:#516171;"> | </span><span style="color:#8fd0ff;font-weight:850;">Night window</span> <b>{best_slot}</b>
           <span style="color:#516171;"> | </span><span style="color:#8fd0ff;font-weight:850;">Score</span> <b style="font-size:16px;">{html.escape(score_text)}</b> <span style="color:#cfe4ff;">{html.escape(str(label))}</span>
           <span style="color:#516171;"> | </span><span style="color:#8fd0ff;font-weight:850;">Cloud</span> <b>{cloud}</b>
           <span style="color:#516171;"> | </span><span style="color:#3296dc;font-weight:850;">Dark</span> <b>{dark}</b>

@@ -217,29 +217,80 @@ def _quality_from_code(code: int, *, max_code: int) -> int:
     return max(0, min(100, round(100 - ((code - 1) / (max_code - 1)) * 100)))
 
 
+def _cloud_score_from_pct(pct: int) -> int:
+    """Return a cloud score tuned for imaging, not general weather.
+
+    Cloud cover must dominate the final astronomy score: excellent seeing is
+    not useful for deep-sky imaging when the sky is mostly covered.
+    """
+    pct = max(0, min(100, int(pct)))
+    if pct <= 10:
+        return 100
+    if pct <= 20:
+        return 92
+    if pct <= 30:
+        return 82
+    if pct <= 40:
+        return 68
+    if pct <= 50:
+        return 52
+    if pct <= 60:
+        return 36
+    if pct <= 70:
+        return 24
+    if pct <= 80:
+        return 14
+    if pct <= 90:
+        return 7
+    return 0
+
+
+def _cloud_score_cap(pct: int) -> int:
+    """Hard ceiling for final score based on cloud cover.
+
+    This prevents rows like 66% cloud + good seeing from being shown as
+    a strong imaging opportunity.
+    """
+    pct = max(0, min(100, int(pct)))
+    if pct >= 95:
+        return 15
+    if pct >= 85:
+        return 25
+    if pct >= 75:
+        return 35
+    if pct >= 65:
+        return 42
+    if pct >= 55:
+        return 48
+    if pct >= 45:
+        return 60
+    if pct >= 35:
+        return 70
+    if pct >= 25:
+        return 78
+    return 100
+
+
 def _row_score(row: dict[str, Any]) -> int:
     seeing_score = _quality_from_code(_int_value(row.get("seeing")), max_code=8)
     transparency_score = _quality_from_code(
         _int_value(row.get("transparency")), max_code=8
     )
-    cloud_score = _quality_from_code(_int_value(row.get("cloudcover")), max_code=9)
+    cloud_code = _int_value(row.get("cloudcover"), 9)
+    cloud_mid_pct = CLOUD_LABELS.get(cloud_code, ("Unknown", 100))[1]
+    cloud_score = _cloud_score_from_pct(cloud_mid_pct)
     wind_speed = _int_value((row.get("wind10m") or {}).get("speed"), 2)
     wind_score = _quality_from_code(wind_speed, max_code=8)
     precip_type = str(row.get("prec_type") or "none").strip().lower()
-    precip_score = 100 if precip_type in {"", "none"} else 15
-    return max(
-        0,
-        min(
-            100,
-            round(
-                seeing_score * 0.35
-                + transparency_score * 0.25
-                + cloud_score * 0.25
-                + wind_score * 0.10
-                + precip_score * 0.05
-            ),
-        ),
+    precip_score = 100 if precip_type in {"", "none"} else 10
+    base_score = round(
+        seeing_score * 0.30
+        + transparency_score * 0.22
+        + cloud_score * 0.36
+        + wind_score * 0.08
+        + precip_score * 0.04
     )
+    return max(0, min(100, min(base_score, _cloud_score_cap(cloud_mid_pct))))
 
 
 def score_label(score: Any) -> str:
@@ -256,6 +307,100 @@ def score_label(score: Any) -> str:
     if value >= 35:
         return "Poor"
     return "Avoid"
+
+
+def _sun_darkness_score_cap(sun_altitude_deg: Any, astro_dark: Any) -> int:
+    """Hard imaging score cap from Sun altitude.
+
+    SEEING is an astrophotography planner, so a daylight or twilight row must
+    not rank as an excellent imaging slot just because clouds/seeing are good.
+    """
+    if astro_dark is True:
+        return 100
+    try:
+        altitude = float(sun_altitude_deg)
+    except Exception:
+        return 45
+    if altitude >= -6.0:
+        return 5
+    if altitude >= -12.0:
+        return 20
+    if altitude >= -18.0:
+        return 45
+    return 100
+
+
+def _sun_darkness_score_factor(sun_altitude_deg: Any, astro_dark: Any) -> float:
+    """Scale twilight/daylight rows instead of making every row hit the same cap.
+
+    The cap protects the planner from advertising twilight as a deep-sky imaging
+    window. The factor keeps relative weather quality visible, so a cloudy
+    twilight record scores lower than a clear twilight record.
+    """
+    if astro_dark is True:
+        return 1.0
+    try:
+        altitude = float(sun_altitude_deg)
+    except Exception:
+        return 0.55
+    if altitude >= -6.0:
+        return 0.10
+    if altitude >= -12.0:
+        return 0.32
+    if altitude >= -18.0:
+        return 0.55
+    return 1.0
+
+
+def _moon_score_cap(moon_up: Any, moon_pct: Any) -> int:
+    """Soft imaging score cap when the Moon is up.
+
+    The Moon is less absolute than cloud or daylight, but a bright Moon should
+    still prevent a card from being advertised as an excellent dark-sky window.
+    """
+    if moon_up is not True:
+        return 100
+    pct = max(0, min(100, _int_value(moon_pct, 0)))
+    if pct >= 80:
+        return 50
+    if pct >= 60:
+        return 60
+    if pct >= 40:
+        return 70
+    if pct >= 20:
+        return 80
+    if pct >= 10:
+        return 90
+    return 100
+
+
+def _apply_imaging_context_score(row: dict[str, Any]) -> None:
+    """Replace the raw atmosphere score with a night-imaging score in-place."""
+    base_score = _int_value(row.get("sky_score", row.get("score")), 0)
+    row.setdefault("sky_score", base_score)
+    row.setdefault("sky_score_label", score_label(base_score))
+
+    sun_cap = _sun_darkness_score_cap(
+        row.get("sun_altitude_deg"), row.get("astro_dark")
+    )
+    sun_factor = _sun_darkness_score_factor(
+        row.get("sun_altitude_deg"), row.get("astro_dark")
+    )
+    moon_cap = _moon_score_cap(row.get("moon_up"), row.get("moon_pct"))
+
+    darkness_scaled_score = round(base_score * sun_factor)
+    capped_score = max(0, min(100, darkness_scaled_score, sun_cap, moon_cap))
+    row["score"] = capped_score
+    row["score_label"] = score_label(capped_score)
+
+    if row.get("astro_dark") is not True:
+        row["score_note"] = "Reduced because this hour is not astronomical darkness."
+    elif row.get("moon_up") is True and capped_score < base_score:
+        row["score_note"] = "Capped because the Moon is up."
+    elif capped_score < base_score:
+        row["score_note"] = "Capped for imaging conditions."
+    else:
+        row.pop("score_note", None)
 
 
 def _seeing_text(code: int) -> str:
@@ -650,6 +795,7 @@ def attach_astro_context(
             if moon_up is not None
             else f"{int(round(illum * 100))}% · {phase}"
         )
+        _apply_imaging_context_score(row)
 
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
     dark_labels = [
@@ -660,7 +806,18 @@ def attach_astro_context(
         f"{period.get('date', '—')}: rise {period.get('moonrise_label', '—')} · set {period.get('moonset_label', '—')} · {period.get('illumination_pct', '—')}% {period.get('phase', '')}"
         for period in moon_periods[:5]
     ]
-    best_row = max(rows, key=lambda row: int(row.get("score") or 0))
+    # Summaries should represent the best imaging slot. Prefer actual
+    # astronomical darkness, and only fall back to twilight/day when no dark
+    # forecast points are available in the record.
+    imaging_rows = [row for row in rows if row.get("astro_dark") is True] or rows
+    best_row = max(imaging_rows, key=lambda row: int(row.get("score") or 0))
+    summary["best_score"] = int(best_row.get("score") or 0)
+    summary["best_score_label"] = score_label(best_row.get("score"))
+    summary["best_time"] = best_row.get("local_label", "—")
+    summary["best_hour_label"] = best_row.get("hour_label", "—")
+    summary["best_seeing"] = best_row.get("seeing_text", "—")
+    summary["best_transparency"] = best_row.get("transparency_text", "—")
+    summary["best_cloud"] = best_row.get("cloud_text", "—")
     summary["best_dark"] = best_row.get("astro_dark_text", "—")
     summary["best_moon"] = best_row.get("moon_text", "—")
     summary["best_moon_pct"] = best_row.get("moon_pct")

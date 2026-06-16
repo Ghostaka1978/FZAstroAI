@@ -26,6 +26,7 @@ except Exception:  # WebEngine is optional in source/dev installs.
     QWebEngineView = None
 
 from ..workers.sky_quality_worker import SkyQualityFetchWorker
+from .window_utils import apply_window_defaults
 
 
 _LOCATION_HTML = """
@@ -107,6 +108,7 @@ class AstroLocationDialog(QDialog):
 
     def __init__(self, parent=None, current: Optional[Dict[str, object]] = None):
         super().__init__(parent)
+        apply_window_defaults(self)
         current = dict(current or {})
         self.selected_location: Optional[Dict[str, object]] = None
         self._web_view = None

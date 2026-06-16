@@ -12,10 +12,12 @@ from PySide6.QtWidgets import (
 )
 
 from .message_widgets import SystemPromptTextEdit
+from .window_utils import apply_window_defaults
 
 
 def open_system_prompt_editor(self):
     dialog = QDialog(self)
+    apply_window_defaults(dialog)
     dialog.setWindowTitle("AI Role / System Prompt")
     dialog.resize(1050, 800)
     self.system_prompt_dialog = dialog

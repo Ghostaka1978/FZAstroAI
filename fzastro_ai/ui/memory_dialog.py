@@ -28,6 +28,7 @@ from ..memory_store import (
     save_persistent_memory,
     search_persistent_memory_entries,
 )
+from .window_utils import apply_window_defaults
 
 
 def format_persistent_memory_item(self, entry):
@@ -106,6 +107,7 @@ def save_persistent_memory_from_ui(self):
 
 def open_persistent_memory_library(self):
     dialog = QDialog(self)
+    apply_window_defaults(dialog)
     dialog.setWindowTitle("Persistent Memory Library")
     dialog.resize(980, 760)
     self.memory_dialog = dialog
@@ -247,6 +249,7 @@ def show_persistent_memory_entry_editor(self, entry=None):
     parent = self.memory_dialog if self.memory_dialog is not None else self
 
     dialog = QDialog(parent)
+    apply_window_defaults(dialog)
     dialog.setWindowTitle(
         "Edit Persistent Memory" if existing else "Add Persistent Memory"
     )

@@ -18,12 +18,14 @@ from ..config import (
     LOG_FILE,
 )
 from ..logging_utils import log_exception
+from .window_utils import apply_window_defaults
 
 
 def open_about_window(parent):
     """Open a compact app/version/about dialog."""
     try:
         dialog = QDialog(parent)
+        apply_window_defaults(dialog)
         dialog.setObjectName("helpDialog")
         dialog.setWindowTitle(f"About {APP_NAME}")
         dialog.resize(720, 520)

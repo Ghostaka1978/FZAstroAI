@@ -716,10 +716,13 @@ Astro distance path: use Skills -> Astro -> LOOKUP and check the distance method
 ```
 """
 
+from .window_utils import apply_window_defaults
+
 
 def open_help_cheat_sheet_dialog(parent):
     """Open the built-in routing and prompt cheat sheet."""
     dialog = QDialog(parent)
+    apply_window_defaults(dialog)
     dialog.setObjectName("helpDialog")
     dialog.setWindowTitle("FZAstro AI Version 1 Help")
     dialog.resize(900, 760)

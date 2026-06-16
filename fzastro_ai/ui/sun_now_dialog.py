@@ -29,6 +29,7 @@ from ..workers.sun_now_worker import (
     normalise_sun_channel,
     normalise_sun_resolution,
 )
+from .window_utils import apply_window_defaults
 
 
 def _format_bytes(value: Any) -> str:
@@ -48,6 +49,7 @@ class SunNowDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        apply_window_defaults(self)
         self.sun_worker: SunNowWorker | None = None
         self._preview_pixmap: QPixmap | None = None
         self._last_result: dict[str, Any] = {}

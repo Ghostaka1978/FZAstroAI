@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..workers.solar_map_worker import SolarMapWorker
+from .window_utils import apply_window_defaults
 
 
 AU_TO_SCENE = 44.0
@@ -108,6 +109,7 @@ class SolarMapDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        apply_window_defaults(self)
         self.solar_worker: SolarMapWorker | None = None
         self._snapshot: dict[str, Any] = {}
         self._planet_items: dict[str, SolarPlanetItem] = {}

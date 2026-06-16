@@ -5,6 +5,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+from .astropy_runtime import configure_astropy_runtime
+
+configure_astropy_runtime()
+
 from astropy import units as u
 from astropy.coordinates import EarthLocation
 

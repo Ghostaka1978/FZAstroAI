@@ -471,6 +471,7 @@ def _base_env() -> Dict[str, str]:
     env.setdefault("FZASTRO_SKYFIELD_DIR", str(ASTRO_SKYFIELD_DIR))
     env.setdefault("FZASTRO_FAST_LOOKUP", "1")
     env.setdefault("FZASTRO_ENABLE_GAIA", "0")
+    env.setdefault("FZASTRO_DISABLE_IERS_DOWNLOAD", "1")
     return env
 
 

@@ -338,6 +338,8 @@ from .news_tools import (
 )
 
 
+from .ui.window_utils import apply_window_defaults
+
 from .web_tools import (
     perform_web_search,
     perform_web_image_search,
@@ -795,6 +797,7 @@ class FZAstroAI(
         self.setWindowTitle(APP_VERSION_LABEL)
         self.resize(1500, 950)
         self.setMinimumSize(1120, 720)
+        apply_window_defaults(self)
 
         self.messages = []
         self.attached_files = []
@@ -1342,6 +1345,12 @@ class FZAstroAI(
         self.astro_location_label.setToolTip(
             "Current observing site used by SEEING and TARGETS"
         )
+        try:
+            self.astro_location_label.destroyed.connect(
+                lambda *_: setattr(self, "astro_location_label", None)
+            )
+        except Exception:
+            pass
 
         self.astro_imaging_button = QPushButton("IMAGING")
         self.astro_imaging_button.setObjectName("stockPriceButton")
@@ -1832,6 +1841,7 @@ class FZAstroAI(
 
     def open_document_knowledge_library(self):
         dialog = QDialog(self)
+        apply_window_defaults(dialog)
         dialog.setWindowTitle("Document Knowledge Library")
         dialog.resize(920, 720)
         self.knowledge_dialog = dialog
@@ -2174,6 +2184,7 @@ class FZAstroAI(
             return
 
         dialog = QDialog(self)
+        apply_window_defaults(dialog)
         dialog.setWindowTitle(f"Document Options — {document.get('name', 'Document')}")
         dialog.resize(680, 360)
 
@@ -2348,6 +2359,7 @@ class FZAstroAI(
             return
 
         dialog = QDialog(self)
+        apply_window_defaults(dialog)
         dialog.setWindowTitle(f"Book Reader — {document.get('name', 'Document')}")
         dialog.resize(980, 760)
 
@@ -2471,6 +2483,7 @@ class FZAstroAI(
             return
 
         dialog = QDialog(self)
+        apply_window_defaults(dialog)
         dialog.setWindowTitle(f"Search Inside — {document.get('name', 'Document')}")
         dialog.resize(840, 640)
 
@@ -3847,6 +3860,7 @@ class FZAstroAI(
 
     def show_text_dialog(self, title, body, *, html_body=False):
         dialog = QDialog(self)
+        apply_window_defaults(dialog)
         dialog.setWindowTitle(title)
         dialog.resize(760, 560)
 

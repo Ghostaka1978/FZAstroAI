@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from .astro_object_catalogs import ASTRO_CATALOG_ROWS
+from .window_utils import apply_window_defaults
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
@@ -337,6 +338,7 @@ class FloatingSkyPreviewDialog(QDialog):
         pixmap: QPixmap | None = None,
     ):
         super().__init__(parent)
+        apply_window_defaults(self)
         self._pixmap: QPixmap | None = None
         self.setObjectName("astroLookupDialog")
         self.setWindowTitle(str(title or "Sky preview"))
@@ -406,6 +408,7 @@ class AstroLookupDialog(QDialog):
         include_query: bool = True,
     ):
         super().__init__(parent)
+        apply_window_defaults(self)
         self.setWindowFlags(
             self.windowFlags()
             | Qt.WindowMinimizeButtonHint

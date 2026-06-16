@@ -49,6 +49,7 @@ from .astro_lookup_dialog import (
     _lookup_params_from_dialog_data,
     _markdown_to_html,
 )
+from .window_utils import apply_window_defaults
 
 
 class TargetsDialog(QDialog):
@@ -69,6 +70,7 @@ class TargetsDialog(QDialog):
 
     def __init__(self, parent=None, location: dict[str, Any] | None = None):
         super().__init__(parent)
+        apply_window_defaults(self)
         self.setWindowFlags(
             self.windowFlags()
             | Qt.WindowMinimizeButtonHint

@@ -9,6 +9,11 @@ from typing import Dict, Tuple, Union
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
+try:
+    import shiboken6
+except Exception:  # pragma: no cover - defensive for alternate PySide builds
+    shiboken6 = None
+
 from ..workers import AstroWorker
 from ..config import APP_DIR
 from ..logging_utils import log_exception, log_warning, log_debug
@@ -166,19 +171,30 @@ class AstroActionsMixin:
 
     def refresh_astro_location_label(self):
         label = getattr(self, "astro_location_label", None)
+        if label is None:
+            return
 
-        if label is not None:
+        if shiboken6 is not None:
             try:
-                label.setText(self.astro_location_summary())
-                label.setToolTip("Current observing site used by SEEING and TARGETS")
-            except RuntimeError as exc:
-                log_warning(
-                    "AstroActions.refresh_astro_location_label stale label", exc
-                )
-                try:
+                if not shiboken6.isValid(label):
                     self.astro_location_label = None
-                except Exception:
-                    pass
+                    return
+            except Exception:
+                pass
+
+        try:
+            label.setText(self.astro_location_summary())
+            label.setToolTip("Current observing site used by SEEING and TARGETS")
+        except RuntimeError as exc:
+            # QLabel was already destroyed by Qt. Clear the Python reference
+            # silently; logging this every refresh made normal shutdown look like
+            # an error and could lead to repeated access to a dead C++ object.
+            try:
+                self.astro_location_label = None
+            except Exception:
+                pass
+            if "already deleted" not in str(exc).lower():
+                log_warning("AstroActions.refresh_astro_location_label failed", exc)
 
     def get_current_astro_imaging(self) -> Dict[str, Union[float, str]]:
         cached = getattr(self, "astro_imaging", None)

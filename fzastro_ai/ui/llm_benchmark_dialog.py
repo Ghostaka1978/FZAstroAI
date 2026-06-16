@@ -56,6 +56,7 @@ from ..config import APP_DIR, DEFAULT_MODEL_NAME, RUNTIME_CHAT_TIMEOUT_SECONDS
 from ..logging_utils import log_exception, log_warning
 from ..runtime import is_ollama_base_url, make_runtime_client
 from ..workers.model_discovery_worker import ModelDiscoveryWorker
+from .window_utils import apply_window_defaults
 
 BENCHMARK_HISTORY_FILE = Path(APP_DIR) / "llm_benchmark_history.json"
 
@@ -539,6 +540,7 @@ class MetricCard(QFrame):
 class LlmBenchmarkDialog(QDialog):
     def __init__(self, app_window, parent=None):
         super().__init__(parent or app_window)
+        apply_window_defaults(self)
         self.app_window = app_window
         self.worker: LlmBenchmarkWorker | None = None
         self.model_discovery_worker: ModelDiscoveryWorker | None = None

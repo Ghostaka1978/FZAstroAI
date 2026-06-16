@@ -25,6 +25,7 @@ from ..memory_store import (
     save_persistent_memory,
 )
 from ..workers import MemoryExtractionWorker
+from .window_utils import apply_window_defaults
 
 
 def remember_selected_history(self):
@@ -153,6 +154,7 @@ def handle_memory_extraction_ready(self, extracted_text):
     source_records = list(self.pending_memory_source_records)
 
     dialog = QDialog(self)
+    apply_window_defaults(dialog)
     dialog.setWindowTitle("Review Structured Persistent Memory")
     dialog.resize(980, 720)
 

@@ -9,6 +9,40 @@ import json
 import argparse
 import math
 
+import os
+
+
+def _configure_astropy_iers_offline() -> None:
+    """Keep Astropy from downloading malformed live IERS tables."""
+    os.environ.setdefault(
+        "ASTROPY_CACHE_DIR",
+        os.path.join(os.path.expanduser("~"), ".fzastro_ai", "astropy_cache"),
+    )
+    os.environ.setdefault("FZASTRO_DISABLE_IERS_DOWNLOAD", "1")
+    try:
+        from astropy.utils import iers
+        from astropy.utils.iers import IERSStaleWarning, IERSWarning
+
+        iers.conf.auto_download = False
+        iers.conf.auto_max_age = None
+        try:
+            iers.conf.iers_degraded_accuracy = "ignore"
+        except Exception:
+            pass
+        try:
+            iers.conf.remote_timeout = 2.0
+        except Exception:
+            pass
+        import warnings as _warnings
+
+        _warnings.filterwarnings("ignore", category=IERSWarning)
+        _warnings.filterwarnings("ignore", category=IERSStaleWarning)
+    except Exception:
+        pass
+
+
+_configure_astropy_iers_offline()
+
 import numpy as np
 from astropy import units as u
 from astropy.coordinates import SkyCoord, AltAz, EarthLocation, get_sun, Angle
