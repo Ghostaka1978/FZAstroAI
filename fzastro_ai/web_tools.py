@@ -5,6 +5,7 @@ import re
 import tempfile
 import time
 from datetime import datetime
+from importlib import import_module
 from pathlib import Path
 from urllib.parse import quote, quote_plus, urlparse
 
@@ -90,6 +91,66 @@ def _launch_playwright_chromium(playwright, *, headless=True):
     )
 
 
+def _compact_search_error(error, max_chars=260):
+    text = re.sub(r"\s+", " ", str(error or "")).strip()
+    if len(text) > int(max_chars):
+        text = text[: int(max_chars) - 3].rstrip() + "..."
+    return text or error.__class__.__name__
+
+
+def _make_ddgs_client(DDGS):
+    # Newer ddgs versions accept timeout=..., older versions do not.  Keep both
+    # paths so source installs and frozen builds with pinned dependencies work.
+    try:
+        return DDGS(timeout=8)
+    except TypeError:
+        return DDGS()
+
+
+def _ddgs_text_results(query, max_results=10):
+    """Return text search results without letting one DDGS backend kill the app.
+
+    DDGS can route through multiple engines.  A single provider timeout, commonly
+    Yandex, should be logged as a warning and followed by another provider.
+    """
+    DDGS = import_module("ddgs").DDGS
+
+    attempts = [
+        ("duckduckgo", {"backend": "duckduckgo"}),
+        ("bing", {"backend": "bing"}),
+        ("auto", {}),
+    ]
+    errors = []
+
+    for label, kwargs in attempts:
+        try:
+            with _make_ddgs_client(DDGS) as ddgs:
+                try:
+                    results = list(ddgs.text(query, max_results=max_results, **kwargs))
+                except TypeError:
+                    # Older ddgs releases may not support backend=.  Retry once
+                    # with the old signature instead of failing the search tool.
+                    if kwargs:
+                        with _make_ddgs_client(DDGS) as fallback_ddgs:
+                            results = list(
+                                fallback_ddgs.text(query, max_results=max_results)
+                            )
+                    else:
+                        raise
+
+            if results:
+                return results, errors
+
+            errors.append(f"{label}: no results")
+
+        except Exception as exc:
+            clean_error = _compact_search_error(exc)
+            errors.append(f"{label}: {clean_error}")
+            log_warning(f"perform_web_search provider failed ({label}): {clean_error}")
+
+    return [], errors
+
+
 def perform_web_search(query, progress_callback=None):
     if "||" in query:
         return perform_daily_news_search(progress_callback=progress_callback)
@@ -97,13 +158,15 @@ def perform_web_search(query, progress_callback=None):
     articles = []
 
     try:
-        from ddgs import DDGS
-
-        with DDGS() as ddgs:
-            search_results = list(ddgs.text(query, max_results=10))
+        search_results, search_errors = _ddgs_text_results(query, max_results=10)
 
         if not search_results:
-            return "No recent web results found."
+            if search_errors:
+                log_warning(
+                    "perform_web_search all providers failed: "
+                    + "; ".join(search_errors)
+                )
+            return "No recent web results found. Search providers may have timed out."
 
         for item in search_results:
             title = item.get("title", "")
@@ -117,11 +180,15 @@ def perform_web_search(query, progress_callback=None):
                 f"Title: {title}\n" f"URL: {url}\n" f"Content:\n{snippet[:500]}"
             )
 
+        if not articles:
+            return "No recent web results found."
+
         return "[WEB ARTICLES]\n\n" + "\n\n---ARTICLE---\n\n".join(articles)
 
     except Exception as e:
-        log_exception("perform_web_search line 2733", e)
-        return f"Web search failed: {str(e)}"
+        clean_error = _compact_search_error(e)
+        log_warning(f"perform_web_search failed safely: {clean_error}")
+        return f"Web search failed safely: {clean_error}"
 
 
 def _bing_image_fallback_search(query, max_results=24):

@@ -1,8 +1,8 @@
-# FZAstro AI v1.0.0 Version 1 Release Candidate Build and Validation
+# FZAstro AI v1.0.0 RC 3 Final Production Build and Validation
 
-This file is the release checklist for **FZAstro AI v1.0.0 — Version 1 Release Candidate**.
+This file is the final production release-candidate checklist for **FZAstro AI v1.0.0 — Version 1 RC 3 Final Production**.
 
-Do not call a build production until the automated tests, validation script, and manual acceptance checklist pass on the target Windows machine.
+A build can be marked **RC 3 Final Production** only after the automated tests, validation script, and manual acceptance checklist pass on the target Windows machine.
 
 ## 1. Recreate or activate the Python 3.11 environment
 
@@ -104,7 +104,7 @@ This checks:
 - Hardware telemetry row remains compact when GPU, CPU, RAM, and available temperatures are displayed.
 - LLM Benchmark Dashboard source imports and release resources remain available in the packaged app.
 
-## 5. Manual release-candidate acceptance test
+## 5. Manual RC 3 Final Production acceptance test
 
 With the EXE open, confirm these items.
 
@@ -118,7 +118,7 @@ Ollama-specific checks:
 
 Main app checks:
 
-1. About window shows `FZAstro AI v1.0.0 (Version 1 Release Candidate)`.
+1. About window shows `FZAstro AI v1.0.0 (Version 1 RC 3 Final Production)`.
 2. Clicking the **FZ** square in the header opens `https://github.com/Ghostaka1978/FZAstroAI` in the external browser.
 3. Open App Data works.
 4. Open Log works.
@@ -131,7 +131,7 @@ Main app checks:
 10. Exact PDF page text retrieval works.
 11. PDF page/image rendering works only when explicitly requested.
 12. Daily News works.
-13. Web mode works.
+13. Web mode works, and individual DDGS provider timeouts are logged without crashing the app.
 14. Composer toolbar Code, Paste Code, Actions, Context, Persona, and Clear controls work; prompt actions do not auto-send.
 15. Python actions can insert explain/debug/refactor/test prompts; Run actions use the existing local Python execution path.
 16. Smart routing sends obvious URL, document inventory/search/brief/page-image, and explicit Python-run requests to the correct app tool without a generic model answer.
@@ -158,9 +158,9 @@ LLM Benchmark checks:
 13. Export JSON writes `llm_benchmark_history.json` successfully, and Clear History removes all saved entries after confirmation.
 14. Stop cancels an active benchmark without leaving the worker running.
 
-Astro checks:
+Astro Tools Suite checks:
 
-1. **Skills → Astro** exposes SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP.
+1. **Skills → Astro** exposes the Astro Tools Suite: SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP.
 2. SITE opens the observing-site picker and saves latitude, longitude, elevation, timezone, and optional SQM/Bortle/source fields.
 3. IMAGING opens camera/FOV setup and updates the toolbar summary.
 4. LOOKUP opens its own compact dialog, keeps the migrated object dropdown catalogs available, and can query at least `M31`, `M82`, and `M101` without Gaia timeout.
@@ -168,8 +168,8 @@ Astro checks:
 6. SUN NOW opens its own window, displays at least one NASA/SDO channel, shows metadata, supports channel/size selection, and uses the cached image if the live feed is unavailable.
 7. SOLAR MAP opens a native 2D interactive map window with zoom, pan, Full/Inner/Outer modes, orbit/label/grid toggles, planet labels, and a planet data table.
 8. SEEING opens the Astro Night Planner in its own window and shows daily forecast cards for the available forecast period.
-9. SEEING uses 7Timer ASTRO seeing/transparency, Moon periods, astronomical-dark periods, cloud/seeing/transparency gauges, and a Forecast Points table that prioritizes night/imaging rows over daytime rows.
-10. SEEING can display SQM/Bortle from saved SITE values or a successful automatic LightPollutionMap.app lookup; if no reliable value exists, it should show Not set instead of a fake estimate.
+9. SEEING uses 7Timer ASTRO seeing/transparency, Moon periods, astronomical-dark periods, cloud/seeing/transparency gauges, cloud-aware nightly scoring, and a Forecast Points table that prioritizes night/imaging rows over daytime rows.
+10. SEEING can display SQM/Bortle from saved SITE values or a successful automatic LightPollutionMap.app lookup; if no reliable value exists, it should show Not set instead of a fake estimate. The SEEING top bar tint must follow Bortle class: 8–9 white/urban, 6–7 yellow, 4–5 green, 2–3 blue, and 1 violet.
 11. Selecting SEEING forecast cards/rows updates the selected-hour details and dark/moon period panels without traceback errors.
 12. TARGETS opens its own native planner window, runs without posting primary output to main chat, supports date/min-alt/type/source filters, and can import an OpenNGC CSV into the local catalog.
 13. While the main chat is scrolled upward, LOOKUP, SEEING, TARGETS, SUN NOW, and SOLAR MAP do not force the main chat to auto-scroll to the bottom; standalone Astro tools should not post their primary UI output to main chat.
@@ -244,12 +244,12 @@ Development/repair artifacts include `.bak`, `.patch`, `repair_*.ps1`, pytest ca
 
 ## 12. Release verdict rule
 
-The release candidate can be marked complete when:
+The RC 3 Final Production release can be marked complete when:
 
 - Black formatting check completes without failures.
 - `python -m pytest` completes without failures.
 - `build_exe.ps1` completes without errors.
 - `validate_release.ps1` completes without fatal errors.
 - The EXE remains open during the smoke test.
-- The manual acceptance checklist passes, including the LLM Benchmark Dashboard checks and the Astro LOOKUP, SUN NOW, SOLAR MAP, and SEEING Night Planner checks.
-- The About window shows the correct Version 1 version and milestone.
+- The manual acceptance checklist passes, including the LLM Benchmark Dashboard checks and the Astro Tools Suite checks for LOOKUP, SUN NOW, SEEING/Astro Night Planner, TARGETS, SOLAR MAP, SITE, and IMAGING.
+- The About window shows `FZAstro AI v1.0.0 (Version 1 RC 3 Final Production)`.

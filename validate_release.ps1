@@ -458,7 +458,7 @@ Set-Content -Path $ValidationLog -Value "FZAstro AI validation log" -Encoding UT
 $script:QuietOutput = -not $VerboseOutput
 $script:WorkflowLogPath = $ValidationLog
 
-Write-Host "FZAstro AI Version 1 Validation"
+Write-Host "FZAstro AI v1.0.0 RC 3 Final Production Validation"
 Write-Host "EXE:  $ExePath"
 Write-Host "Logs: $ValidationLog"
 Set-FZAstroBuildEnvironment -PythonPath $ResolvedPython -Root $ProjectRoot -BuildPath $BuildRoot

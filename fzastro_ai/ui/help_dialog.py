@@ -15,13 +15,13 @@ from PySide6.QtWidgets import (
 from ..logging_utils import log_exception
 
 
-HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI Version 1 Help
+HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI v1.0.0 RC 3 Final Production Help
 
-This guide shows the exact things you can ask FZAstro AI to do and which mode/source should be used. Version 1 is a release-candidate baseline, not a final production claim. Click the **FZ** square in the header to open the project GitHub repository in your external browser.
+This guide shows the exact things you can ask FZAstro AI to do and which mode/source should be used. Version 1 RC 3 Final Production is the final production release-candidate baseline for the Windows desktop app. Click the **FZ** square in the header to open the project GitHub repository in your external browser.
 
-## 1. Version 1 status
+## 1. RC 3 Final Production status
 
-FZAstro AI Version 1 is a Windows desktop release candidate for local AI chat, document research, web research, Python execution, persistent memory, and astrophotography workflows. Before distributing a build, run the automated tests and the release validation checklist.
+FZAstro AI v1.0.0 RC 3 Final Production is the Windows desktop release baseline for local AI chat, document research, web research, Python execution, persistent memory, LLM benchmarking, and the integrated Astro Tools Suite. Before distributing a build, run the automated tests and the release validation checklist.
 
 ```powershell
 python -m pytest
@@ -539,9 +539,9 @@ The Python runner is local subprocess execution, not a secure sandbox.
 Only run code you trust.
 ```
 
-## 28. Astro Tools — FZASTRO modules
+## 28. Astro Tools Suite — production astronomy workspace
 
-Use **Skills → Astro** for the migrated FZASTRO astrophotography tools.
+Use **Skills → Astro** for the RC 3 Astro Tools Suite. These tools are integrated production app windows, not loose helper scripts.
 
 ```text
 Skills   Astro   SITE   IMAGING   LOOKUP   SUN NOW   SEEING   TARGETS   SOLAR MAP
@@ -553,13 +553,13 @@ Skills   Astro   SITE   IMAGING   LOOKUP   SUN NOW   SEEING   TARGETS   SOLAR MA
 | **IMAGING** | Select camera preset, focal length, calculated FOV, image size, and rotation for LOOKUP images. |
 | **LOOKUP** | Open a compact object lookup window for M31, NGC 7000, IC 5146, planets, comets, stars, spacecraft, nebulae, and galaxies. Result text, distance details, and sky preview render in the LOOKUP window. |
 | **SUN NOW** | Show latest NASA/SDO solar images with channel/size selectors, Helioviewer closest-image metadata, and cached fallback. |
-| **SEEING** | Open the Astro Night Planner: daily forecast cards, 7Timer ASTRO seeing/transparency, cloud gauges, Moon periods, astronomical darkness, night-first forecast points, and SQM/Bortle sky quality. |
+| **SEEING** | Open the Astro Night Planner: daily forecast cards, current local day/time context, 7Timer ASTRO seeing/transparency, cloud gauges, Moon periods, astronomical darkness, night-first forecast points, cloud-aware nightly scoring, and SQM/Bortle sky quality. |
 | **TARGETS** | Open the native target-planner window with date, altitude, object-type, size, catalog-source, CSV export, and optional OpenNGC CSV import. |
 | **SOLAR MAP** | Open the native 2D interactive solar-system map with zoom, pan, Full/Inner/Outer modes, orbit/label/grid toggles, and planet data. |
 
 LOOKUP uses the selected **IMAGING** setup, so choose your camera preset and focal length before running object lookup when you want the sky image framed correctly. LOOKUP runs as its own dialog and does not need the main chat to display the object result.
 
-SEEING uses the saved **SITE** location. SQM/Bortle can come from manual SITE values or a successful automatic LightPollutionMap.app lookup; when no reliable source is available, SEEING should show the value as not set rather than inventing one.
+SEEING uses the saved **SITE** location. SQM/Bortle can come from manual SITE values or a successful automatic LightPollutionMap.app lookup; when no reliable source is available, SEEING should show the value as not set rather than inventing one. The SEEING top bar tints by Bortle class: 8–9 white/urban, 6–7 yellow, 4–5 green, 2–3 blue, and 1 violet.
 
 
 ### Distance ladder calculations
@@ -588,7 +588,7 @@ Examples:
 /solar-map
 ```
 
-Manual SEEING validation: open SEEING, confirm daily forecast cards are visible, Forecast Points prioritize night/imaging rows, Moon and astronomical-dark periods are visible, and selecting a forecast point updates the selected-hour card.
+Manual SEEING validation: open SEEING, confirm daily forecast cards are visible, the top bar shows the current local day/time and relevant current/tonight night window, Forecast Points prioritize night/imaging rows, cloud cover affects nightly scores, Moon and astronomical-dark periods are visible, the Bortle tint matches SITE values, and selecting a forecast point updates the selected-hour card.
 
 Expected source chips/source labels:
 
@@ -724,19 +724,19 @@ def open_help_cheat_sheet_dialog(parent):
     dialog = QDialog(parent)
     apply_window_defaults(dialog)
     dialog.setObjectName("helpDialog")
-    dialog.setWindowTitle("FZAstro AI Version 1 Help")
+    dialog.setWindowTitle("FZAstro AI v1.0.0 RC 3 Final Production Help")
     dialog.resize(900, 760)
 
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(18, 18, 18, 18)
     layout.setSpacing(12)
 
-    title = QLabel("FZAstro AI Version 1 Help")
+    title = QLabel("FZAstro AI v1.0.0 RC 3 Final Production Help")
     title.setObjectName("helpDialogTitle")
 
     subtitle = QLabel(
-        "Version 1 guide for chat, models, web, news, market quotes, documents, "
-        "PDF page images/text, memory, history, attachments, Python execution, LLM benchmarking, tests, Astro tools, and distance-ladder lookup details."
+        "RC 3 Final Production guide for chat, models, web, news, market quotes, documents, "
+        "PDF page images/text, memory, history, attachments, Python execution, LLM benchmarking, tests, the Astro Tools Suite, and distance-ladder lookup details."
     )
     subtitle.setObjectName("helpDialogSubtitle")
     subtitle.setWordWrap(True)

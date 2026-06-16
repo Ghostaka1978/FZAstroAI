@@ -1,47 +1,20 @@
-
-# Python virtual environments
+@"
 .venv/
 venv/
 env/
-
-# Python cache
 __pycache__/
 *.pyc
 *.pyo
-
-# Build outputs
-build/
-dist/
-*.egg-info/
-
-# Logs and local config
 *.log
-.env
-.env.*
-!.env.example
-
-# Tool caches
+*.tmp
+*.bak
+*.orig
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-*.py[cod]
-.idea/
-*.spec
-*.tmp
+build/
+dist/
+*.egg-info/
 .DS_Store
 Thumbs.db
-
-*.bak_*
-*.bak
-
-# Local app runtime state
-llm_benchmark_history.json
-*.json.tmp
-
-# Release/build artifacts
-fzastro_ai.zip
-dist/
-build/
-*.spec
-
-fzastro_ai_skills_refactor.zip
+"@ | Set-Content .gitignore -Encoding UTF8

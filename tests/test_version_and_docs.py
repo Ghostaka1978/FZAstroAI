@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 from fzastro_ai.config import APP_MILESTONE, APP_VERSION, APP_VERSION_LABEL
 
@@ -9,8 +9,8 @@ def test_version_constants_match_version_file():
     version_file = PROJECT_ROOT / "VERSION.txt"
     assert version_file.read_text(encoding="utf-8").strip() == "1.0.0"
     assert APP_VERSION == "1.0.0"
-    assert APP_MILESTONE == "Version 1 Release Candidate 2"
-    assert APP_VERSION_LABEL == "FZAstro AI v1.0.0 (Version 1 Release Candidate 2)"
+    assert APP_MILESTONE == "Version 1 RC 3 Final Production"
+    assert APP_VERSION_LABEL == "FZAstro AI v1.0.0 (Version 1 RC 3 Final Production)"
 
 
 def test_release_docs_are_version_1_not_production_2():
@@ -29,6 +29,9 @@ def test_release_docs_are_version_1_not_production_2():
     assert "v1.0.0" in combined
     assert "Production 2.0 BETA" not in combined
     assert "2.0.0-beta" not in combined
+    assert "RC 3 Final Production" in combined
+    assert "Release Candidate 2" not in combined
+    assert "not a final production claim" not in combined
 
 
 def test_migrated_fzastro_web_readme_is_not_stale_chess_doc():
@@ -129,3 +132,25 @@ def test_distance_ladder_feature_is_documented():
     assert "FZASTRO_USE_DISTANCE_LADDER" in help_dialog
     assert "_legacy_distance_ladder_for_fast_info" in engine_source
     assert "hubble(z)" in engine_source
+
+
+def test_rc3_astro_tools_suite_is_documented():
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    release_docs = (PROJECT_ROOT / "RELEASE_VALIDATION.md").read_text(encoding="utf-8")
+    help_dialog = (PROJECT_ROOT / "fzastro_ai" / "ui" / "help_dialog.py").read_text(
+        encoding="utf-8"
+    )
+    about_dialog = (PROJECT_ROOT / "fzastro_ai" / "ui" / "about_dialog.py").read_text(
+        encoding="utf-8"
+    )
+    combined = "\n".join([readme, release_docs, help_dialog, about_dialog])
+
+    assert "Astro Tools Suite" in combined
+    assert "SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP" in combined
+    assert "cloud-aware" in combined
+    assert "Bortle" in combined
+    assert "8–9 white/urban" in combined
+    assert "2–3 blue" in combined
+    assert "1 violet" in combined
+    assert "Astropy/IERS" in readme
+    assert "provider-timeout" in about_dialog or "provider timeouts" in readme

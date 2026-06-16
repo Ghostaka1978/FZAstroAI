@@ -1,8 +1,23 @@
-# FZAstro AI
+# FZAstro AI v1.0.0 RC 3 Final Production
 
-FZAstro AI is a Windows desktop AI workstation for astrophotography, document research, web research, local Python execution, LLM benchmarking, and integrated astronomy tools.
+FZAstro AI v1.0.0 RC 3 Final Production is a Windows desktop AI workstation for astrophotography, document research, web research, local Python execution, LLM benchmarking, and the integrated **Astro Tools Suite**.
 
-It combines a local/OpenAI-compatible chat interface with a PySide6 desktop application, a document knowledge library, persistent memory, web tools, market/news actions, benchmark telemetry, and migrated FZASTRO astrophotography utilities. The **FZ** square in the app header opens `https://github.com/Ghostaka1978/FZAstroAI` in the external browser.
+It combines a local/OpenAI-compatible chat interface with a PySide6 desktop application, a document knowledge library, persistent memory, web tools, market/news actions, benchmark telemetry, and production-ready migrated FZASTRO astrophotography utilities. The **FZ** square in the app header opens `https://github.com/Ghostaka1978/FZAstroAI` in the external browser.
+
+## RC 3 Final Production highlights
+
+RC 3 is the final production release-candidate baseline for Version 1. The release focus is stability, clean packaging, and the new **Astro Tools Suite** as a first-class workstation area rather than a collection of helper scripts.
+
+Highlights:
+
+* Clean package structure: application modules live under `fzastro_ai/`; the root keeps only launch, build, validation, and documentation files.
+* Production About and Help text updated for `FZAstro AI v1.0.0 (Version 1 RC 3 Final Production)`.
+* Astro Tools Suite emphasized across README, Help, About, and release validation.
+* SEEING/Astro Night Planner polish: current local day/time context, current/tonight night-window wording, night-first forecast points, cloud-aware scoring, astronomical-dark prioritization, moon-period display, and Bortle-aware sky-quality styling.
+* Bortle top-bar tint: Bortle 8–9 white/urban, 6–7 yellow, 4–5 green, 2–3 blue, and 1 violet.
+* Standalone Astro tools open as centered, normal desktop windows with minimize/maximize/close controls.
+* Astropy/IERS live-download hardening prevents malformed IERS table crashes during astronomy workflows.
+* Web search hardening keeps DDGS/Yandex timeouts from crashing the app; failed providers are logged and the app can continue with fallback behavior.
 
 ## What FZAstro AI does
 
@@ -48,15 +63,15 @@ Open LLM BENCH -> choose or refresh a model -> select Quick Q&A (short) -> Run S
 
 For cleaner model comparisons, use **Run All Presets** on each model with the same endpoint, persona/calibration selection, temperature, repeat count, and background GPU load. Selected single-preset runs use the visible max-token setting; full-suite runs use each preset's default max-token budget. Use **Raw model** for pure speed baselines and a named persona/profile when you want to measure app-style behavior.
 
-## Astrophotography tools
+## Astro Tools Suite
 
-FZAstro AI includes integrated FZASTRO modules for astronomy and imaging workflows:
+FZAstro AI includes an integrated **Astro Tools Suite** for astronomy, imaging setup, observing-site context, night planning, solar monitoring, solar-system visualization, and target selection:
 
-* **SITE** — save observing latitude, longitude, elevation, timezone, and optional SQM/Bortle sky-quality values
+* **SITE** — save observing latitude, longitude, elevation, timezone, and optional SQM/Bortle sky-quality values used by SEEING and TARGETS
 * **IMAGING** — configure camera presets, focal length, field of view, image size, and rotation
 * **LOOKUP** — open a compact lookup window for objects such as M31, NGC objects, planets, comets, stars, spacecraft, nebulae, and galaxies; results and sky preview render inside the same window
 * **SUN NOW** — display latest NASA/SDO solar images with Helioviewer metadata, channel/size selection, and cached fallback
-* **SEEING** — open the Astro Night Planner with daily forecast cards, 7Timer ASTRO seeing/transparency, cloud gauges, Moon periods, astronomical-dark periods, night-first forecast points, and SQM/Bortle support
+* **SEEING** — open the Astro Night Planner with daily forecast cards, 7Timer ASTRO seeing/transparency, cloud gauges, Moon periods, astronomical-dark periods, night-first forecast points, cloud-aware scoring, and SQM/Bortle support
 * **TARGETS** — open a native target-planner window with altitude/date/type filters, CSV export, and an optional local OpenNGC catalog import for a larger deep-sky object source
 * **SOLAR MAP** — open a native interactive 2D solar-system map with zoom, pan, Full/Inner/Outer modes, orbit/label/grid toggles, and planet data
 
@@ -71,13 +86,13 @@ Example commands include:
 /solar-map
 ```
 
-The Astro tools now run as dedicated dark-theme windows where appropriate. LOOKUP displays object details and the sky preview inside the lookup dialog, SUN NOW loads current solar imagery with cached fallback, SOLAR MAP uses a native zoomable 2D Qt map, and SEEING uses daily planner cards that prioritize useful night/imaging forecast points over daytime rows.
+The Astro Tools Suite runs as dedicated dark-theme windows where appropriate. LOOKUP displays object details and the sky preview inside the lookup dialog, SUN NOW loads current solar imagery with cached fallback, SOLAR MAP uses a native zoomable 2D Qt map, TARGETS runs in a native planner window, and SEEING uses daily planner cards that prioritize astronomical darkness and useful night/imaging forecast points over daytime rows.
 
-SEEING can display site sky quality as SQM/Bortle. The app supports manual values from SITE and an automatic best-effort LightPollutionMap.app lookup when available; values are labelled as estimated unless entered from a measured SQM source.
+SEEING can display site sky quality as SQM/Bortle. The app supports manual values from SITE and an automatic best-effort LightPollutionMap.app lookup when available; values are labelled as estimated unless entered from a measured SQM source. The SEEING top bar tints itself by Bortle class: 8–9 white/urban, 6–7 yellow, 4–5 green, 2–3 blue, and 1 violet.
 
-## Version 1 release-candidate scope
+## Version 1 RC 3 Final Production scope
 
-Version 1 is a release-candidate baseline for testing and validation. It includes:
+Version 1 RC 3 Final Production is the final production release-candidate baseline for Windows release testing, packaging, and validation. It includes:
 
 * Local AI workstation built around Ollama/OpenAI-compatible chat
 * Modular PySide6 desktop interface
@@ -87,7 +102,7 @@ Version 1 is a release-candidate baseline for testing and validation. It include
 * Web search and webpage extraction tools
 * Skills bar grouping Research, Knowledge, Code Lab, Astro, Markets, Model Lab, and Workspace actions
 * Daily News, market, gold, and crude-oil actions
-* Integrated FZASTRO SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP tools
+* Integrated Astro Tools Suite: SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP
 * Persistent memory with review/search tools
 * Calibration profiles and model/profile controls
 * Composer Add, Skills, Knowledge, Code Lab, and Model Lab menus
@@ -180,7 +195,7 @@ python -m pytest
 powershell -ExecutionPolicy Bypass -File .\format_code.ps1 -PythonExe ".\.venv\Scripts\python.exe" -Check
 git status --short
 git add README.md RELEASE_VALIDATION.md build_exe.ps1 validate_release.ps1 fzastro_ai tests
-git commit -m "Add LLM benchmark dashboard"
+git commit -m "Prepare RC 3 final production docs"
 git push
 ```
 
