@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from astropy import units as u
@@ -49,6 +49,7 @@ def plan_targets(
     object_type: str = "All",
     min_size_arcmin: float = 0.0,
     max_mag: float | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Plan the best astrophotography targets for one astronomical night."""
     from .fzastro import target as legacy_target
@@ -66,6 +67,24 @@ def plan_targets(
     legacy_target.MIN_ALT = _safe_float(min_alt, 45.0)
     legacy_target.STEP_MIN = max(1, _safe_int(step_min, 3))
     legacy_target.LIMIT = max(1, _safe_int(limit, 20))
+
+    def stopped() -> bool:
+        try:
+            return bool(should_stop and should_stop())
+        except Exception:
+            return False
+
+    def cancelled_result() -> dict[str, Any]:
+        return {
+            "ok": False,
+            "cancelled": True,
+            "error": "TARGETS calculation stopped.",
+            "picks": [],
+            "catalog": catalog_stats(),
+        }
+
+    if stopped():
+        return cancelled_result()
 
     loc = EarthLocation(lat=lat * u.deg, lon=lon * u.deg, height=elev * u.m)
     if date_iso:
@@ -99,18 +118,29 @@ def plan_targets(
         max_mag=max_mag,
     )
 
-    visible_rows = legacy_target._site_visible(
-        (str(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4])) for r in rows
-    )
-    visible_names = {row[0] for row in visible_rows}
+    def can_reach_min_alt(row: tuple[Any, ...]) -> bool:
+        # Cheap meridian-altitude prefilter. If an object cannot ever reach
+        # the requested altitude at this latitude, the expensive Astropy
+        # AltAz sweep for that object cannot pass either.
+        try:
+            dec = legacy_target.Angle(str(row[4]) + " degrees").degree
+            return (90.0 - abs(lat - dec)) >= legacy_target.MIN_ALT
+        except Exception:
+            return True
 
     picks = []
     rejected = 0
-    for row in rows:
-        if row[0] not in visible_names:
+    prefiltered_by_alt = 0
+    for index, row in enumerate(rows):
+        if index % 25 == 0 and stopped():
+            return cancelled_result()
+        if not can_reach_min_alt(row):
             rejected += 1
+            prefiltered_by_alt += 1
             continue
         pick = legacy_target.evaluate_target(row, dark_start, dark_end, tz, loc)
+        if stopped():
+            return cancelled_result()
         if pick is None:
             rejected += 1
             continue
@@ -169,5 +199,6 @@ def plan_targets(
         "catalog": catalog_stats(),
         "evaluated": len(rows),
         "rejected": rejected,
+        "prefiltered_by_alt": prefiltered_by_alt,
         "picks": [_pick_to_dict(pick) for pick in picks],
     }

@@ -37,7 +37,9 @@ class TargetsWorker(QThread):
                 return
             from ..astro_tools.target_planner import plan_targets
 
-            result = plan_targets(self.location, **self.options)
+            result = plan_targets(
+                self.location, should_stop=self.should_stop, **self.options
+            )
             if self.should_stop():
                 return
             elapsed = max(0.0, time.perf_counter() - start)

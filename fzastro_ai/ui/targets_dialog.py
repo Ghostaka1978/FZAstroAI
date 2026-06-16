@@ -166,6 +166,7 @@ class TargetsDialog(QDialog):
         self.max_mag_spin.setValue(13.0)
         self.max_mag_spin.setEnabled(False)
         self.use_mag_check.toggled.connect(self.max_mag_spin.setEnabled)
+        self.use_mag_check.setChecked(True)
 
         self.run_button = QPushButton("Run Planner")
         self.run_button.setObjectName("primaryActionButton")
@@ -351,6 +352,10 @@ class TargetsDialog(QDialog):
 
     def run_planner(self):
         if self.targets_worker is not None and self.targets_worker.isRunning():
+            if self._stop_worker():
+                self.status_label.setText("Stopping…")
+                self.run_button.setText("Stopping…")
+                self.run_button.setEnabled(False)
             return
         self.table.setRowCount(0)
         self._last_picks = []
@@ -366,6 +371,8 @@ class TargetsDialog(QDialog):
         self.status_label.setText("Running…")
         self.progress_bar.show()
         self._set_controls_enabled(False)
+        self.run_button.setText("Stop")
+        self.run_button.setEnabled(True)
 
         self.targets_worker = TargetsWorker(self.location, self.planner_options())
         self.targets_worker.finished_targets.connect(self.handle_targets_finished)
@@ -596,6 +603,7 @@ class TargetsDialog(QDialog):
     def handle_targets_error(self, error: str):
         self.progress_bar.hide()
         self._set_controls_enabled(True)
+        self.run_button.setText("Run Planner")
         self.status_label.setText("Error")
         self.details_browser.setHtml(self._status_html("TARGETS failed", str(error)))
 
@@ -607,6 +615,18 @@ class TargetsDialog(QDialog):
             worker.deleteLater()
         if self._close_after_worker:
             QTimer.singleShot(0, self.reject)
+            return
+        if self.progress_bar.isVisible():
+            self.progress_bar.hide()
+            self._set_controls_enabled(True)
+            self.run_button.setText("Run Planner")
+            self.status_label.setText("Stopped")
+            self.details_browser.setHtml(
+                self._status_html(
+                    "Calculation stopped",
+                    "The TARGETS planner was stopped before it finished.",
+                )
+            )
 
     def _set_controls_enabled(self, enabled: bool):
         for widget in (
@@ -619,7 +639,6 @@ class TargetsDialog(QDialog):
             self.min_size_spin,
             self.use_mag_check,
             self.max_mag_spin,
-            self.run_button,
             self.import_button,
             self.export_button,
         ):
@@ -642,6 +661,8 @@ class TargetsDialog(QDialog):
         if self._stop_worker():
             self._close_after_worker = True
             self.status_label.setText("Stopping…")
+            self.run_button.setText("Stopping…")
+            self.run_button.setEnabled(False)
             self._set_controls_enabled(False)
             return
         super().reject()
@@ -650,6 +671,8 @@ class TargetsDialog(QDialog):
         if self._stop_worker():
             self._close_after_worker = True
             self.status_label.setText("Stopping…")
+            self.run_button.setText("Stopping…")
+            self.run_button.setEnabled(False)
             self._set_controls_enabled(False)
             event.ignore()
             return

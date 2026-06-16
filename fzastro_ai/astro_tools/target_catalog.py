@@ -258,8 +258,14 @@ def load_catalog_rows(
             if not _matches_type(row["object_type"], object_type):
                 continue
             mag = row["mag"]
-            if max_mag is not None and mag is not None and float(mag) > float(max_mag):
-                continue
+            if max_mag is not None:
+                # A checked magnitude limit means "only objects with a known
+                # magnitude at or brighter than this value". This keeps large
+                # OpenNGC imports from evaluating thousands of unknown/faint rows.
+                if mag is None:
+                    continue
+                if float(mag) > float(max_mag):
+                    continue
             width = row["width_deg"]
             height = row["height_deg"]
             if min_size_deg > 0:

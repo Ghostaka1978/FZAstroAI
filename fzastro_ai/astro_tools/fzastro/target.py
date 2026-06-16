@@ -16,7 +16,11 @@ from astropy.time import Time
 from zoneinfo import ZoneInfo
 import os, sys
 
-USE_TTY_COLOR = sys.stdout.isatty() and (os.getenv("NO_COLOR") is None)
+USE_TTY_COLOR = (
+    bool(getattr(sys, "stdout", None))
+    and sys.stdout.isatty()
+    and (os.getenv("NO_COLOR") is None)
+)
 DIM = "\x1b[2m" if USE_TTY_COLOR else ""
 RESET = "\x1b[0m" if USE_TTY_COLOR else ""
 
