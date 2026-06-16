@@ -171,7 +171,7 @@ Astro checks:
 9. SEEING uses 7Timer ASTRO seeing/transparency, Moon periods, astronomical-dark periods, cloud/seeing/transparency gauges, and a Forecast Points table that prioritizes night/imaging rows over daytime rows.
 10. SEEING can display SQM/Bortle from saved SITE values or a successful automatic LightPollutionMap.app lookup; if no reliable value exists, it should show Not set instead of a fake estimate.
 11. Selecting SEEING forecast cards/rows updates the selected-hour details and dark/moon period panels without traceback errors.
-12. TARGETS returns the best-target planner output without huge blank space at the bottom.
+12. TARGETS opens its own native planner window, runs without posting primary output to main chat, supports date/min-alt/type/source filters, and can import an OpenNGC CSV into the local catalog.
 13. While the main chat is scrolled upward, LOOKUP, SEEING, TARGETS, SUN NOW, and SOLAR MAP do not force the main chat to auto-scroll to the bottom; standalone Astro tools should not post their primary UI output to main chat.
 14. ASTRO LOOKUP/SEEING/TARGETS/SOLAR MAP do not log `Astropy runtime data fallback missing` from the PyInstaller `_MEI` runtime folder.
 
@@ -221,7 +221,7 @@ Manual ASTRO checks after launch:
 - SUN NOW: open latest SDO AIA 171 or HMI Magnetogram image; verify metadata and cached fallback messaging.
 - SEEING: open the default site forecast; verify daily cards, night-first Forecast Points, Moon periods, astronomical-dark periods, selected-hour details, and SQM/Bortle handling.
 - SITE/SQM: save manual SQM/Bortle values, then reopen SEEING and confirm they display; if testing automatic lookup, confirm failures are shown as unavailable rather than guessed values.
-- TARGETS: default site target planner.
+- TARGETS: native target planner window, default site run, object-type/min-alt/date filters, CSV export, and optional OpenNGC CSV import.
 - SOLAR MAP: native 2D map window, zoom/pan, Full/Inner/Outer modes, labels/orbits/grid toggles, planet table.
 - Main chat scroll preservation: scroll upward first, then run LOOKUP, SEEING, TARGETS, SUN NOW, and SOLAR MAP. Standalone Astro windows must not force the main chat to the bottom or post their primary UI output to chat.
 - Astropy runtime data: check the app log after LOOKUP. There should be no `_MEI.../fzastro_ai/resources/astropy_icon.png` fallback-missing warning.

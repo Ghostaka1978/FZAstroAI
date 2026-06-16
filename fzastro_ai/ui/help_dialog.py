@@ -554,7 +554,7 @@ Skills   Astro   SITE   IMAGING   LOOKUP   SUN NOW   SEEING   TARGETS   SOLAR MA
 | **LOOKUP** | Open a compact object lookup window for M31, NGC 7000, IC 5146, planets, comets, stars, spacecraft, nebulae, and galaxies. Result text, distance details, and sky preview render in the LOOKUP window. |
 | **SUN NOW** | Show latest NASA/SDO solar images with channel/size selectors, Helioviewer closest-image metadata, and cached fallback. |
 | **SEEING** | Open the Astro Night Planner: daily forecast cards, 7Timer ASTRO seeing/transparency, cloud gauges, Moon periods, astronomical darkness, night-first forecast points, and SQM/Bortle sky quality. |
-| **TARGETS** | Run tonight's best-target planner from `target.py`. |
+| **TARGETS** | Open the native target-planner window with date, altitude, object-type, size, catalog-source, CSV export, and optional OpenNGC CSV import. |
 | **SOLAR MAP** | Open the native 2D interactive solar-system map with zoom, pan, Full/Inner/Outer modes, orbit/label/grid toggles, and planet data. |
 
 LOOKUP uses the selected **IMAGING** setup, so choose your camera preset and focal length before running object lookup when you want the sky image framed correctly. LOOKUP runs as its own dialog and does not need the main chat to display the object result.

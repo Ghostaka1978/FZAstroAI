@@ -57,7 +57,7 @@ FZAstro AI includes integrated FZASTRO modules for astronomy and imaging workflo
 * **LOOKUP** — open a compact lookup window for objects such as M31, NGC objects, planets, comets, stars, spacecraft, nebulae, and galaxies; results and sky preview render inside the same window
 * **SUN NOW** — display latest NASA/SDO solar images with Helioviewer metadata, channel/size selection, and cached fallback
 * **SEEING** — open the Astro Night Planner with daily forecast cards, 7Timer ASTRO seeing/transparency, cloud gauges, Moon periods, astronomical-dark periods, night-first forecast points, and SQM/Bortle support
-* **TARGETS** — plan tonight’s best astrophotography targets
+* **TARGETS** — open a native target-planner window with altitude/date/type filters, CSV export, and an optional local OpenNGC catalog import for a larger deep-sky object source
 * **SOLAR MAP** — open a native interactive 2D solar-system map with zoom, pan, Full/Inner/Outer modes, orbit/label/grid toggles, and planet data
 
 Example commands include:

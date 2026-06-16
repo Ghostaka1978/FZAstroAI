@@ -16,6 +16,7 @@ from ..ui.astro_location_dialog import choose_astro_location
 from ..ui.sun_now_dialog import show_sun_now_dialog
 from ..ui.solar_map_dialog import show_solar_map_dialog
 from ..ui.seeing_dialog import show_seeing_dialog
+from ..ui.targets_dialog import show_targets_dialog
 from ..ui.astro_lookup_dialog import (
     DEFAULT_ASTRO_IMAGING,
     astro_imaging_summary,
@@ -345,13 +346,8 @@ class AstroActionsMixin:
         if self._astro_busy():
             return
 
-        params = self.get_current_astro_location()
-        params.update({"limit": 10, "min_alt": 45.0})
-        self.start_astro_tool(
-            "targets",
-            params,
-            f"Best astrophotography targets tonight · {self.astro_location_summary()}",
-        )
+        show_targets_dialog(self, self.get_current_astro_location())
+        self.stats_label.setText("TARGETS closed")
 
     def open_sun_now_dialog(self):
         if self._astro_busy():
@@ -469,6 +465,10 @@ class AstroActionsMixin:
 
         if mode == "solar":
             self.open_solar_system_map()
+            return True
+
+        if mode == "targets":
+            self.open_astro_targets_dialog()
             return True
 
         if mode in {"forecast", "see", "weather", "meteo"}:

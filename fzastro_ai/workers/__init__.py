@@ -14,6 +14,7 @@ from .astro_worker import AstroWorker
 from .sun_now_worker import SunNowWorker
 from .solar_map_worker import SolarMapWorker
 from .seeing_worker import SeeingWorker
+from .targets_worker import TargetsWorker
 
 __all__ = [
     "ChatWorker",
@@ -29,6 +30,7 @@ __all__ = [
     "SunNowWorker",
     "SolarMapWorker",
     "SeeingWorker",
+    "TargetsWorker",
     "parse_web_decision",
     "resolve_python_execution_interpreter",
 ]
