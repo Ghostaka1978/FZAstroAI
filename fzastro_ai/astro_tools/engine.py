@@ -2231,14 +2231,14 @@ def _lookup_inline_items(items: List[Tuple[str, object]]) -> str:
         safe_value = html_escape(str(value))
         clean.append(
             '<span style="white-space:nowrap;margin-right:12px;display:inline-block;">'
-            f'<span style="color:#9fb2c8;font-size:14px;font-weight:900;">{safe_label}:</span> '
-            f'<span style="color:#f3f7fc;font-size:14px;font-weight:650;">{safe_value}</span>'
+            f'<span style="color:#9fb2c8;font-size:11px;font-weight:850;">{safe_label}:</span> '
+            f'<span style="color:#f3f7fc;font-size:11px;font-weight:650;">{safe_value}</span>'
             "</span>"
         )
     if not clean:
         return ""
     return (
-        '<div style="color:#d8e3ef;font-size:14px;line-height:1.65;">'
+        '<div style="color:#d8e3ef;font-size:11px;line-height:1.35;">'
         + " &nbsp; ".join(clean)
         + "</div>"
     )
@@ -2248,8 +2248,8 @@ def _lookup_panel(title: str, inner_html: str) -> str:
     if not inner_html:
         return ""
     return (
-        '<div style="margin:8px 0 0 0;padding:9px 0 0 0;border-top:1px solid #202a34;color:#e9eef5;">'
-        f'<div style="color:#eaf3ff;font-size:16px;font-weight:950;margin:0 0 7px 0;letter-spacing:.01em;">{html_escape(str(title))}</div>'
+        '<div style="margin:5px 0 0 0;padding:5px 0 0 0;border-top:1px solid #202a34;color:#e9eef5;">'
+        f'<div style="color:#eaf3ff;font-size:12px;font-weight:900;margin:0 0 4px 0;letter-spacing:.01em;">{html_escape(str(title))}</div>'
         f"{inner_html}"
         "</div>"
     )
@@ -2271,39 +2271,39 @@ def _lookup_distance_block(
 ) -> str:
     distance_text = _lookup_distance_summary(distance_pc)
     if not distance_text:
-        return '<div style="color:#ffcc7a;font-size:13px;line-height:1.5;">Distance not available from fast lookup / distance ladder.</div>'
+        return '<div style="color:#ffcc7a;font-size:11px;line-height:1.35;">Distance not available from fast lookup / distance ladder.</div>'
 
     source_method, method_list = _lookup_method_parts(method)
     rows = [
-        '<div style="font-size:17px;line-height:1.28;color:#ffffff;font-weight:900;margin:0 0 7px 0;">'
+        '<div style="font-size:12px;line-height:1.25;color:#ffffff;font-weight:850;margin:0 0 4px 0;">'
         + html_escape(distance_text)
         + "</div>"
     ]
     detail_lines: List[str] = []
     if source_method:
         detail_lines.append(
-            '<div style="margin:2px 0;line-height:1.45;">'
-            '<span style="color:#9fb2c8;font-size:14px;font-weight:900;">Method:</span> '
-            f'<span style="color:#f3f7fc;font-size:14px;font-weight:650;">{html_escape(source_method)}</span>'
+            '<div style="margin:1px 0;line-height:1.28;">'
+            '<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Method:</span> '
+            f'<span style="color:#f3f7fc;font-size:11px;font-weight:650;">{html_escape(source_method)}</span>'
             "</div>"
         )
     if method_list:
         detail_lines.append(
-            '<div style="margin:2px 0;line-height:1.45;">'
-            '<span style="color:#9fb2c8;font-size:14px;font-weight:900;">Indicators:</span> '
-            f'<span style="color:#f3f7fc;font-size:14px;font-weight:650;">{html_escape(method_list)}</span>'
+            '<div style="margin:1px 0;line-height:1.28;">'
+            '<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Indicators:</span> '
+            f'<span style="color:#f3f7fc;font-size:11px;font-weight:650;">{html_escape(method_list)}</span>'
             "</div>"
         )
     if reference:
         detail_lines.append(
-            '<div style="margin:2px 0;line-height:1.45;">'
-            '<span style="color:#9fb2c8;font-size:14px;font-weight:900;">Reference:</span> '
-            f'<span style="color:#f3f7fc;font-size:14px;font-weight:650;">{html_escape(str(reference))}</span>'
+            '<div style="margin:1px 0;line-height:1.28;">'
+            '<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Reference:</span> '
+            f'<span style="color:#f3f7fc;font-size:11px;font-weight:650;">{html_escape(str(reference))}</span>'
             "</div>"
         )
     if detail_lines:
         rows.append(
-            '<div style="font-size:14px;color:#d8e3ef;">'
+            '<div style="font-size:11px;color:#d8e3ef;">'
             + "".join(detail_lines)
             + "</div>"
         )
@@ -2339,7 +2339,7 @@ def _lookup_alias_line(aliases: List[str], max_visible: int = 8) -> str:
         return ""
     shown = clean[:max_visible]
     alias_bits = [
-        '<span style="color:#dce7f4;font-size:14px;white-space:nowrap;">'
+        '<span style="color:#dce7f4;font-size:11px;white-space:nowrap;">'
         + html_escape(str(a))
         + "</span>"
         for a in shown
@@ -2347,16 +2347,136 @@ def _lookup_alias_line(aliases: List[str], max_visible: int = 8) -> str:
     ]
     if len(clean) > max_visible:
         alias_bits.append(
-            '<span style="color:#9fc7ff;font-size:14px;font-weight:850;white-space:nowrap;">'
+            '<span style="color:#9fc7ff;font-size:11px;font-weight:850;white-space:nowrap;">'
             + html_escape(f"+{len(clean) - max_visible} more")
             + "</span>"
         )
-    sep = '<span style="color:#5f7489;font-size:14px;">&nbsp;·&nbsp;</span>'
+    sep = '<span style="color:#5f7489;font-size:11px;">&nbsp;·&nbsp;</span>'
     return (
-        '<div style="font-size:14px;line-height:1.7;color:#dce7f4;">'
+        '<div style="font-size:11px;line-height:1.35;color:#dce7f4;">'
         + sep.join(alias_bits)
         + "</div>"
     )
+
+
+def _lookup_parse_sectioned_text(output: str) -> Dict[str, List[str]]:
+    """Parse original FZASTRO [ SECTION ] text into normalized rows."""
+    sections: Dict[str, List[str]] = {}
+    current: Optional[str] = None
+    for raw_line in str(output or "").splitlines():
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        match = re.match(r"^\[\s*(.+?)\s*\]$", line)
+        if match:
+            current = re.sub(r"\s+", " ", match.group(1).strip()).upper()
+            sections.setdefault(current, [])
+            continue
+        if current:
+            sections.setdefault(current, []).append(line)
+    return sections
+
+
+def _lookup_items_from_lines(lines: Iterable[str]) -> List[Tuple[str, object]]:
+    """Turn legacy section lines into compact label/value pairs."""
+    items: List[Tuple[str, object]] = []
+    for raw_line in lines:
+        line = re.sub(r"\s+", " ", str(raw_line or "").strip())
+        if not line:
+            continue
+        if ":" in line:
+            label, value = line.split(":", 1)
+            label = label.strip()
+            value = value.strip()
+            if label and value:
+                items.append((label, value))
+            elif label:
+                items.append((label, "—"))
+        elif items:
+            label, value = items[-1]
+            suffix = line.strip()
+            if suffix:
+                items[-1] = (label, f"{value} {suffix}".strip())
+        else:
+            items.append(("", line))
+    return items
+
+
+def _lookup_header_html(display_name: str, object_type: str, source: str) -> str:
+    safe_name = html_escape(str(display_name or "Object"))
+    safe_type = html_escape(str(object_type or "Object"))
+    safe_source = html_escape(str(source or "FZASTRO LOOKUP"))
+    return (
+        '<div style="margin:0 0 5px 0;padding:4px 0 2px 0;color:#e9eef5;">'
+        f'<div style="font-size:16px;font-weight:900;color:#ffffff;line-height:1.15;margin:0 0 3px 0;">{safe_name}</div>'
+        '<div style="color:#d4deea;font-size:11px;line-height:1.3;">'
+        f'<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Type:</span> {safe_type}'
+        f'&nbsp;&nbsp;·&nbsp;&nbsp;<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Source:</span> {safe_source}'
+        "</div>"
+        "</div>"
+    )
+
+
+def _format_legacy_lookup_html(
+    clean_query: str, output: str, source: str = "embedded FZASTRO lookup"
+) -> str:
+    """Render planets, moons, comets, spacecraft, and legacy script output in
+    the same compact card format used by fast SIMBAD lookup results.
+    """
+    sections = _lookup_parse_sectioned_text(output)
+    if not sections:
+        return ""
+
+    object_items = dict(_lookup_items_from_lines(sections.get("OBJECT", [])))
+    display_name = str(
+        object_items.get("Main ID")
+        or object_items.get("Name")
+        or object_items.get("Object")
+        or clean_query
+        or "Object"
+    ).strip()
+    object_type = str(object_items.get("Type") or "Object").strip()
+
+    html_parts: List[str] = [_lookup_header_html(display_name, object_type, source)]
+
+    for section_name, title in (
+        ("POSITION", "Position"),
+        ("DISTANCE", "Distance"),
+        ("PHOTOMETRY", "Photometry"),
+        ("MORPHOLOGY", "Morphology"),
+        ("EPHEMERIS DATA", "Ephemeris data"),
+    ):
+        inner = _lookup_inline_items(
+            _lookup_items_from_lines(sections.get(section_name, []))
+        )
+        if inner:
+            html_parts.append(_lookup_panel(title, inner))
+
+    aliases = [line for line in sections.get("ALIASES", []) if str(line).strip()]
+    alias_html = _lookup_alias_line(aliases, max_visible=8)
+    if alias_html:
+        html_parts.append(_lookup_panel("Aliases", alias_html))
+
+    # Preserve any uncommon section produced by future FZASTRO categories with
+    # the same compact format instead of falling back to a monospace block.
+    known = {
+        "OBJECT",
+        "POSITION",
+        "DISTANCE",
+        "PHOTOMETRY",
+        "MORPHOLOGY",
+        "EPHEMERIS DATA",
+        "ALIASES",
+    }
+    for section_name, lines in sections.items():
+        if section_name in known:
+            continue
+        inner = _lookup_inline_items(_lookup_items_from_lines(lines))
+        if inner:
+            pretty = section_name.title().replace("/", " / ")
+            html_parts.append(_lookup_panel(pretty, inner))
+
+    return "\n".join(part for part in html_parts if part).strip()
 
 
 def _format_fast_lookup_html(
@@ -2367,16 +2487,7 @@ def _format_fast_lookup_html(
     pretty_type = _lookup_pretty_type(info.get("object_type") or "Object")
     source = str(lookup_source or "fast lookup").strip()
 
-    html_parts: List[str] = []
-    html_parts.append(
-        '<div style="margin:0 0 7px 0;padding:8px 0 4px 0;color:#e9eef5;">'
-        f'<div style="font-size:21px;font-weight:950;color:#ffffff;line-height:1.18;margin:0 0 5px 0;">{html_escape(display_name)}</div>'
-        '<div style="color:#d4deea;font-size:14px;line-height:1.45;">'
-        f'<span style="color:#9fb2c8;font-size:14px;font-weight:900;">Type:</span> {html_escape(pretty_type)}'
-        f'&nbsp;&nbsp;·&nbsp;&nbsp;<span style="color:#9fb2c8;font-size:14px;font-weight:900;">Source:</span> {html_escape(source)}'
-        "</div>"
-        "</div>"
-    )
+    html_parts: List[str] = [_lookup_header_html(display_name, pretty_type, source)]
 
     pos_items: List[Tuple[str, object]] = [
         ("RA", f"{float(info['ra_deg']):.6f}°"),
@@ -2899,14 +3010,33 @@ def lookup_object(
                 html_escape(str(line)) for line in imaging_lines
             )
             html_tail = (
-                '<div style="margin:8px 0 0 0;padding:8px 0 0 0;border-top:1px solid #222b35;color:#e9eef5;">'
-                '<div style="color:#eaf3ff;font-size:16px;font-weight:950;margin:0 0 6px 0;">Imaging setup</div>'
-                f'<div style="color:#d9e2ee;font-size:14px;line-height:1.6;">{safe_line}</div>'
+                '<div style="margin:5px 0 0 0;padding:5px 0 0 0;border-top:1px solid #222b35;color:#e9eef5;">'
+                '<div style="color:#eaf3ff;font-size:12px;font-weight:900;margin:0 0 4px 0;">Imaging setup</div>'
+                f'<div style="color:#d9e2ee;font-size:11px;line-height:1.35;">{safe_line}</div>'
                 "</div>"
             )
         rendered_text = output_stripped + html_tail
     else:
-        rendered_text = header + "```text\n" + output_stripped + "\n```" + note
+        legacy_html = _format_legacy_lookup_html(
+            clean_query,
+            output_stripped,
+            "FZASTRO Horizons" if force_fzastro_horizons else "embedded FZASTRO lookup",
+        )
+        if legacy_html:
+            html_tail = ""
+            if imaging_lines:
+                safe_line = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
+                    html_escape(str(line)) for line in imaging_lines
+                )
+                html_tail = (
+                    '<div style="margin:5px 0 0 0;padding:5px 0 0 0;border-top:1px solid #222b35;color:#e9eef5;">'
+                    '<div style="color:#eaf3ff;font-size:12px;font-weight:900;margin:0 0 4px 0;">Imaging setup</div>'
+                    f'<div style="color:#d9e2ee;font-size:11px;line-height:1.35;">{safe_line}</div>'
+                    "</div>"
+                )
+            rendered_text = legacy_html + html_tail
+        else:
+            rendered_text = header + "```text\n" + output_stripped + "\n```" + note
 
     return AstroToolResult(
         title=f"Astro lookup: {clean_query}",
@@ -3775,16 +3905,16 @@ def _format_solar_system_map_html(
         "Solar-system map"
         "</div>"
         '<div style="font-size:14px;line-height:1.55;color:#dce7f4;">'
-        '<span style="color:#9fb2c8;font-size:14px;font-weight:900;">Time:</span> '
+        '<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Time:</span> '
         f"{html_escape(time_text)}"
         "&nbsp;&nbsp;·&nbsp;&nbsp;"
-        '<span style="color:#9fb2c8;font-size:14px;font-weight:900;">Image:</span> '
+        '<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Image:</span> '
         f"{int(size)} × {int(size)} px"
         "&nbsp;&nbsp;·&nbsp;&nbsp;"
-        '<span style="color:#9fb2c8;font-size:14px;font-weight:900;">Orbits:</span> '
+        '<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Orbits:</span> '
         f"{html_escape(orbits_text)}"
         "&nbsp;&nbsp;·&nbsp;&nbsp;"
-        '<span style="color:#9fb2c8;font-size:14px;font-weight:900;">Distance labels:</span> '
+        '<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Distance labels:</span> '
         f"{html_escape(dist_text)}"
         "</div>"
         '<div style="margin-top:4px;font-size:13px;line-height:1.45;color:#aeb8c7;">'

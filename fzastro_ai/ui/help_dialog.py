@@ -280,7 +280,7 @@ Skills currently includes:
 Research: Daily News, Read page, Summarize page, Screenshot page
 Knowledge: Document Library, Search knowledge, Brief/Open/Ask document, Memory, Active context
 Code Lab: Paste/wrap code, Run input/selection, Explain, Debug, Refactor, Tests, Patch, Commit message
-Astro: SITE, IMAGING, LOOKUP, SEEING, TARGETS, SOLAR MAP, distance-ladder lookup details
+Astro: SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, SOLAR MAP, distance-ladder lookup details
 Markets: CRM, DBX, OIL, GOLD
 Model Lab: Refresh models, LLM Benchmark, Runtime status, Persona, System Prompt Editor
 Workspace: New chat, History, Active context, Diagnostics, Help, About, GitHub repository
@@ -544,19 +544,22 @@ Only run code you trust.
 Use **Skills → Astro** for the migrated FZASTRO astrophotography tools.
 
 ```text
-Skills   Astro   SITE   IMAGING   LOOKUP   SEEING   TARGETS   SOLAR MAP
+Skills   Astro   SITE   IMAGING   LOOKUP   SUN NOW   SEEING   TARGETS   SOLAR MAP
 ```
 
 | Button | What it does |
 |---|---|
-| **SITE** | Pick/save observing latitude, longitude, elevation, and timezone for SEEING and TARGETS. |
+| **SITE** | Pick/save observing latitude, longitude, elevation, timezone, and optional SQM/Bortle sky-quality values for SEEING and TARGETS. |
 | **IMAGING** | Select camera preset, focal length, calculated FOV, image size, and rotation for LOOKUP images. |
-| **LOOKUP** | Look up an object such as M31, NGC 7000, IC 5146, planets, comets, stars, or spacecraft, including distance details when available. |
-| **SEEING** | Run the migrated `see.py` seeing forecast: clouds, moon, humidity, wind, dew point, pressure, and imaging score. |
+| **LOOKUP** | Open a compact object lookup window for M31, NGC 7000, IC 5146, planets, comets, stars, spacecraft, nebulae, and galaxies. Result text, distance details, and sky preview render in the LOOKUP window. |
+| **SUN NOW** | Show latest NASA/SDO solar images with channel/size selectors, Helioviewer closest-image metadata, and cached fallback. |
+| **SEEING** | Open the Astro Night Planner: daily forecast cards, 7Timer ASTRO seeing/transparency, cloud gauges, Moon periods, astronomical darkness, night-first forecast points, and SQM/Bortle sky quality. |
 | **TARGETS** | Run tonight's best-target planner from `target.py`. |
-| **SOLAR MAP** | Render the current solar-system map from `solarsystem.py`. |
+| **SOLAR MAP** | Open the native 2D interactive solar-system map with zoom, pan, Full/Inner/Outer modes, orbit/label/grid toggles, and planet data. |
 
-LOOKUP uses the selected **IMAGING** setup, so choose your camera preset and focal length before running object lookup when you want the sky image framed correctly.
+LOOKUP uses the selected **IMAGING** setup, so choose your camera preset and focal length before running object lookup when you want the sky image framed correctly. LOOKUP runs as its own dialog and does not need the main chat to display the object result.
+
+SEEING uses the saved **SITE** location. SQM/Bortle can come from manual SITE values or a successful automatic LightPollutionMap.app lookup; when no reliable source is available, SEEING should show the value as not set rather than inventing one.
 
 
 ### Distance ladder calculations
@@ -584,6 +587,8 @@ Examples:
 /targets
 /solar-map
 ```
+
+Manual SEEING validation: open SEEING, confirm daily forecast cards are visible, Forecast Points prioritize night/imaging rows, Moon and astronomical-dark periods are visible, and selecting a forecast point updates the selected-hour card.
 
 Expected source chips/source labels:
 

@@ -52,12 +52,13 @@ For cleaner model comparisons, use **Run All Presets** on each model with the sa
 
 FZAstro AI includes integrated FZASTRO modules for astronomy and imaging workflows:
 
-* **SITE** — save observing latitude, longitude, elevation, and timezone
+* **SITE** — save observing latitude, longitude, elevation, timezone, and optional SQM/Bortle sky-quality values
 * **IMAGING** — configure camera presets, focal length, field of view, image size, and rotation
-* **LOOKUP** — look up objects such as M31, NGC objects, planets, comets, stars, spacecraft, nebulae, and galaxies
-* **SEEING** — check clouds, Moon, humidity, wind, dew point, pressure, and imaging score
+* **LOOKUP** — open a compact lookup window for objects such as M31, NGC objects, planets, comets, stars, spacecraft, nebulae, and galaxies; results and sky preview render inside the same window
+* **SUN NOW** — display latest NASA/SDO solar images with Helioviewer metadata, channel/size selection, and cached fallback
+* **SEEING** — open the Astro Night Planner with daily forecast cards, 7Timer ASTRO seeing/transparency, cloud gauges, Moon periods, astronomical-dark periods, night-first forecast points, and SQM/Bortle support
 * **TARGETS** — plan tonight’s best astrophotography targets
-* **SOLAR MAP** — render a current solar-system map
+* **SOLAR MAP** — open a native interactive 2D solar-system map with zoom, pan, Full/Inner/Outer modes, orbit/label/grid toggles, and planet data
 
 Example commands include:
 
@@ -69,6 +70,10 @@ Example commands include:
 /targets
 /solar-map
 ```
+
+The Astro tools now run as dedicated dark-theme windows where appropriate. LOOKUP displays object details and the sky preview inside the lookup dialog, SUN NOW loads current solar imagery with cached fallback, SOLAR MAP uses a native zoomable 2D Qt map, and SEEING uses daily planner cards that prioritize useful night/imaging forecast points over daytime rows.
+
+SEEING can display site sky quality as SQM/Bortle. The app supports manual values from SITE and an automatic best-effort LightPollutionMap.app lookup when available; values are labelled as estimated unless entered from a measured SQM source.
 
 ## Version 1 release-candidate scope
 
@@ -82,7 +87,7 @@ Version 1 is a release-candidate baseline for testing and validation. It include
 * Web search and webpage extraction tools
 * Skills bar grouping Research, Knowledge, Code Lab, Astro, Markets, Model Lab, and Workspace actions
 * Daily News, market, gold, and crude-oil actions
-* Integrated FZASTRO SITE, IMAGING, LOOKUP, SEEING, TARGETS, and SOLAR MAP tools
+* Integrated FZASTRO SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP tools
 * Persistent memory with review/search tools
 * Calibration profiles and model/profile controls
 * Composer Add, Skills, Knowledge, Code Lab, and Model Lab menus

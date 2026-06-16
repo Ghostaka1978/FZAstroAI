@@ -1279,6 +1279,16 @@ class FZAstroAI(
         )
         self.astro_lookup_button.setAccessibleName("Run astro object lookup")
 
+        self.astro_sun_now_button = QPushButton("SUN NOW")
+        self.astro_sun_now_button.setObjectName("stockPriceButton")
+        self.astro_sun_now_button.setFixedSize(88, 36)
+        self.astro_sun_now_button.setCursor(Qt.PointingHandCursor)
+        self.astro_sun_now_button.clicked.connect(self.open_sun_now_dialog)
+        self.astro_sun_now_button.setToolTip(
+            "Show latest NASA/SDO Sun images with Helioviewer metadata"
+        )
+        self.astro_sun_now_button.setAccessibleName("Show latest Sun images")
+
         self.astro_targets_button = QPushButton("TARGETS")
         self.astro_targets_button.setObjectName("stockPriceButton")
         self.astro_targets_button.setFixedSize(86, 36)
@@ -1297,10 +1307,10 @@ class FZAstroAI(
         self.astro_see_button.setCursor(Qt.PointingHandCursor)
         self.astro_see_button.clicked.connect(self.open_astro_forecast_dialog)
         self.astro_see_button.setToolTip(
-            "Run FZASTRO see.py: seeing conditions, night meteorology, and observing forecast"
+            "Open SEEING: true astronomy seeing and transparency from 7Timer ASTRO"
         )
         self.astro_see_button.setAccessibleName(
-            "Run seeing and night meteorology forecast"
+            "Open true astronomy seeing and transparency forecast"
         )
 
         self.astro_solar_button = QPushButton("SOLAR MAP")
@@ -1308,8 +1318,12 @@ class FZAstroAI(
         self.astro_solar_button.setFixedSize(112, 36)
         self.astro_solar_button.setCursor(Qt.PointingHandCursor)
         self.astro_solar_button.clicked.connect(self.open_solar_system_map)
-        self.astro_solar_button.setToolTip("Render a solar-system map")
-        self.astro_solar_button.setAccessibleName("Render solar-system map")
+        self.astro_solar_button.setToolTip(
+            "Open the native interactive 2D solar-system map"
+        )
+        self.astro_solar_button.setAccessibleName(
+            "Open native interactive solar-system map"
+        )
 
         self.astro_location_button = QPushButton("SITE")
         self.astro_location_button.setObjectName("stockPriceButton")
@@ -1403,6 +1417,7 @@ class FZAstroAI(
         astro_bar_layout.addWidget(self.astro_imaging_label)
         astro_bar_layout.addSpacing(12)
         astro_bar_layout.addWidget(self.astro_lookup_button)
+        astro_bar_layout.addWidget(self.astro_sun_now_button)
         astro_bar_layout.addWidget(self.astro_see_button)
         astro_bar_layout.addWidget(self.astro_targets_button)
         astro_bar_layout.addWidget(self.astro_solar_button)

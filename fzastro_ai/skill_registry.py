@@ -288,7 +288,7 @@ SKILLS: tuple[Skill, ...] = (
     Skill(
         skill_id="astro",
         label="Astro",
-        description="FZASTRO observing site, imaging, lookup, distance-ladder, seeing, targets, and solar map tools.",
+        description="FZASTRO observing site, imaging, lookup, SUN NOW, distance-ladder, 7Timer seeing, targets, and native solar map tools.",
         icon="☉",
         actions=(
             _direct(
@@ -314,9 +314,17 @@ SKILLS: tuple[Skill, ...] = (
                 favorite=True,
             ),
             _direct(
+                "astro.sun_now",
+                "SUN NOW",
+                "Latest NASA/SDO Sun images with Helioviewer metadata and cached fallback.",
+                "open_sun_now_dialog",
+                section="Tools",
+                favorite=True,
+            ),
+            _direct(
                 "astro.seeing",
                 "SEEING",
-                "Run seeing conditions, night meteorology, and observing forecast.",
+                "Open true astronomy seeing and transparency forecast from 7Timer ASTRO.",
                 "open_astro_forecast_dialog",
                 section="Tools",
             ),
@@ -331,7 +339,7 @@ SKILLS: tuple[Skill, ...] = (
             _direct(
                 "astro.solar_map",
                 "SOLAR MAP",
-                "Render a solar-system map.",
+                "Open the native interactive 2D solar-system map.",
                 "open_solar_system_map",
                 section="Tools",
             ),

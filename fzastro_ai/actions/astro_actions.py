@@ -13,6 +13,9 @@ from ..workers import AstroWorker
 from ..config import APP_DIR
 from ..logging_utils import log_exception, log_warning, log_debug
 from ..ui.astro_location_dialog import choose_astro_location
+from ..ui.sun_now_dialog import show_sun_now_dialog
+from ..ui.solar_map_dialog import show_solar_map_dialog
+from ..ui.seeing_dialog import show_seeing_dialog
 from ..ui.astro_lookup_dialog import (
     DEFAULT_ASTRO_IMAGING,
     astro_imaging_summary,
@@ -70,7 +73,58 @@ class AstroActionsMixin:
             str(data.get("tz") or DEFAULT_ASTRO_LOCATION.get("tz") or "UTC").strip()
             or "UTC"
         )
-        return {"lat": lat, "lon": lon, "elev": elev, "tz": tz}
+        location: Dict[str, Union[float, str]] = {
+            "lat": lat,
+            "lon": lon,
+            "elev": elev,
+            "tz": tz,
+        }
+        source_text = str(data.get("sky_quality_source") or "")
+        discard_stale_auto_sky = "auto estimate" in source_text.lower()
+        sqm_keys = (
+            "sqm",
+            "sqm_mag",
+            "sqm_mag_arcsec2",
+            "mag_arcsec2",
+            "sky_quality",
+            "sky_quality_mag",
+        )
+        bortle_keys = ("bortle", "bortle_class", "bortleClass")
+        if not discard_stale_auto_sky:
+            for key in sqm_keys:
+                try:
+                    value = data.get(key)
+                    if value is None or str(value).strip() == "":
+                        continue
+                    sqm = float(value)
+                    if 0.0 < sqm <= 23.5:
+                        location["sqm"] = round(sqm, 2)
+                        break
+                except Exception:
+                    continue
+            for key in bortle_keys:
+                try:
+                    value = data.get(key)
+                    if value is None or str(value).strip() == "":
+                        continue
+                    bortle = int(round(float(value)))
+                    if 1 <= bortle <= 9:
+                        location["bortle"] = float(bortle)
+                        break
+                except Exception:
+                    continue
+        if not discard_stale_auto_sky:
+            for key in (
+                "bortle_precise",
+                "sky_quality_fetched_at",
+                "sky_quality_source_url",
+            ):
+                value = data.get(key)
+                if value is not None and str(value).strip() != "":
+                    location[key] = value
+        if source_text and ("sqm" in location or "bortle" in location):
+            location["sky_quality_source"] = source_text
+        return location
 
     def get_current_astro_location(self) -> Dict[str, Union[float, str]]:
         cached = getattr(self, "astro_location", None)
@@ -113,8 +167,17 @@ class AstroActionsMixin:
         label = getattr(self, "astro_location_label", None)
 
         if label is not None:
-            label.setText(self.astro_location_summary())
-            label.setToolTip("Current observing site used by SEEING and TARGETS")
+            try:
+                label.setText(self.astro_location_summary())
+                label.setToolTip("Current observing site used by SEEING and TARGETS")
+            except RuntimeError as exc:
+                log_warning(
+                    "AstroActions.refresh_astro_location_label stale label", exc
+                )
+                try:
+                    self.astro_location_label = None
+                except Exception:
+                    pass
 
     def get_current_astro_imaging(self) -> Dict[str, Union[float, str]]:
         cached = getattr(self, "astro_imaging", None)
@@ -153,10 +216,17 @@ class AstroActionsMixin:
     def refresh_astro_imaging_label(self):
         label = getattr(self, "astro_imaging_label", None)
         if label is not None:
-            label.setText(self.astro_imaging_summary())
-            label.setToolTip(
-                "Current camera preset, focal length, FOV, and rotation used by LOOKUP"
-            )
+            try:
+                label.setText(self.astro_imaging_summary())
+                label.setToolTip(
+                    "Current camera preset, focal length, FOV, and rotation used by LOOKUP"
+                )
+            except RuntimeError as exc:
+                log_warning("AstroActions.refresh_astro_imaging_label stale label", exc)
+                try:
+                    self.astro_imaging_label = None
+                except Exception:
+                    pass
 
     def _astro_preserve_main_chat_scroll(self, mode: str) -> bool:
         return str(mode or "").strip().lower() in ASTRO_PRESERVE_CHAT_SCROLL_MODES
@@ -265,11 +335,10 @@ class AstroActionsMixin:
         if not selected:
             return
 
-        clean = str(selected.get("query") or "").strip()
         self.set_current_astro_imaging(selected)
-        params = self._astro_lookup_params_from_imaging(clean, selected)
-        self.start_astro_tool(
-            "lookup", params, f"Astro lookup: {clean} · {self.astro_imaging_summary()}"
+        clean = str(selected.get("query") or "").strip()
+        self.stats_label.setText(
+            f"Astro LOOKUP closed: {clean} · {self.astro_imaging_summary()}"
         )
 
     def open_astro_targets_dialog(self):
@@ -284,25 +353,26 @@ class AstroActionsMixin:
             f"Best astrophotography targets tonight · {self.astro_location_summary()}",
         )
 
+    def open_sun_now_dialog(self):
+        if self._astro_busy():
+            return
+
+        show_sun_now_dialog(self)
+        self.stats_label.setText("SUN NOW closed")
+
     def open_astro_forecast_dialog(self):
         if self._astro_busy():
             return
 
-        params = self.get_current_astro_location()
-        params.update({"nights": 4})
-        self.start_astro_tool(
-            "forecast",
-            params,
-            f"Night meteorology forecast · {self.astro_location_summary()}",
-        )
+        show_seeing_dialog(self, self.get_current_astro_location())
+        self.stats_label.setText("SEEING closed")
 
     def open_solar_system_map(self):
         if self._astro_busy():
             return
 
-        self.start_astro_tool(
-            "solar", {"size": 2000, "orbits": "yes", "dist": "no"}, "Solar-system map"
-        )
+        show_solar_map_dialog(self)
+        self.stats_label.setText("SOLAR MAP closed")
 
     def is_astro_direct_request(self, text):
         clean = str(text or "").strip().casefold()
@@ -342,7 +412,7 @@ class AstroActionsMixin:
             return (
                 "forecast",
                 params,
-                f"Night meteorology forecast · {self.astro_location_summary()}",
+                f"True astronomy seeing · {self.astro_location_summary()}",
             )
 
         if clean.startswith(("/solar-map", "/solarmap")):
@@ -396,6 +466,14 @@ class AstroActionsMixin:
             log_warning("AstroActions.execute_astro_direct_request parse failed", exc)
             QMessageBox.warning(self, "Astro command", str(exc))
             return False
+
+        if mode == "solar":
+            self.open_solar_system_map()
+            return True
+
+        if mode in {"forecast", "see", "weather", "meteo"}:
+            self.open_astro_forecast_dialog()
+            return True
 
         self.start_astro_tool(mode, params, display_text)
         return True

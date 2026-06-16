@@ -160,16 +160,20 @@ LLM Benchmark checks:
 
 Astro checks:
 
-1. **Skills → Astro** exposes SITE, IMAGING, LOOKUP, SEEING, TARGETS, and SOLAR MAP.
-2. SITE opens the observing-site picker and saves latitude, longitude, elevation, and timezone.
+1. **Skills → Astro** exposes SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP.
+2. SITE opens the observing-site picker and saves latitude, longitude, elevation, timezone, and optional SQM/Bortle/source fields.
 3. IMAGING opens camera/FOV setup and updates the toolbar summary.
-4. LOOKUP opens the migrated object dropdown catalogs and can query at least `M31`, `M82`, and `M101` without Gaia timeout.
-5. LOOKUP distance output shows the distance value and method when available, such as parallax, Gaia proxy, NED-D, or Hubble-law style estimates; unavailable distances should say they are unavailable instead of failing.
-6. SEEING returns night meteorology/seeing output without huge blank space at the bottom.
-7. TARGETS returns the best-target planner output without huge blank space at the bottom.
-8. SOLAR MAP renders the solar-system map and the button label is not clipped.
-9. While the main chat is scrolled upward, LOOKUP, SEEING, TARGETS, and SOLAR MAP finish without forcing the main chat to auto-scroll to the bottom.
-10. ASTRO LOOKUP/SEEING/TARGETS/SOLAR MAP do not log `Astropy runtime data fallback missing` from the PyInstaller `_MEI` runtime folder.
+4. LOOKUP opens its own compact dialog, keeps the migrated object dropdown catalogs available, and can query at least `M31`, `M82`, and `M101` without Gaia timeout.
+5. LOOKUP renders object details, distance method, and sky preview inside the LOOKUP window instead of relying on the main chat.
+6. SUN NOW opens its own window, displays at least one NASA/SDO channel, shows metadata, supports channel/size selection, and uses the cached image if the live feed is unavailable.
+7. SOLAR MAP opens a native 2D interactive map window with zoom, pan, Full/Inner/Outer modes, orbit/label/grid toggles, planet labels, and a planet data table.
+8. SEEING opens the Astro Night Planner in its own window and shows daily forecast cards for the available forecast period.
+9. SEEING uses 7Timer ASTRO seeing/transparency, Moon periods, astronomical-dark periods, cloud/seeing/transparency gauges, and a Forecast Points table that prioritizes night/imaging rows over daytime rows.
+10. SEEING can display SQM/Bortle from saved SITE values or a successful automatic LightPollutionMap.app lookup; if no reliable value exists, it should show Not set instead of a fake estimate.
+11. Selecting SEEING forecast cards/rows updates the selected-hour details and dark/moon period panels without traceback errors.
+12. TARGETS returns the best-target planner output without huge blank space at the bottom.
+13. While the main chat is scrolled upward, LOOKUP, SEEING, TARGETS, SUN NOW, and SOLAR MAP do not force the main chat to auto-scroll to the bottom; standalone Astro tools should not post their primary UI output to main chat.
+14. ASTRO LOOKUP/SEEING/TARGETS/SOLAR MAP do not log `Astropy runtime data fallback missing` from the PyInstaller `_MEI` runtime folder.
 
 ## 6. Document knowledge library verification
 
@@ -213,11 +217,13 @@ The build script packages the full FZASTRO tools folder. The validation script s
 
 Manual ASTRO checks after launch:
 
-- LOOKUP: `M18`
-- SEEING: default site forecast
-- TARGETS: default site target planner
-- SOLAR MAP: image render
-- Main chat scroll preservation: scroll upward first, then run LOOKUP, SEEING, TARGETS, and SOLAR MAP. Results must not force the main chat to the bottom.
+- LOOKUP: query `M18`; verify the compact LOOKUP window displays the result text and sky preview.
+- SUN NOW: open latest SDO AIA 171 or HMI Magnetogram image; verify metadata and cached fallback messaging.
+- SEEING: open the default site forecast; verify daily cards, night-first Forecast Points, Moon periods, astronomical-dark periods, selected-hour details, and SQM/Bortle handling.
+- SITE/SQM: save manual SQM/Bortle values, then reopen SEEING and confirm they display; if testing automatic lookup, confirm failures are shown as unavailable rather than guessed values.
+- TARGETS: default site target planner.
+- SOLAR MAP: native 2D map window, zoom/pan, Full/Inner/Outer modes, labels/orbits/grid toggles, planet table.
+- Main chat scroll preservation: scroll upward first, then run LOOKUP, SEEING, TARGETS, SUN NOW, and SOLAR MAP. Standalone Astro windows must not force the main chat to the bottom or post their primary UI output to chat.
 - Astropy runtime data: check the app log after LOOKUP. There should be no `_MEI.../fzastro_ai/resources/astropy_icon.png` fallback-missing warning.
 
 ## 9. Quiet native command logging
@@ -245,5 +251,5 @@ The release candidate can be marked complete when:
 - `build_exe.ps1` completes without errors.
 - `validate_release.ps1` completes without fatal errors.
 - The EXE remains open during the smoke test.
-- The manual acceptance checklist passes, including the LLM Benchmark Dashboard checks and Astro LOOKUP distance-ladder visibility.
+- The manual acceptance checklist passes, including the LLM Benchmark Dashboard checks and the Astro LOOKUP, SUN NOW, SOLAR MAP, and SEEING Night Planner checks.
 - The About window shows the correct Version 1 version and milestone.

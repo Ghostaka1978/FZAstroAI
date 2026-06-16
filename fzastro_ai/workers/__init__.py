@@ -11,6 +11,9 @@ from .python_execution_worker import (
 from .web_decision_worker import WebDecisionWorker, parse_web_decision
 from .web_search_worker import WebSearchWorker
 from .astro_worker import AstroWorker
+from .sun_now_worker import SunNowWorker
+from .solar_map_worker import SolarMapWorker
+from .seeing_worker import SeeingWorker
 
 __all__ = [
     "ChatWorker",
@@ -23,6 +26,14 @@ __all__ = [
     "WebDecisionWorker",
     "WebSearchWorker",
     "AstroWorker",
+    "SunNowWorker",
+    "SolarMapWorker",
+    "SeeingWorker",
     "parse_web_decision",
     "resolve_python_execution_interpreter",
 ]
+
+try:
+    from .sky_quality_worker import SkyQualityFetchWorker
+except Exception:  # pragma: no cover - optional Qt import during tooling
+    SkyQualityFetchWorker = None
