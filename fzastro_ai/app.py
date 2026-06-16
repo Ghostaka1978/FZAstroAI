@@ -606,6 +606,69 @@ def normalize_content_for_model(content, allow_images=True):
     return "\n".join(value for value in text_parts if value).strip()
 
 
+_QWEN_TEXT_ONLY_PREFIXES = (
+    "qwen:",
+    "qwen1",
+    "qwen2",
+    "qwen2.5",
+    "qwen3",
+)
+
+
+def ollama_model_name_has_reliable_vision_hint(model_name):
+    """Return True when the model name itself looks like a vision model.
+
+    Ollama /api/show capabilities are the primary source, but some model
+    wrappers can advertise vision too broadly.  For Qwen-family models, require
+    an explicit VL marker so a text model such as qwen3:32b/qwen3.6:35b is not
+    selected for image requests and left waiting forever before first token.
+    """
+
+    clean_name = str(model_name or "").strip().casefold()
+
+    if not clean_name:
+        return False
+
+    reliable_markers = (
+        "vision",
+        "-vl",
+        "_vl",
+        ":vl",
+        "vl:",
+        "qwen3vl",
+        "qwen2.5vl",
+        "qwen2vl",
+        "llava",
+        "bakllava",
+        "moondream",
+        "minicpm-v",
+        "minicpmv",
+        "minicpm-o",
+        "minicpmo",
+        "gemma3",
+        "gemma-3",
+        "gemma4",
+        "gemma-4",
+        "granite3.2-vision",
+        "granite-vision",
+    )
+    return any(marker in clean_name for marker in reliable_markers)
+
+
+def ollama_model_name_is_qwen_text_only(model_name):
+    """Return True for Qwen text-model names that should not inspect images."""
+
+    clean_name = str(model_name or "").strip().casefold()
+
+    if not clean_name:
+        return False
+
+    if "vl" in clean_name:
+        return False
+
+    return clean_name.startswith(_QWEN_TEXT_ONLY_PREFIXES)
+
+
 def get_ollama_model_capabilities(model_name):
     """Return Ollama capabilities, or None when the local API is unavailable."""
     clean_model = str(model_name or "").strip()
@@ -638,6 +701,15 @@ def get_ollama_model_capabilities(model_name):
         normalized = {
             str(value).strip().lower() for value in capabilities if str(value).strip()
         }
+
+        if "vision" in normalized and ollama_model_name_is_qwen_text_only(clean_model):
+            normalized = set(normalized)
+            normalized.discard("vision")
+            log_warning(
+                "get_ollama_model_capabilities ignored unreliable vision capability",
+                f"model={clean_model}",
+            )
+
         _MODEL_CAPABILITY_CACHE[clean_model] = normalized
         return normalized
     except Exception as exc:
@@ -687,6 +759,13 @@ def find_installed_vision_model(exclude_model=None):
         capabilities = get_ollama_model_capabilities(model_name)
 
         if capabilities is not None and "vision" in capabilities:
+            if ollama_model_name_is_qwen_text_only(model_name):
+                log_warning(
+                    "find_installed_vision_model skipped Qwen text-only model",
+                    f"model={model_name}",
+                )
+                continue
+
             return model_name
 
     return None

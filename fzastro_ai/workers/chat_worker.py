@@ -4,7 +4,7 @@ from collections import Counter
 
 from PySide6.QtCore import QThread, Signal
 
-from ..config import RUNTIME_CHAT_TIMEOUT_SECONDS
+from ..config import RUNTIME_CHAT_TIMEOUT_SECONDS, RUNTIME_VISION_CHAT_TIMEOUT_SECONDS
 from ..logging_utils import log_debug, log_exception, log_warning
 from ..runtime import (
     format_runtime_model_unavailable_message,
@@ -156,8 +156,17 @@ class ChatWorker(QThread):
                     },
                 }
 
+            request_timeout = (
+                min(RUNTIME_CHAT_TIMEOUT_SECONDS, RUNTIME_VISION_CHAT_TIMEOUT_SECONDS)
+                if self.vision_request and is_ollama_base_url(self.base_url)
+                else RUNTIME_CHAT_TIMEOUT_SECONDS
+            )
+            log_debug(
+                "ChatWorker.run runtime timeout",
+                f"model={self.model}, vision={self.vision_request}, timeout={request_timeout:.1f}s",
+            )
             chat_client = make_runtime_client(
-                self.base_url, self.api_key, timeout=RUNTIME_CHAT_TIMEOUT_SECONDS
+                self.base_url, self.api_key, timeout=request_timeout
             )
             self.stream = chat_client.chat.completions.create(**request_params)
             log_debug(
@@ -295,6 +304,18 @@ class ChatWorker(QThread):
             if self.should_stop():
                 log_debug("ChatWorker.run stream closed after stop request", e)
                 self.stopped_response.emit(final_response)
+                return
+
+            if self.vision_request and "timed out" in str(e).casefold():
+                log_warning(
+                    "ChatWorker.run vision request timed out before first token", e
+                )
+                self.error_received.emit(
+                    f"The vision request timed out before model '{self.model}' produced output. "
+                    "This usually means the selected model is not a reliable vision model, "
+                    "the image request overloaded Ollama, or the local model server stalled. "
+                    "Select an installed VL/LLaVA/MiniCPM/Gemma vision model, or restart Ollama and retry."
+                )
                 return
 
             if self._is_expected_stream_close_error(e):
