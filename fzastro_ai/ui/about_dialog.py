@@ -38,9 +38,9 @@ def open_about_window(parent):
         title.setObjectName("helpDialogTitle")
 
         subtitle = QLabel(
-            "Version 2 Production local AI workstation for chat, documents, web "
+            "Imaging Production local AI workstation for chat, documents, web "
             "research, Python execution, memory, LLM benchmarking, the Astro Tools "
-            "Suite, Web Companion, and AI Developer Workbench."
+            "Suite, FZAstro Imaging/N.I.N.A. planning, Web Companion, and AI Developer Workbench."
         )
         subtitle.setObjectName("helpDialogSubtitle")
         subtitle.setWordWrap(True)
@@ -54,7 +54,7 @@ def open_about_window(parent):
 Version: {APP_VERSION}
 Release: {APP_MILESTONE}
 
-Version 2 Production scope:
+Imaging Production scope:
 - Local AI workstation built around Ollama/OpenAI-compatible chat
 - Clean project layout with application modules under fzastro_ai/
 - Consolidated docs under docs/ with one primary root README.md
@@ -64,6 +64,11 @@ Version 2 Production scope:
 - Web search, Daily News, market, gold, and crude-oil actions with provider-timeout hardening
 - Web Companion for local/LAN/iPad browser access
 - Integrated Astro Tools Suite: SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP
+- FZAstro Imaging / N.I.N.A. bundle launcher with quiet build/deploy support
+- Safe `/nina-plan` and `/imaging-plan` commands for review-only target planning
+- Real N.I.N.A. Advanced Sequencer JSON generation from SITE, IMAGING, SEEING, and TARGETS context
+- Plan exports under Documents/FZAstroAI/Imaging Plans with Markdown, JSON, XML, CSV, and review metadata
+- Auto-launch/open handoff for generated sequences without slewing, guiding, capture, or sequence execution
 - SEEING Astro Night Planner with cloud-aware scoring, astronomical-dark prioritization, Moon periods, and Bortle-aware top-bar tint
 - LOOKUP distance-ladder details for parallax, Gaia proxy, NED-D, and Hubble estimates where available
 - Optional distance-ladder calculation visibility via FZASTRO_USE_DISTANCE_LADDER=1

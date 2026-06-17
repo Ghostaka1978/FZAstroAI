@@ -12,13 +12,13 @@ def read_release_validation_doc():
 
 def test_version_constants_match_version_file():
     version_file = PROJECT_ROOT / "VERSION.txt"
-    assert version_file.read_text(encoding="utf-8").strip() == "2.0.0"
-    assert APP_VERSION == "2.0.0"
-    assert APP_MILESTONE == "Version 2 Production"
-    assert APP_VERSION_LABEL == "FZAstro AI v2.0.0 (Version 2 Production)"
+    assert version_file.read_text(encoding="utf-8").strip() == "2.1.0"
+    assert APP_VERSION == "2.1.0"
+    assert APP_MILESTONE == "Imaging Production"
+    assert APP_VERSION_LABEL == "FZAstro AI v2.1.0 (Imaging Production)"
 
 
-def test_release_docs_are_version_2_not_rc3_current_release():
+def test_release_docs_are_imaging_production_not_rc3_current_release():
     checked_files = [
         PROJECT_ROOT / "README.md",
         RELEASE_VALIDATION_DOC,
@@ -30,10 +30,11 @@ def test_release_docs_are_version_2_not_rc3_current_release():
         path.read_text(encoding="utf-8", errors="replace") for path in checked_files
     )
 
-    assert "Version 2" in combined
-    assert "v2.0.0" in combined
+    assert "Imaging Production" in combined
+    assert "v2.1.0" in combined
     assert "Production 2.0 BETA" not in combined
     assert "2.0.0-beta" not in combined
+    assert "Version 2 Production local AI workstation" not in combined
     assert "RC 3 Final Production local AI workstation" not in combined
     assert "Release Candidate 2" not in combined
     assert "not a final production claim" not in combined

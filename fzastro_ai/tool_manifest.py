@@ -1,9 +1,4 @@
-"""Central registry of app tools exposed to routing and UI helpers.
-
-The registry is intentionally Qt-free so deterministic routers, workers, tests,
-and composer UI builders can share the same capability descriptions without
-pulling in PySide at import time.
-"""
+"""Central registry of app tools exposed to routing and UI helpers."""
 
 from __future__ import annotations
 
@@ -36,21 +31,22 @@ TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
         "web.read_page",
         "Web",
         "Read web page",
-        "Open a URL with the rendered-page extractor and summarize or answer from the page content.",
+        "Read and summarize a specific web page or URL when the user provides one.",
         ("url",),
     ),
     ToolCapability(
-        "web.screenshot_page",
+        "news.latest",
         "Web",
-        "Screenshot web page",
-        "Capture a rendered website screenshot and attach the image to the chat.",
-        ("url",),
+        "Latest news",
+        "Fetch recent news context for a user-requested topic.",
+        ("query",),
     ),
     ToolCapability(
-        "documents.list",
-        "Documents",
-        "List documents",
-        "List documents currently imported in the local Document Knowledge Library.",
+        "market.quote",
+        "Market",
+        "Market quote",
+        "Fetch current market quote or basic market context for a symbol.",
+        ("symbol",),
     ),
     ToolCapability(
         "documents.search",
@@ -60,68 +56,115 @@ TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
         ("query",),
     ),
     ToolCapability(
-        "documents.brief",
+        "documents.list",
         "Documents",
-        "Brief document",
-        "Create a concise brief or summary of an imported document/book.",
-        ("document_hint",),
+        "List documents",
+        "List imported documents from the local knowledge library.",
     ),
     ToolCapability(
         "documents.show_page_image",
         "Documents",
-        "Show page image",
-        "Render one or more PDF pages from the local library as images.",
-        ("document_hint", "page"),
+        "Show document page image",
+        "Render or open a specific imported document page as an image for visual inspection.",
+        ("document_id", "page"),
     ),
     ToolCapability(
         "python.run_explicit",
         "Python",
         "Run explicit Python",
-        "Run Python code only when the user explicitly asks the app to execute it.",
+        "Run Python code only when the user explicitly asks to execute it.",
         ("code",),
+        safety="confirm",
+    ),
+    ToolCapability(
+        "astro.lookup",
+        "Astro",
+        "Lookup astronomy target",
+        "Look up an astronomy object and return coordinates or observing context.",
+        ("target",),
+    ),
+    ToolCapability(
+        "astro.seeing",
+        "Astro",
+        "Check seeing planner",
+        "Check cloud, moon, darkness, and imaging-window context.",
+    ),
+    ToolCapability(
+        "astro.targets",
+        "Astro",
+        "Find imaging targets",
+        "Find suitable astrophotography targets for a site and time window.",
+    ),
+    ToolCapability(
+        "imaging.launch",
+        "Imaging",
+        "Launch imaging app",
+        "Launch the bundled FZAstro Imaging/N.I.N.A. application.",
+        safety="manual",
+    ),
+    ToolCapability(
+        "imaging.plan_target",
+        "Imaging",
+        "Plan imaging target",
+        "Create a safe imaging plan for a target using astronomy lookup and seeing planner context.",
+        ("target", "exposure_seconds", "gain"),
+        safety="confirm",
+    ),
+    ToolCapability(
+        "imaging.plan_next_target",
+        "Imaging",
+        "Plan next best imaging target",
+        "Use SEEING and TARGETS to choose the next safe target window and create a review-only FZAstro Imaging/N.I.N.A. plan.",
+        ("exposure_seconds", "gain"),
+        safety="confirm",
+    ),
+    ToolCapability(
+        "imaging.export_nina_review_plan",
+        "Imaging",
+        "Export N.I.N.A. review plan",
+        "Export a review-only plan file for FZAstro Imaging/N.I.N.A. without moving hardware or starting capture.",
+        ("plan_id",),
+        safety="confirm",
+    ),
+    ToolCapability(
+        "imaging.export_sequence",
+        "Imaging",
+        "Export imaging sequence",
+        "Export a planned imaging sequence for review in the bundled imaging app.",
+        ("plan_id",),
         safety="confirm",
     ),
 )
 
 
-TOOL_CAPABILITY_BY_ID = {
+TOOL_CAPABILITY_BY_ID: dict[str, ToolCapability] = {
     capability.tool_id: capability for capability in TOOL_CAPABILITIES
 }
 
 
 def build_tool_capability_prompt() -> str:
-    """Return a compact capability prompt for model-facing system messages."""
-    grouped: dict[str, list[ToolCapability]] = {}
-
-    for capability in TOOL_CAPABILITIES:
-        grouped.setdefault(capability.group, []).append(capability)
-
     lines = [
         "APP TOOL CAPABILITIES:",
-        "FZAstro AI can use local app tools when the user asks for them. Do not claim you lack these tools.",
-        "When a request asks for URLs, current web information, local imported documents, PDF pages, or explicit Python execution, the app router may call a tool before you answer.",
-        "If the app has already supplied web/document/Python results in the conversation context, answer directly from those results.",
-        "Never output raw tool-call syntax such as documents.brief(...), documents.search(...), JSON tool plans, or code blocks whose only purpose is to invoke an app tool.",
+        "FZAstro AI can use local app tools when the user asks for them.",
+        "Do not output raw tool-call syntax.",
+        "Use tools only when they match the user's request.",
         "Available tools:",
     ]
 
-    for group, capabilities in grouped.items():
-        lines.append(f"- {group}:")
-        for capability in capabilities:
-            argument_text = ""
-            if capability.arguments:
-                argument_text = " Args: " + ", ".join(capability.arguments) + "."
-            lines.append(
-                f"  - {capability.tool_id}: {capability.description}{argument_text}"
-            )
-
-    lines.extend(
-        [
-            "Python execution safety:",
-            "- Python is a real local interpreter, not a sandbox.",
-            "- Run Python only when the user explicitly asks to execute code or when the app has already executed it and supplied the result.",
-            "- For document/library questions, prefer document-grounded answers over memory or guesses.",
-        ]
-    )
+    for capability in TOOL_CAPABILITIES:
+        args = ""
+        if capability.arguments:
+            args = " Args: " + ", ".join(capability.arguments) + "."
+        safety = f" Safety: {capability.safety}."
+        lines.append(f"- {capability.tool_id}: {capability.description}{args}{safety}")
 
     return "\n".join(lines)
+
+
+__all__ = [
+    "ToolCapability",
+    "ToolSafety",
+    "TOOL_CAPABILITIES",
+    "TOOL_CAPABILITY_BY_ID",
+    "build_tool_capability_prompt",
+]

@@ -1,0 +1,7 @@
+{
+  "version": "3.2.1-fzastro.1",
+  "download_url": "https://example.com/FZAstroImaging-3.2.1-fzastro.1.zip",
+  "sha256": "optional-sha256-checksum",
+  "release_notes": "Describe the upstream N.I.N.A. release merged into the FZAstro Imaging bundle and any FZAstro branding/API changes.",
+  "published_at": "2026-06-17"
+}

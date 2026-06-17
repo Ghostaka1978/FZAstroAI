@@ -2,6 +2,10 @@ param(
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = $env:FZASTRO_PYTHON,
     [string]$BuildRoot = "",
+    [switch]$BuildImagingBundle,
+    [string]$NinaSourceZip = "",
+    [string]$NinaSourceDir = "",
+    [switch]$AutoInstallDotNetSdk,
     [string]$VoiceModelsRoot = $env:FZASTRO_VOICE_MODELS_DIR,
     [string]$VoiceModelZip = "",
     [switch]$SkipOfflineVoiceSetup,
@@ -276,9 +280,13 @@ function Invoke-LoggedCommand {
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 $BuildRoot = Resolve-BuildRootPath -RequestedBuildRoot $BuildRoot -Root $ProjectRoot
 $CleanScript = Join-Path $ScriptsRoot "clean_build.ps1"
+$ImagingBundleScript = Join-Path $ScriptsRoot "prepare_fzastro_imaging_bundle.ps1"
 
 if (-not (Test-Path $CleanScript)) {
     throw "Clean/build script not found: $CleanScript"
+}
+if ($BuildImagingBundle -and -not (Test-Path $ImagingBundleScript)) {
+    throw "FZAstro Imaging bundle script not found: $ImagingBundleScript"
 }
 
 $ResolvedPython = Resolve-PythonExecutable -RequestedPython $PythonExe -Root $ProjectRoot
@@ -291,13 +299,25 @@ Write-Host "Project: $ProjectRoot"
 Write-Host "Build:   $BuildRoot"
 Write-Host "Logs:    $LogDir"
 Write-Host ""
-Initialize-StageProgress -Activity "FZAstro AI deploy" -TotalSteps 2
+$TotalDeploySteps = 2
+if ($BuildImagingBundle) { $TotalDeploySteps += 1 }
+Initialize-StageProgress -Activity "FZAstro AI deploy" -TotalSteps $TotalDeploySteps
 if ($SkipOfflineVoiceSetup) {
     Show-StageStep "Offline voice setup skipped"
 }
 else {
     Show-StageStep "Offline voice model setup"
     Invoke-OfflineVoiceSetup -Root $ProjectRoot -ModelsRoot $VoiceModelsRoot -ModelZipPath $VoiceModelZip -PersistEnvironment:$PersistVoiceEnvironment -VerboseOutput:$VerboseOutput
+}
+
+if ($BuildImagingBundle) {
+    Show-StageStep "FZAstro Imaging bundle"
+    $BundleParams = @{}
+    if ($NinaSourceZip) { $BundleParams["NinaSourceZip"] = $NinaSourceZip }
+    if ($NinaSourceDir) { $BundleParams["NinaSourceDir"] = $NinaSourceDir }
+    if ($AutoInstallDotNetSdk) { $BundleParams["AutoInstallDotNetSdk"] = $true }
+    & $ImagingBundleScript @BundleParams
+    if (-not $?) { throw "FZAstro Imaging bundle workflow failed." }
 }
 
 Show-StageStep "Clean/build workflow"

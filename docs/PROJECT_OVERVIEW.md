@@ -1,4 +1,4 @@
-# FZAstro AI v2.0.0 Project Overview
+# FZAstro AI v2.1.0 Project Overview
 
 FZAstro AI is a Windows desktop AI workstation focused on astrophotography, local LLM work, project-aware coding assistance, document research, web research, local Python execution, and astronomy planning.
 
@@ -16,6 +16,7 @@ FZAstro AI is a Windows desktop AI workstation focused on astrophotography, loca
 | Astro tools | `fzastro_ai/astro_tools/`, `fzastro_ai/ui/*astro*`, `fzastro_ai/ui/seeing_dialog.py`, `fzastro_ai/ui/targets_dialog.py` | SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, SOLAR MAP. |
 | Web Companion | `fzastro_ai/web_companion/` | Local browser companion server and static interface for LAN/iPad/mobile workflows. |
 | Developer Workbench | `fzastro_ai/dev_agent/`, `fzastro_ai/ui/dev_workbench_dialog.py` | Project scanning, context building, planning, compile/pytest checks, failure analysis, patch snapshot helpers. |
+| FZAstro Imaging / N.I.N.A. bundle | `fzastro_ai/nina/`, `fzastro_ai/ui/nina_control_dialog.py`, `fzastro_ai/actions/nina_actions.py`, `fzastro_ai/resources/nina_templates/`, `bundled_apps/FZAstroImaging/` | Side-by-side imaging-app launcher, quiet bundle build, local settings, update feed check, safe update package download, and review-only Advanced Sequencer plan export. |
 | Build/release | `scripts/build_exe.ps1`, `scripts/clean_build.ps1`, `scripts/deploy.ps1`, `scripts/validate_release.ps1` | Repeatable Windows EXE build and validation workflow. |
 
 ## Runtime storage
@@ -35,14 +36,27 @@ Important runtime files include:
 - `daily_news_cache.json`
 - `llm_benchmark_history.json`
 - `web_companion_settings.json`
+- `nina_integration.json`
 - `logs/fzastroai.log`
 
 Set `FZASTRO_APP_DIR` to override the runtime data folder for testing or portable runs.
 
-## Version 2 cleanup result
+## Version 2.1 imaging production result
 
 - Root documentation reduced to `README.md`; release validation lives under `docs/`.
 - Detailed docs consolidated under `docs/`.
 - Overlay bundle integrated into the main package where useful.
 - Generated Python bytecode, backup files, and patch leftovers removed from the source package.
 - Developer Workbench is now a first-class app area rather than a separate overlay bundle.
+
+
+## Version 2.1 imaging production result
+
+- Adds safe predefined `/nina-plan` and `/imaging-plan` commands for review-first imaging plans.
+- Uses SITE, IMAGING, SEEING, and TARGETS context to choose practical targets and windows.
+- Writes plans under `Documents\FZAstroAI\Imaging Plans\<plan_id>`.
+- Generates real N.I.N.A. Advanced Sequencer JSON from `fzastro_ai/resources/nina_templates/osc_advanced_sequence_template.json`.
+- Keeps Markdown, XML, CSV, review JSON, and internal JSON sidecars for traceability.
+- Can launch the bundled FZAstro Imaging app and attempt to open the generated sequence for review.
+- Maintains the safety boundary: no slew, center, guide, autofocus, capture, sequence start, or hardware schedule is performed automatically.
+- Keeps `external/` and `bundled_apps/` out of normal source handoff packages because they are generated/vendor-heavy folders.

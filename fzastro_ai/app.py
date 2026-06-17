@@ -270,6 +270,7 @@ from .actions import (
     AstroActionsMixin,
     VoiceActionsMixin,
     DevActionsMixin,
+    NinaActionsMixin,
 )
 from .file_tools import (
     IMAGE_FILE_EXTENSIONS,
@@ -843,6 +844,7 @@ class FZAstroAI(
     AstroActionsMixin,
     VoiceActionsMixin,
     DevActionsMixin,
+    NinaActionsMixin,
     QMainWindow,
 ):
     # History and persistent-memory UI methods are implemented in fzastro_ai.ui modules.
@@ -1402,6 +1404,17 @@ class FZAstroAI(
         )
         self.dev_workbench_button.setAccessibleName("Open AI Developer Workbench")
 
+        self.nina_control_button = QPushButton("N.I.N.A.")
+        self.nina_control_button.setObjectName("cockpitSkillButton")
+        self.nina_control_button.setProperty("accent", "true")
+        self.nina_control_button.setFixedSize(86, 36)
+        self.nina_control_button.setCursor(Qt.PointingHandCursor)
+        self.nina_control_button.clicked.connect(self.open_nina_control)
+        self.nina_control_button.setToolTip(
+            "Launch and update the bundled FZAstro Imaging control app"
+        )
+        self.nina_control_button.setAccessibleName("Open FZAstro Imaging Control")
+
         self.history_button = self._create_toolbar_button(
             "◷", "historyToggle", "Chat history"
         )
@@ -1511,6 +1524,12 @@ class FZAstroAI(
         self.system_menu_button.setAccessibleName("Open system tools menu")
         self.system_menu_button.setMenu(self.build_system_menu())
 
+        nina_group, nina_group_layout = _create_cockpit_group(
+            "IMG", "cockpitNinaGroup", title_width=36
+        )
+        nina_group.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        nina_group_layout.addWidget(self.nina_control_button, 0, Qt.AlignVCenter)
+
         system_group, system_group_layout = _create_cockpit_group(
             "SYS", "cockpitSystemGroup", title_width=36
         )
@@ -1522,6 +1541,7 @@ class FZAstroAI(
         top_bar_layout.addWidget(runtime_group, 0)
         top_bar_layout.addWidget(web_group, 0)
         top_bar_layout.addWidget(mode_group, 0)
+        top_bar_layout.addWidget(nina_group, 0)
         top_bar_layout.addWidget(system_group, 0)
 
         quick_bar = QFrame()
@@ -2193,6 +2213,7 @@ class FZAstroAI(
         self.update_web_companion_sidebar()
         if self.web_companion_settings.get("auto_start_desktop"):
             QTimer.singleShot(750, self.start_web_companion_background)
+        self.maybe_auto_check_nina_updates()
 
     def web_companion_settings_path(self):
         return Path(APP_DIR) / "web_companion_settings.json"
@@ -4253,6 +4274,25 @@ class FZAstroAI(
             )
             return
 
+        if action_id == "imaging.plan_next_target":
+            self.try_handle_predefined_imaging_plan_command(
+                "/nina-plan next 60s gain 200"
+            )
+            return
+
+        if action_id == "imaging.plan_specific_target":
+            target = str(values.get("target") or "").strip()
+            exposure = str(values.get("exposure_seconds") or "60").strip()
+            gain = str(values.get("gain") or "200").strip()
+            self.try_handle_predefined_imaging_plan_command(
+                f"/nina-plan target {target} exposure {exposure}s gain {gain}"
+            )
+            return
+
+        if action_id == "imaging.open_plans_folder":
+            self.open_imaging_plans_folder()
+            return
+
         self.stats_label.setText(f"No direct handler for composer action: {action_id}")
 
     def resolve_knowledge_document_id(self, reference):
@@ -4399,6 +4439,9 @@ class FZAstroAI(
 
         clean = re.sub(r"\s+", " ", original_text).strip()
         clean_lower = clean.casefold()
+
+        if self.try_handle_predefined_imaging_plan_command(clean):
+            return True
 
         if clean_lower in {"/docs", "/documents", "/books", "/library"}:
             self.show_knowledge_documents_in_chat()

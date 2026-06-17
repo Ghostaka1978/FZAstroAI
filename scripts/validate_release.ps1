@@ -500,7 +500,7 @@ Set-Content -Path $ValidationLog -Value "FZAstro AI validation log" -Encoding UT
 $script:QuietOutput = -not $VerboseOutput
 $script:WorkflowLogPath = $ValidationLog
 
-Write-Host "FZAstro AI v2.0.0 Production Validation"
+Write-Host "FZAstro AI v2.1.0 Imaging Production Validation"
 Write-Host "EXE:  $ExePath"
 Write-Host "Logs: $ValidationLog"
 Set-FZAstroBuildEnvironment -PythonPath $ResolvedPython -Root $ProjectRoot -BuildPath $BuildRoot
@@ -517,8 +517,8 @@ Write-ValidationLog -Path $ValidationLog -Value "SizeMB: $sizeMB"
 $VersionFile = Join-Path $ProjectRoot "VERSION.txt"
 if (Test-Path $VersionFile) {
     $version = (Get-Content $VersionFile -Raw).Trim()
-    if ($version -match "^2\.0\.0$") { Write-ValidationLog -Path $ValidationLog -Value "VERSION.txt reports $version" }
-    else { Write-Warning "VERSION.txt does not look like v2.0.0: $version" }
+    if ($version -match "^2\.1\.0$") { Write-ValidationLog -Path $ValidationLog -Value "VERSION.txt reports $version" }
+    else { Write-Warning "VERSION.txt does not look like v2.1.0: $version" }
 }
 else { Write-Warning "VERSION.txt not found" }
 
@@ -526,7 +526,7 @@ Show-StageStep "Checking Black formatting"
 Invoke-LoggedCommand -Description "Black formatting check" -CommandPath $ResolvedPython -Arguments @("-m", "black", "--check", "--workers", "1", (Join-Path $ProjectRoot "main.py"), (Join-Path $ProjectRoot "fzastro_ai"), (Join-Path $ProjectRoot "tests")) -LogPath $ValidationLog -VerboseOutput:$VerboseOutput
 
 Show-StageStep "Compile source"
-Invoke-LoggedCommand -Description "Source compile check" -CommandPath $ResolvedPython -Arguments @("-m", "compileall", "-q", $ProjectRoot) -LogPath $ValidationLog -VerboseOutput:$VerboseOutput
+Invoke-LoggedCommand -Description "Source compile check" -CommandPath $ResolvedPython -Arguments @("-m", "compileall", "-q", (Join-Path $ProjectRoot "main.py"), (Join-Path $ProjectRoot "fzastro_ai"), (Join-Path $ProjectRoot "tests")) -LogPath $ValidationLog -VerboseOutput:$VerboseOutput
 
 Show-StageStep "Run automated tests"
 Invoke-LoggedCommand -Description "Automated tests" -CommandPath $ResolvedPython -Arguments @("-m", "pytest", (Join-Path $ProjectRoot "tests")) -LogPath $ValidationLog -VerboseOutput:$VerboseOutput

@@ -1,6 +1,6 @@
-# FZAstro AI v2.0.0 Production Build and Validation
+# FZAstro AI v2.1.0 Imaging Production Build and Validation
 
-This file is the production release checklist for **FZAstro AI v2.0.0 — Version 2 Production**.
+This file is the production release checklist for **FZAstro AI v2.1.0 — Imaging Production**.
 
 A build can be marked production-ready only after automated tests, release validation, and manual acceptance checks pass on the target Windows machine.
 
@@ -96,14 +96,14 @@ Validation should check:
 ### Desktop app
 
 - Launch `FZAstroAI.exe`.
-- Confirm the title/about identity is `FZAstro AI v2.0.0 (Version 2 Production)`.
+- Confirm the title/about identity is `FZAstro AI v2.1.0 (Imaging Production)`.
 - Confirm normal chat works with the configured Ollama/OpenAI-compatible endpoint.
 - Confirm source chips still appear for LLM, Docs, Web, Files, Python, Memory, News, Market, and App workflows.
 - Confirm the app closes cleanly without worker shutdown errors.
 
 ### Documentation/help/about
 
-- Help and About should describe v2.0.0, not RC3 as the current release.
+- Help and About should describe v2.1.0, not RC3 as the current release.
 - Root should contain one primary `README.md`; detailed docs should live under `docs/`.
 - The separate `overlay/` folder should not exist.
 - Stale bundle readmes should not exist in the root.
@@ -132,6 +132,18 @@ Confirm **SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP** work 
 - TARGETS ranks targets, exports CSV, and can use local OpenNGC import.
 - SOLAR MAP zoom/pan/orbit/label/grid controls work.
 - Astropy/IERS and provider timeouts should log warnings rather than crash workflows.
+
+### FZAstro Imaging / N.I.N.A. planning
+
+- Confirm `bundled_apps/FZAstroImaging/FZAstroImaging.exe`, `NINA.exe`, and `NINA.dll` are present on the release machine when testing the bundled imaging runtime.
+- Confirm `external/` and `bundled_apps/` are intentionally omitted from normal source handoff ZIPs.
+- Open **ASTRO → FZASTRO IMAGING CONTROL**.
+- Confirm the Imaging Control panel uses uppercase action labels and a clear review-only safety message.
+- Click **PLAN NEXT TARGET** and verify a plan folder is created under `Documents\FZAstroAI\Imaging Plans`.
+- Run `/nina-plan target M13 60s gain 200` from chat.
+- Confirm the generated `.nina-sequence.json` contains target name, RA/Dec, exposure, gain, and frame count.
+- Confirm FZAstro launches/opens FZAstro Imaging for review when possible.
+- Confirm FZAstro does not slew, center, guide, autofocus, capture, start a sequence, or schedule hardware execution automatically.
 
 ### Web Companion
 
@@ -168,10 +180,10 @@ Confirm **SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP** work 
 ```powershell
 git status --short
 git add .
-git commit -m "Prepare FZAstro AI v2.0.0 production cleanup"
-git tag -a v2.0.0 -m "FZAstro AI v2.0.0"
+git commit -m "Prepare FZAstro AI v2.1.0 imaging production"
+git tag -a v2.1.0 -m "FZAstro AI v2.1.0"
 git push origin main
-git push origin v2.0.0
+git push origin v2.1.0
 ```
 
 

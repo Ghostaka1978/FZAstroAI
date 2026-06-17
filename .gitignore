@@ -24,3 +24,11 @@ Thumbs.db
 
 # Patch/package staging folders that must not be committed
 modified_files/
+# Bundled imaging-control runtime binaries are release artifacts, not source.
+/bundled_apps/FZAstroImaging/*
+!/bundled_apps/FZAstroImaging/README.md
+
+# External N.I.N.A. source/build worktrees used to produce the side-by-side FZAstro Imaging bundle.
+/external/nina-develop/
+/external/fzastro_imaging_work/
+/external/fzastro_imaging_src/

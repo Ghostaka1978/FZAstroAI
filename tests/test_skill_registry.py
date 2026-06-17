@@ -84,6 +84,26 @@ def test_astro_skill_mentions_distance_ladder_lookup_details():
     assert "distance-ladder" in lookup_action.description
 
 
+def test_astro_menu_uses_caps_for_app_actions_and_sections():
+    grouped = skill_actions_by_section("astro")
+
+    assert list(grouped) == ["SETUP", "TOOLS", "FZASTRO IMAGING"]
+    assert [action.label for action in grouped["SETUP"]] == ["SITE", "IMAGING"]
+    assert [action.label for action in grouped["TOOLS"]] == [
+        "LOOKUP",
+        "SUN NOW",
+        "SEEING",
+        "TARGETS",
+        "SOLAR MAP",
+    ]
+    assert [action.label for action in grouped["FZASTRO IMAGING"]] == [
+        "PLAN NEXT TARGET",
+        "PLAN SPECIFIC TARGET",
+        "OPEN PLANS FOLDER",
+        "FZASTRO IMAGING CONTROL",
+    ]
+
+
 def test_main_window_uses_skill_registry_for_top_and_composer_menus():
     app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
 

@@ -82,6 +82,7 @@ a = Analysis(
         ('fzastro_ai/astro_tools/fzastro', 'fzastro_ai/astro_tools/fzastro'),
         ('fzastro_ai/resources/astropy_icon.png', 'fzastro_ai/resources'),
         ('fzastro_ai/resources/astropy_samp', 'fzastro_ai/resources/astropy_samp'),
+        ('fzastro_ai/resources/nina_templates', 'fzastro_ai/resources/nina_templates'),
         *astro_datas,
         *web_companion_static_datas,
         *playwright_datas,

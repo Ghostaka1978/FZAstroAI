@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
 from ..logging_utils import log_exception
 
 
-HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI v2.0.0 Help
+HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI v2.1.0 Help
 
-This guide shows what FZAstro AI can do and which source/mode is usually used. Version 2 Production is the cleaned production baseline with the integrated Astro Tools Suite, Web Companion, LLM Benchmark Dashboard, and AI Developer Workbench. Click the **FZ** square in the header to open the GitHub repository.
+This guide shows what FZAstro AI can do and which source/mode is usually used. Imaging Production is the cleaned Version 2 baseline plus safe Astro → FZAstro Imaging/N.I.N.A. plan generation, real Advanced Sequencer JSON export, Web Companion, LLM Benchmark Dashboard, and AI Developer Workbench. Click the **FZ** square in the header to open the GitHub repository.
 
 ## 1. Main idea
 
@@ -127,7 +127,26 @@ Bortle tint rules: `8–9 white/urban`, `6–7 yellow`, `4–5 green`, `2–3 bl
 
 Distance ladder calculations can use parallax, Gaia proxy, NED-D, and Hubble-style estimates where available. Optional visibility: `FZASTRO_USE_DISTANCE_LADDER=1`.
 
-## 9. Web Companion
+## 9. FZAstro Imaging / N.I.N.A. planning
+
+Use **ASTRO → FZASTRO IMAGING CONTROL** or type safe predefined commands:
+
+```text
+/nina-plan next
+/nina-plan next 60s gain 200
+/nina-plan target M13 60s gain 200
+/imaging-plan target NGC 7000 exposure 120s gain 100 frames 80
+```
+
+The planner combines SITE, IMAGING, SEEING, and TARGETS context, then writes plan folders under:
+
+```text
+Documents\FZAstroAI\Imaging Plans\<plan_id>
+```
+
+The file to open in N.I.N.A. Advanced Sequencer is the generated `.nina-sequence.json`. FZAstro can launch/open it for review when possible. The workflow is intentionally safe: it does not slew, center, guide, autofocus, capture, start a sequence, or schedule hardware execution automatically.
+
+## 10. Web Companion
 
 Use the desktop Web Companion controls or run:
 
@@ -137,7 +156,7 @@ Use the desktop Web Companion controls or run:
 
 Open the LAN URL from an iPad/phone/other device on the same network. LAN mode uses `FZASTRO_WEB_TOKEN`; do not expose it directly to the public internet.
 
-## 10. AI Developer Workbench
+## 11. AI Developer Workbench
 
 Click **DEV** in the quick actions bar.
 
@@ -172,21 +191,21 @@ def open_help_cheat_sheet_dialog(parent):
     dialog = QDialog(parent)
     apply_window_defaults(dialog)
     dialog.setObjectName("helpDialog")
-    dialog.setWindowTitle("FZAstro AI v2.0.0 Help")
+    dialog.setWindowTitle("FZAstro AI v2.1.0 Help")
     dialog.resize(900, 760)
 
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(18, 18, 18, 18)
     layout.setSpacing(12)
 
-    title = QLabel("FZAstro AI v2.0.0 Help")
+    title = QLabel("FZAstro AI v2.1.0 Help")
     title.setObjectName("helpDialogTitle")
 
     subtitle = QLabel(
-        "Version 2 guide for chat, models, web, news, market quotes, documents, "
+        "Imaging Production guide for chat, models, web, news, market quotes, documents, "
         "PDF page images/text, memory, history, attachments, Python execution, "
         "LLM benchmarking, tests, Web Companion, the Astro Tools Suite, "
-        "AI Developer Workbench, and distance-ladder lookup details."
+        "FZAstro Imaging/N.I.N.A. planning, AI Developer Workbench, and distance-ladder lookup details."
     )
     subtitle.setObjectName("helpDialogSubtitle")
     subtitle.setWordWrap(True)

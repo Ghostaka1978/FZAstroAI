@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from .config import APP_MILESTONE, APP_VERSION, APP_VERSION_LABEL
 

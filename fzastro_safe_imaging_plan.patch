@@ -1,0 +1,1059 @@
+diff -ruN /mnt/data/astrocmd_base/README.md /mnt/data/astrocmd_work/README.md
+--- /mnt/data/astrocmd_base/README.md	2026-06-17 15:51:40.000000000 +0000
++++ /mnt/data/astrocmd_work/README.md	2026-06-17 16:51:10.912358753 +0000
+@@ -72,8 +72,10 @@
+ - Configure localhost API host/port for the later control bridge
+ - Check a configured update manifest or GitHub latest-release API URL
+ - Download update packages for review without replacing a running equipment-control app
++- Create safe review-only imaging plans from predefined commands such as `/nina-plan next 60s gain 200`
++- Combine SITE, SEEING, TARGETS, and IMAGING settings into plan files under `%APPDATA%\FZAstroAI\imaging_plans`
+ 
+-See `docs/NINA_BUNDLE_INTEGRATION.md` for the bundle/update workflow.
++See `docs/NINA_BUNDLE_INTEGRATION.md` for the bundle/update and safe-plan workflow.
+ 
+ ## AI Developer Workbench
+ 
+diff -ruN /mnt/data/astrocmd_base/docs/NINA_BUNDLE_INTEGRATION.md /mnt/data/astrocmd_work/docs/NINA_BUNDLE_INTEGRATION.md
+--- /mnt/data/astrocmd_base/docs/NINA_BUNDLE_INTEGRATION.md	2026-06-17 15:50:44.000000000 +0000
++++ /mnt/data/astrocmd_work/docs/NINA_BUNDLE_INTEGRATION.md	2026-06-17 16:50:47.682407901 +0000
+@@ -73,3 +73,32 @@
+ 4. Reopen FZAstro AI and launch the imaging app.
+ 
+ This preserves safety for cameras, mounts, focusers, filter wheels, and active sequences.
++
++## Safe predefined imaging-plan commands
++
++FZAstro AI can create first-stage, review-only imaging plans from predefined composer commands. These commands combine the current Astro SITE settings, current IMAGING profile, SEEING forecast rows, and TARGETS planner picks.
++
++Supported commands include:
++
++```text
++/nina-plan next
++/nina-plan next 60s gain 200
++/nina-plan target M13 60s gain 200
++/imaging-plan target NGC 7000 exposure 120s gain 100 frames 80
++```
++
++Natural safe aliases such as `what target should I image next` and `make a NINA plan for best target` are routed to the same review-only workflow.
++
++The workflow creates files under:
++
++```text
++AppData/Roaming/FZAstroAI/imaging_plans/
++```
++
++Each plan includes:
++
++- a full FZAstro plan JSON file,
++- a Markdown review summary,
++- a `.nina-review.json` handoff file for the bundled imaging workflow.
++
++Safety boundary: this stage does not slew, center, guide, start capture, schedule a run, or execute a N.I.N.A. sequence automatically. Even if a user says “start automatically,” FZAstro records that request and still creates only a review plan.
+diff -ruN /mnt/data/astrocmd_base/fzastro_ai/actions/nina_actions.py /mnt/data/astrocmd_work/fzastro_ai/actions/nina_actions.py
+--- /mnt/data/astrocmd_base/fzastro_ai/actions/nina_actions.py	2026-06-17 15:51:38.000000000 +0000
++++ /mnt/data/astrocmd_work/fzastro_ai/actions/nina_actions.py	2026-06-17 16:47:22.203668776 +0000
+@@ -1,12 +1,52 @@
+ from __future__ import annotations
+ 
+-from PySide6.QtCore import QTimer
+-
+-from ..logging_utils import log_warning
++import time
++import uuid
++from typing import Any
++
++from PySide6.QtCore import QThread, QTimer, Signal
++from PySide6.QtWidgets import QMessageBox
++
++from ..file_tools import prepare_content
++from ..logging_utils import log_exception, log_warning
++from ..nina.imaging_plan import (
++    ImagingPlanResult,
++    build_predefined_imaging_plan,
++    format_imaging_plan_markdown,
++    parse_predefined_imaging_command,
++    predefined_imaging_command_help,
++)
+ from ..nina.nina_bridge import check_for_update, load_settings, save_settings
+ from ..ui.nina_control_dialog import open_nina_control_dialog
+ 
+ 
++class ImagingPlanWorker(QThread):
++    """Create a safe FZAstro Imaging/N.I.N.A. review plan off the UI thread."""
++
++    finished_plan = Signal(object, float)
++    error_received = Signal(str)
++
++    def __init__(self, command, location: dict[str, Any], imaging: dict[str, Any]):
++        super().__init__()
++        self.command = command
++        self.location = dict(location or {})
++        self.imaging = dict(imaging or {})
++
++    def run(self):
++        start = time.perf_counter()
++        try:
++            plan = build_predefined_imaging_plan(
++                command=self.command,
++                location=self.location,
++                imaging=self.imaging,
++            )
++            elapsed = max(0.0, time.perf_counter() - start)
++            self.finished_plan.emit(plan, elapsed)
++        except Exception as exc:
++            log_exception("ImagingPlanWorker.run", exc)
++            self.error_received.emit(str(exc))
++
++
+ class NinaActionsMixin:
+     """Main-window hooks for FZAstro Imaging / bundled N.I.N.A. integration."""
+ 
+@@ -40,3 +80,133 @@
+                 )
+             except Exception:
+                 pass
++
++    def try_handle_predefined_imaging_plan_command(self, text: str) -> bool:
++        """Handle safe predefined FZAstro Imaging/N.I.N.A. plan commands.
++
++        This intentionally creates review-only plan files. It does not move the
++        mount, start capture, or run a N.I.N.A. sequence automatically.
++        """
++
++        command = parse_predefined_imaging_command(text)
++        if command is None:
++            return False
++
++        if str(text or "").strip().casefold() in {
++            "/nina-plan",
++            "/imaging-plan",
++            "/astro-plan",
++            "/plan-imaging",
++        }:
++            QMessageBox.information(self, "FZAstro Imaging plan", predefined_imaging_command_help())
++            return True
++
++        worker = getattr(self, "nina_plan_worker", None)
++        if worker is not None and worker.isRunning():
++            self.stats_label.setText("FZAstro Imaging plan already running.")
++            return True
++
++        if command.auto_start_requested:
++            QMessageBox.information(
++                self,
++                "Review-only imaging plan",
++                "FZAstro will create a review-only plan. It will not start, schedule, slew, guide, or capture automatically.",
++            )
++
++        user_message_id = uuid.uuid4().hex
++        display_text = str(text or command.raw_text).strip()
++        self.messages.append(
++            {
++                "id": user_message_id,
++                "role": "user",
++                "content": prepare_content(display_text, []),
++                "files": [],
++            }
++        )
++        self.add_message_widget(":ME:", display_text, [], message_id=user_message_id)
++
++        try:
++            location = self.get_current_astro_location()
++            imaging = self.get_current_astro_imaging()
++        except Exception as exc:
++            log_exception("NinaActionsMixin.try_handle_predefined_imaging_plan_command", exc)
++            QMessageBox.warning(self, "FZAstro Imaging plan", str(exc))
++            return True
++
++        self.request_start_time = time.perf_counter()
++        try:
++            self.generation_timer.start(100)
++        except Exception:
++            pass
++        self.set_busy_ui_state("Creating FZAstro Imaging plan from SEEING/TARGETS... • 0.00s")
++
++        worker = ImagingPlanWorker(command, location, imaging)
++        self.nina_plan_worker = worker
++        worker.finished_plan.connect(self.finish_predefined_imaging_plan)
++        worker.error_received.connect(self.handle_predefined_imaging_plan_error)
++        worker.finished.connect(self.handle_predefined_imaging_plan_worker_finished)
++        worker.start()
++        return True
++
++    def finish_predefined_imaging_plan(self, plan: ImagingPlanResult, elapsed: float):
++        try:
++            self.generation_timer.stop()
++        except Exception:
++            pass
++        try:
++            self.global_thought_box.setMarkdown("")
++            self._last_thoughts_text = ""
++        except Exception:
++            pass
++
++        text = format_imaging_plan_markdown(plan)
++        files = [plan.plan_json_path, plan.plan_text_path, plan.nina_review_path]
++        assistant_message_id = uuid.uuid4().hex
++        source_tags = ["app", "astro", "imaging", "nina"]
++
++        self.messages.append(
++            {
++                "id": assistant_message_id,
++                "role": "assistant",
++                "content": text,
++                "files": files,
++                "news_sources": {},
++                "response_time": float(elapsed),
++                "source_tags": source_tags,
++            }
++        )
++
++        self.add_message_widget(
++            ":AI: ",
++            text,
++            files=files,
++            message_id=assistant_message_id,
++            response_time=float(elapsed),
++            source_tags=source_tags,
++        )
++
++        self.save_current_chat()
++        self.chat_container.adjustSize()
++        self.chat_container.updateGeometry()
++        self.force_scroll_to_bottom()
++        QTimer.singleShot(0, self.force_scroll_to_bottom)
++        self.set_idle_ui_state(f"FZAstro Imaging plan ready • {float(elapsed):.2f}s")
++
++    def handle_predefined_imaging_plan_error(self, error: str):
++        log_warning("NinaActionsMixin.handle_predefined_imaging_plan_error", error)
++        try:
++            self.generation_timer.stop()
++        except Exception:
++            pass
++        self.set_idle_ui_state("FZAstro Imaging plan failed")
++        QMessageBox.warning(self, "FZAstro Imaging plan", str(error))
++
++    def handle_predefined_imaging_plan_worker_finished(self):
++        worker = self.sender()
++        if worker is getattr(self, "nina_plan_worker", None):
++            self.nina_plan_worker = None
++        if worker is not None:
++            try:
++                worker.deleteLater()
++            except Exception as exc:
++                log_warning("NinaActionsMixin worker cleanup skipped", exc)
+diff -ruN /mnt/data/astrocmd_base/fzastro_ai/app.py /mnt/data/astrocmd_work/fzastro_ai/app.py
+--- /mnt/data/astrocmd_base/fzastro_ai/app.py	2026-06-17 15:50:44.000000000 +0000
++++ /mnt/data/astrocmd_work/fzastro_ai/app.py	2026-06-17 16:47:37.720059417 +0000
+@@ -4421,6 +4421,9 @@
+         clean = re.sub(r"\s+", " ", original_text).strip()
+         clean_lower = clean.casefold()
+ 
++        if self.try_handle_predefined_imaging_plan_command(clean):
++            return True
++
+         if clean_lower in {"/docs", "/documents", "/books", "/library"}:
+             self.show_knowledge_documents_in_chat()
+             return True
+diff -ruN /mnt/data/astrocmd_base/fzastro_ai/command_router.py /mnt/data/astrocmd_work/fzastro_ai/command_router.py
+--- /mnt/data/astrocmd_base/fzastro_ai/command_router.py	2026-06-17 15:50:45.000000000 +0000
++++ /mnt/data/astrocmd_work/fzastro_ai/command_router.py	2026-06-17 16:50:03.883299661 +0000
+@@ -65,6 +65,13 @@
+     "astrophotography targets": "/targets",
+     "open target planner": "/targets",
+     "target planner": "/targets",
++    "what target should i image next": "/nina-plan next",
++    "what target should i image tonight": "/nina-plan next",
++    "what target for next time period": "/nina-plan next",
++    "best target for next time period": "/nina-plan next",
++    "plan best target into nina": "/nina-plan next",
++    "make a nina plan for best target": "/nina-plan next",
++    "create nina plan for next target": "/nina-plan next",
+     "solar map": "/solar-map",
+     "open solar map": "/solar-map",
+     "show solar map": "/solar-map",
+@@ -368,6 +375,8 @@
+             "imaging settings",
+             "lookup Andromeda",
+             "lookup NGC 7000",
++            "what target should I image next",
++            "make a NINA plan for best target",
+         ),
+     ),
+     (
+diff -ruN /mnt/data/astrocmd_base/fzastro_ai/nina/__init__.py /mnt/data/astrocmd_work/fzastro_ai/nina/__init__.py
+--- /mnt/data/astrocmd_base/fzastro_ai/nina/__init__.py	2026-06-17 15:51:40.000000000 +0000
++++ /mnt/data/astrocmd_work/fzastro_ai/nina/__init__.py	2026-06-17 16:46:58.061607783 +0000
+@@ -1,5 +1,14 @@
+ """FZAstro Imaging / N.I.N.A. bundle integration helpers."""
+ 
++from .imaging_plan import (
++    ImagingPlanResult,
++    PredefinedImagingCommand,
++    build_predefined_imaging_plan,
++    format_imaging_plan_markdown,
++    is_predefined_imaging_command,
++    parse_predefined_imaging_command,
++    predefined_imaging_command_help,
++)
+ from .nina_bridge import (
+     DEFAULT_SETTINGS,
+     NinaUpdateInfo,
+@@ -14,12 +23,19 @@
+ 
+ __all__ = [
+     "DEFAULT_SETTINGS",
++    "ImagingPlanResult",
+     "NinaUpdateInfo",
++    "PredefinedImagingCommand",
++    "build_predefined_imaging_plan",
+     "check_for_update",
+     "download_update",
+     "find_default_executable",
++    "format_imaging_plan_markdown",
++    "is_predefined_imaging_command",
+     "is_process_running",
+     "launch_executable",
+     "load_settings",
++    "parse_predefined_imaging_command",
++    "predefined_imaging_command_help",
+     "save_settings",
+ ]
+diff -ruN /mnt/data/astrocmd_base/fzastro_ai/nina/imaging_plan.py /mnt/data/astrocmd_work/fzastro_ai/nina/imaging_plan.py
+--- /mnt/data/astrocmd_base/fzastro_ai/nina/imaging_plan.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/astrocmd_work/fzastro_ai/nina/imaging_plan.py	2026-06-17 16:49:12.164483791 +0000
+@@ -0,0 +1,565 @@
++from __future__ import annotations
++
++import json
++import re
++from dataclasses import asdict, dataclass
++from datetime import datetime, timedelta, timezone
++from pathlib import Path
++from typing import Any
++from zoneinfo import ZoneInfo
++
++from ..astro_tools.seeing_data import fetch_7timer_astro_forecast, score_label
++from ..astro_tools.target_catalog import load_catalog_rows
++from ..config import APP_DIR
++
++IMAGING_PLAN_DIR = APP_DIR / "imaging_plans"
++DEFAULT_EXPOSURE_SECONDS = 60
++DEFAULT_GAIN = 200
++DEFAULT_MIN_ALT_DEG = 45.0
++DEFAULT_TARGET_LIMIT = 12
++
++_SAFE_NATURAL_COMMANDS = {
++    "what target should i image next",
++    "what target should i image tonight",
++    "what target for next time period",
++    "what target for the next time period",
++    "best target for next time period",
++    "best target tonight",
++    "plan best target into nina",
++    "make a nina plan for best target",
++    "create nina plan for best target",
++    "create nina plan for next target",
++    "make a plan into nina",
++    "make imaging plan into nina",
++}
++
++_COMMAND_PREFIX_RE = re.compile(
++    r"^/(?:nina-plan|nina plan|imaging-plan|imaging plan|astro-plan|astro plan|plan-imaging)\b(?P<body>.*)$",
++    re.IGNORECASE,
++)
++
++_CATALOG_TARGET_RE = re.compile(
++    r"\b(?:(M|MESSIER)\s*([0-9]{1,3})|(NGC|IC)\s*([0-9]{1,5})|BARNARD\s*([0-9]{1,4}))\b",
++    re.IGNORECASE,
++)
++
++
++@dataclass(frozen=True)
++class PredefinedImagingCommand:
++    """A safe, fixed-grammar imaging command parsed from the composer."""
++
++    raw_text: str
++    mode: str = "next_best"
++    target: str = ""
++    exposure_seconds: int = DEFAULT_EXPOSURE_SECONDS
++    gain: int = DEFAULT_GAIN
++    frames: int = 0
++    period: str = "next"
++    auto_start_requested: bool = False
++
++
++@dataclass(frozen=True)
++class ImagingWindow:
++    start_iso: str
++    end_iso: str
++    start_label: str
++    end_label: str
++    score: int
++    score_label: str
++    cloud_pct: int | None = None
++    cloud_text: str = ""
++    seeing_text: str = ""
++    transparency_text: str = ""
++    moon_text: str = ""
++    astro_dark: bool = False
++
++
++@dataclass(frozen=True)
++class ImagingPlanResult:
++    plan_id: str
++    target_name: str
++    target_type: str
++    ra: str
++    dec: str
++    magnitude: str
++    size: str
++    target_grade: int
++    exposure_seconds: int
++    gain: int
++    frames: int
++    estimated_total_minutes: int
++    window: ImagingWindow
++    location: dict[str, Any]
++    imaging: dict[str, Any]
++    plan_json_path: str
++    plan_text_path: str
++    nina_review_path: str
++    auto_start_requested: bool = False
++    review_required: bool = True
++
++
++def _normalise_text(text: str) -> str:
++    clean = str(text or "").casefold().strip()
++    clean = clean.replace("-", " ").replace("_", " ")
++    clean = re.sub(r"[^a-z0-9/\s]", " ", clean)
++    clean = re.sub(r"\s+", " ", clean).strip()
++    return clean
++
++
++def _normalise_target_name(text: str) -> str:
++    raw = str(text or "").strip()
++    match = _CATALOG_TARGET_RE.search(raw)
++    if match:
++        if match.group(1):
++            return f"M{int(match.group(2))}"
++        if match.group(3):
++            return f"{match.group(3).upper()} {int(match.group(4))}"
++        if match.group(5):
++            return f"Barnard {int(match.group(5))}"
++    clean = re.sub(r"\s+", " ", raw).strip()
++    return clean
++
++
++def _extract_target(body: str) -> str:
++    explicit = re.search(
++        r"\btarget\s+(?P<target>.+?)(?=\s+\b(?:gain|frames|subs|lights|exposure|exp|start|tonight|next|tomorrow)\b|\s+\d+\s*(?:s|sec|secs|second|seconds)\b|$)",
++        body,
++        flags=re.IGNORECASE,
++    )
++    if explicit:
++        return _normalise_target_name(explicit.group("target"))
++
++    catalog_match = _CATALOG_TARGET_RE.search(body)
++    if catalog_match:
++        return _normalise_target_name(catalog_match.group(0))
++
++    # Accept `/nina-plan Andromeda gain 200` but keep this conservative: only
++    # the leading free-text token span before known parameters is treated as a target.
++    body_clean = str(body or "").strip()
++    body_clean = re.sub(r"^for\s+", "", body_clean, flags=re.IGNORECASE).strip()
++    body_clean = re.split(
++        r"\s+\b(?:gain|frames|subs|lights|exposure|exp|start|tonight|next|tomorrow|auto|run|schedule)\b|\s+\d+\s*(?:s|sec|secs|second|seconds)\b",
++        body_clean,
++        maxsplit=1,
++        flags=re.IGNORECASE,
++    )[0].strip()
++    if body_clean.casefold() in {"", "next", "tonight", "best", "best target"}:
++        return ""
++    if len(body_clean.split()) <= 4:
++        return _normalise_target_name(body_clean)
++    return ""
++
++
++def parse_predefined_imaging_command(text: str) -> PredefinedImagingCommand | None:
++    """Parse only fixed, safe imaging-plan commands.
++
++    The parser deliberately does not understand arbitrary automation language.
++    It creates review-only plans and records if the user asked for auto-start so
++    the UI can explicitly refuse silent hardware execution.
++    """
++
++    raw = str(text or "").strip()
++    if not raw:
++        return None
++
++    prefix_match = _COMMAND_PREFIX_RE.match(raw)
++    clean = _normalise_text(raw)
++
++    if prefix_match:
++        body = prefix_match.group("body").strip()
++    elif clean in _SAFE_NATURAL_COMMANDS:
++        body = clean
++    else:
++        return None
++
++    lower_body = body.casefold()
++    exposure = DEFAULT_EXPOSURE_SECONDS
++    exposure_match = re.search(
++        r"(?:\bexposure\b|\bexp\b)?\s*(?P<seconds>\d{1,5})\s*(?:s|sec|secs|second|seconds)\b",
++        body,
++        flags=re.IGNORECASE,
++    )
++    if exposure_match:
++        exposure = max(1, min(24 * 3600, int(exposure_match.group("seconds"))))
++
++    gain = DEFAULT_GAIN
++    gain_match = re.search(r"\bgain\s*(?P<gain>\d{1,5})\b", body, re.IGNORECASE)
++    if gain_match:
++        gain = max(0, min(10000, int(gain_match.group("gain"))))
++
++    frames = 0
++    frames_match = re.search(
++        r"\b(?:frames|subs|lights)\s*(?P<frames>\d{1,5})\b",
++        body,
++        flags=re.IGNORECASE,
++    )
++    if frames_match:
++        frames = max(1, min(10000, int(frames_match.group("frames"))))
++
++    target = _extract_target(body)
++    period = "tomorrow" if "tomorrow" in lower_body else "tonight"
++    if "next" in lower_body or not target:
++        period = "next"
++
++    auto_start_requested = bool(
++        re.search(r"\b(auto|automatic|automatically|run|start|schedule)\b", body, re.I)
++    )
++
++    mode = "target" if target else "next_best"
++    return PredefinedImagingCommand(
++        raw_text=raw,
++        mode=mode,
++        target=target,
++        exposure_seconds=exposure,
++        gain=gain,
++        frames=frames,
++        period=period,
++        auto_start_requested=auto_start_requested,
++    )
++
++
++def is_predefined_imaging_command(text: str) -> bool:
++    return parse_predefined_imaging_command(text) is not None
++
++
++def _safe_zone(tz_name: Any) -> ZoneInfo:
++    try:
++        return ZoneInfo(str(tz_name or "UTC").strip() or "UTC")
++    except Exception:
++        return ZoneInfo("UTC")
++
++
++def _parse_dt(value: Any, tz_name: str) -> datetime | None:
++    text = str(value or "").strip()
++    if not text:
++        return None
++    try:
++        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
++        if parsed.tzinfo is None:
++            parsed = parsed.replace(tzinfo=_safe_zone(tz_name))
++        return parsed.astimezone(_safe_zone(tz_name))
++    except Exception:
++        return None
++
++
++def choose_best_seeing_window(
++    forecast: dict[str, Any], *, now: datetime | None = None
++) -> ImagingWindow:
++    rows = forecast.get("rows") if isinstance(forecast, dict) else []
++    if not isinstance(rows, list) or not rows:
++        raise ValueError("SEEING forecast has no usable rows.")
++
++    tz_name = str(forecast.get("tz") or "UTC")
++    zone = _safe_zone(tz_name)
++    now_local = (now or datetime.now(zone)).astimezone(zone)
++
++    parsed_rows: list[tuple[dict[str, Any], datetime]] = []
++    for row in rows:
++        if not isinstance(row, dict):
++            continue
++        local_dt = _parse_dt(row.get("local_iso") or row.get("local_label"), tz_name)
++        if local_dt is None:
++            continue
++        parsed_rows.append((row, local_dt))
++
++    if not parsed_rows:
++        raise ValueError("SEEING forecast rows did not contain usable times.")
++
++    future_rows = [(row, dt) for row, dt in parsed_rows if dt >= now_local - timedelta(minutes=30)]
++    candidates = future_rows or parsed_rows
++    dark_candidates = [(row, dt) for row, dt in candidates if row.get("astro_dark") is True]
++    candidates = dark_candidates or candidates
++
++    row, start = max(
++        candidates,
++        key=lambda item: (
++            int(item[0].get("score") or 0),
++            bool(item[0].get("astro_dark") is True),
++            -abs((item[1] - now_local).total_seconds()) / 3600.0,
++        ),
++    )
++
++    later_times = sorted(dt for _row, dt in parsed_rows if dt > start)
++    end = later_times[0] if later_times else start + timedelta(hours=3)
++    if end <= start:
++        end = start + timedelta(hours=3)
++
++    cloud_pct = row.get("cloud_mid_pct")
++    try:
++        cloud_pct_value = int(cloud_pct) if cloud_pct is not None else None
++    except Exception:
++        cloud_pct_value = None
++
++    score = int(row.get("score") or 0)
++    return ImagingWindow(
++        start_iso=start.isoformat(),
++        end_iso=end.isoformat(),
++        start_label=start.strftime("%Y-%m-%d %H:%M"),
++        end_label=end.strftime("%Y-%m-%d %H:%M"),
++        score=score,
++        score_label=str(row.get("score_label") or score_label(score)),
++        cloud_pct=cloud_pct_value,
++        cloud_text=str(row.get("cloud_text") or ""),
++        seeing_text=str(row.get("seeing_text") or ""),
++        transparency_text=str(row.get("transparency_text") or ""),
++        moon_text=str(row.get("moon_text") or ""),
++        astro_dark=bool(row.get("astro_dark") is True),
++    )
++
++
++def _target_key(value: str) -> str:
++    return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
++
++
++def _catalog_target(query: str) -> dict[str, Any]:
++    wanted = _target_key(_normalise_target_name(query))
++    if not wanted:
++        return {}
++    for row in load_catalog_rows(source="auto"):
++        name = str(row[0] or "")
++        if _target_key(name) == wanted:
++            return {
++                "name": name,
++                "type": str(row[1] or ""),
++                "const": str(row[2] or ""),
++                "ra": str(row[3] or ""),
++                "dec": str(row[4] or ""),
++                "mag": "" if row[5] is None else str(row[5]),
++                "size": str(row[6] or ""),
++                "grade": 0,
++            }
++    return {
++        "name": _normalise_target_name(query),
++        "type": "Manual target",
++        "const": "",
++        "ra": "",
++        "dec": "",
++        "mag": "",
++        "size": "",
++        "grade": 0,
++    }
++
++
++def _choose_target(
++    command: PredefinedImagingCommand,
++    targets_result: dict[str, Any],
++    window: ImagingWindow,
++) -> dict[str, Any]:
++    if command.target:
++        return _catalog_target(command.target)
++
++    picks = targets_result.get("picks") if isinstance(targets_result, dict) else []
++    if not isinstance(picks, list) or not picks:
++        raise ValueError("TARGETS planner returned no usable target picks.")
++
++    window_start = _parse_dt(window.start_iso, str(targets_result.get("location", {}).get("tz") or "UTC"))
++
++    def rank(pick: dict[str, Any]) -> tuple[int, float]:
++        grade = int(pick.get("grade") or 0)
++        best = _parse_dt(pick.get("best_time_local"), str(targets_result.get("location", {}).get("tz") or "UTC"))
++        if window_start is not None and best is not None:
++            delta = abs((best - window_start).total_seconds()) / 60.0
++        else:
++            delta = 99999.0
++        return (grade, -delta)
++
++    best_pick = max((p for p in picks if isinstance(p, dict)), key=rank)
++    return {
++        "name": str(best_pick.get("name") or "Best target"),
++        "type": str(best_pick.get("type") or ""),
++        "const": str(best_pick.get("const") or ""),
++        "ra": str(best_pick.get("ra") or ""),
++        "dec": str(best_pick.get("dec") or ""),
++        "mag": "" if best_pick.get("mag") is None else str(best_pick.get("mag")),
++        "size": str(best_pick.get("size") or ""),
++        "grade": int(best_pick.get("grade") or 0),
++    }
++
++
++def _frames_for_window(command: PredefinedImagingCommand, window: ImagingWindow) -> tuple[int, int]:
++    start = _parse_dt(window.start_iso, "UTC")
++    end = _parse_dt(window.end_iso, "UTC")
++    duration_minutes = 180
++    if start is not None and end is not None:
++        duration_minutes = max(1, int((end - start).total_seconds() // 60))
++    if command.frames > 0:
++        return command.frames, duration_minutes
++    usable_seconds = max(0, duration_minutes * 60 - 10 * 60)
++    frames = max(1, int(usable_seconds // max(1, command.exposure_seconds)))
++    return min(frames, 500), duration_minutes
++
++
++def _safe_plan_id(target_name: str, created: datetime) -> str:
++    clean_target = re.sub(r"[^A-Za-z0-9_.-]+", "_", target_name).strip("_") or "target"
++    return f"{created.strftime('%Y%m%d_%H%M%S')}_{clean_target}"
++
++
++def _write_plan_files(result: ImagingPlanResult, payload: dict[str, Any]) -> ImagingPlanResult:
++    out_dir = Path(result.plan_json_path).parent
++    out_dir.mkdir(parents=True, exist_ok=True)
++
++    json_path = Path(result.plan_json_path)
++    text_path = Path(result.plan_text_path)
++    review_path = Path(result.nina_review_path)
++
++    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
++
++    text_path.write_text(format_imaging_plan_markdown(result), encoding="utf-8")
++
++    review_payload = {
++        "format": "FZAstro NINA review plan v1",
++        "safe_mode": True,
++        "review_required": True,
++        "auto_start": False,
++        "note": "This file is a review/export plan for FZAstro Imaging. It does not move equipment or start a N.I.N.A. sequence by itself.",
++        "target": {
++            "name": result.target_name,
++            "ra": result.ra,
++            "dec": result.dec,
++            "type": result.target_type,
++        },
++        "sequence": {
++            "start_time": result.window.start_iso,
++            "end_time": result.window.end_iso,
++            "exposure_seconds": result.exposure_seconds,
++            "gain": result.gain,
++            "frames": result.frames,
++        },
++        "conditions": asdict(result.window),
++    }
++    review_path.write_text(json.dumps(review_payload, indent=2, sort_keys=True), encoding="utf-8")
++    return result
++
++
++def build_imaging_plan_from_results(
++    *,
++    command: PredefinedImagingCommand,
++    location: dict[str, Any],
++    imaging: dict[str, Any],
++    forecast: dict[str, Any],
++    targets_result: dict[str, Any],
++    output_dir: str | Path | None = None,
++    created_at: datetime | None = None,
++) -> ImagingPlanResult:
++    created = created_at or datetime.now(timezone.utc)
++    window = choose_best_seeing_window(forecast, now=created)
++    target = _choose_target(command, targets_result, window)
++    frames, duration_minutes = _frames_for_window(command, window)
++    total_minutes = max(1, int((frames * command.exposure_seconds) // 60))
++    plan_id = _safe_plan_id(str(target.get("name") or "target"), created)
++    out_dir = Path(output_dir or IMAGING_PLAN_DIR)
++
++    result = ImagingPlanResult(
++        plan_id=plan_id,
++        target_name=str(target.get("name") or "Target"),
++        target_type=str(target.get("type") or ""),
++        ra=str(target.get("ra") or ""),
++        dec=str(target.get("dec") or ""),
++        magnitude=str(target.get("mag") or ""),
++        size=str(target.get("size") or ""),
++        target_grade=int(target.get("grade") or 0),
++        exposure_seconds=int(command.exposure_seconds),
++        gain=int(command.gain),
++        frames=int(frames),
++        estimated_total_minutes=int(total_minutes),
++        window=window,
++        location=dict(location or {}),
++        imaging=dict(imaging or {}),
++        plan_json_path=str(out_dir / f"{plan_id}.json"),
++        plan_text_path=str(out_dir / f"{plan_id}.md"),
++        nina_review_path=str(out_dir / f"{plan_id}.nina-review.json"),
++        auto_start_requested=bool(command.auto_start_requested),
++        review_required=True,
++    )
++
++    payload = {
++        "schema": "fzastro_imaging_plan_v1",
++        "created_utc": created.astimezone(timezone.utc).isoformat(),
++        "command": asdict(command),
++        "plan": asdict(result),
++        "safety": {
++            "review_required": True,
++            "auto_start": False,
++            "hardware_actions_executed": False,
++            "message": "FZAstro created a review-only imaging plan. Confirm in FZAstro Imaging/N.I.N.A. before moving equipment or starting capture.",
++        },
++    }
++    return _write_plan_files(result, payload)
++
++
++def build_predefined_imaging_plan(
++    *,
++    command: PredefinedImagingCommand,
++    location: dict[str, Any],
++    imaging: dict[str, Any],
++    output_dir: str | Path | None = None,
++) -> ImagingPlanResult:
++    from ..astro_tools.target_planner import plan_targets
++
++    forecast = fetch_7timer_astro_forecast(
++        lat=location.get("lat"),
++        lon=location.get("lon"),
++        elev=location.get("elev", 0.0),
++        tz=str(location.get("tz") or "UTC"),
++        altitude_correction="auto",
++    )
++    window = choose_best_seeing_window(forecast)
++    start_dt = _parse_dt(window.start_iso, str(location.get("tz") or "UTC"))
++    date_iso = start_dt.date().isoformat() if start_dt else None
++    targets_result = plan_targets(
++        location,
++        date_iso=date_iso,
++        limit=DEFAULT_TARGET_LIMIT,
++        min_alt=DEFAULT_MIN_ALT_DEG,
++    )
++    return build_imaging_plan_from_results(
++        command=command,
++        location=location,
++        imaging=imaging,
++        forecast=forecast,
++        targets_result=targets_result,
++        output_dir=output_dir,
++    )
++
++
++def format_imaging_plan_markdown(plan: ImagingPlanResult) -> str:
++    warning = ""
++    if plan.auto_start_requested:
++        warning = (
++            "\n\n**Safety note:** automatic start/schedule was requested, but this "
++            "first-stage command only creates a review plan. Start the sequence manually after checking hardware."
++        )
++    coord_line = ""
++    if plan.ra or plan.dec:
++        coord_line = f"\n- Coordinates: RA `{plan.ra or '—'}` · Dec `{plan.dec or '—'}`"
++    return (
++        "**FZAstro Imaging plan created**\n\n"
++        f"- Target: **{plan.target_name}**"
++        f"{coord_line}\n"
++        f"- Type: {plan.target_type or '—'} · Grade: {plan.target_grade or '—'}\n"
++        f"- Window: {plan.window.start_label} → {plan.window.end_label}\n"
++        f"- SEEING score: {plan.window.score}/100 · {plan.window.score_label}\n"
++        f"- Cloud: {plan.window.cloud_pct if plan.window.cloud_pct is not None else '—'}% · {plan.window.cloud_text or '—'}\n"
++        f"- Seeing: {plan.window.seeing_text or '—'}\n"
++        f"- Transparency: {plan.window.transparency_text or '—'}\n"
++        f"- Moon: {plan.window.moon_text or '—'}\n"
++        f"- Exposure: {plan.exposure_seconds}s · Gain: {plan.gain} · Frames: {plan.frames}\n"
++        f"- Estimated light time: {plan.estimated_total_minutes} min\n\n"
++        "review-only files created:\n"
++        f"- `{plan.plan_json_path}`\n"
++        f"- `{plan.plan_text_path}`\n"
++        f"- `{plan.nina_review_path}`\n\n"
++        "No telescope movement, capture start, or N.I.N.A. sequence execution was performed."
++        f"{warning}"
++    )
++
++
++def predefined_imaging_command_help() -> str:
++    return (
++        "Use one of these safe predefined imaging commands:\n\n"
++        "- `/nina-plan next`\n"
++        "- `/nina-plan next 60s gain 200`\n"
++        "- `/nina-plan target M13 60s gain 200`\n"
++        "- `/imaging-plan target NGC 7000 exposure 120s gain 100 frames 80`\n\n"
++        "These commands create review-only plans for FZAstro Imaging/N.I.N.A.; they do not start hardware automatically."
++    )
+diff -ruN /mnt/data/astrocmd_base/fzastro_ai/tool_manifest.py /mnt/data/astrocmd_work/fzastro_ai/tool_manifest.py
+--- /mnt/data/astrocmd_base/fzastro_ai/tool_manifest.py	2026-06-17 16:37:41.000000000 +0000
++++ /mnt/data/astrocmd_work/fzastro_ai/tool_manifest.py	2026-06-17 16:49:32.474513244 +0000
+@@ -1,4 +1,4 @@
+-﻿"""Central registry of app tools exposed to routing and UI helpers."""
++"""Central registry of app tools exposed to routing and UI helpers."""
+ 
+ from __future__ import annotations
+ 
+@@ -111,6 +111,22 @@
+         safety="confirm",
+     ),
+     ToolCapability(
++        "imaging.plan_next_target",
++        "Imaging",
++        "Plan next best imaging target",
++        "Use SEEING and TARGETS to choose the next safe target window and create a review-only FZAstro Imaging/N.I.N.A. plan.",
++        ("exposure_seconds", "gain"),
++        safety="confirm",
++    ),
++    ToolCapability(
++        "imaging.export_nina_review_plan",
++        "Imaging",
++        "Export N.I.N.A. review plan",
++        "Export a review-only plan file for FZAstro Imaging/N.I.N.A. without moving hardware or starting capture.",
++        ("plan_id",),
++        safety="confirm",
++    ),
++    ToolCapability(
+         "imaging.export_sequence",
+         "Imaging",
+         "Export imaging sequence",
+diff -ruN /mnt/data/astrocmd_base/tests/test_nina_imaging_plan.py /mnt/data/astrocmd_work/tests/test_nina_imaging_plan.py
+--- /mnt/data/astrocmd_base/tests/test_nina_imaging_plan.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/astrocmd_work/tests/test_nina_imaging_plan.py	2026-06-17 16:48:04.838717783 +0000
+@@ -0,0 +1,133 @@
++from __future__ import annotations
++
++from datetime import datetime
++from pathlib import Path
++from zoneinfo import ZoneInfo
++
++from fzastro_ai.nina.imaging_plan import (
++    PredefinedImagingCommand,
++    build_imaging_plan_from_results,
++    choose_best_seeing_window,
++    parse_predefined_imaging_command,
++)
++
++
++def _forecast_fixture():
++    return {
++        "tz": "Europe/Berlin",
++        "rows": [
++            {
++                "local_iso": "2026-06-17T22:00:00+02:00",
++                "score": 40,
++                "score_label": "Poor",
++                "cloud_mid_pct": 50,
++                "cloud_text": "44–56%",
++                "seeing_text": '1.0–1.25" · Good',
++                "transparency_text": "0.5–0.6 · Good",
++                "moon_text": "Down · 10%",
++                "astro_dark": True,
++            },
++            {
++                "local_iso": "2026-06-18T01:00:00+02:00",
++                "score": 88,
++                "score_label": "Excellent",
++                "cloud_mid_pct": 3,
++                "cloud_text": "0–6%",
++                "seeing_text": '0.75–1.0" · Very good',
++                "transparency_text": "0.4–0.5 · Very good",
++                "moon_text": "Down · 10%",
++                "astro_dark": True,
++            },
++        ],
++    }
++
++
++def _targets_fixture():
++    return {
++        "location": {"tz": "Europe/Berlin"},
++        "picks": [
++            {
++                "name": "M31",
++                "type": "Galaxy",
++                "const": "And",
++                "ra": "00 42 44",
++                "dec": "+41 16 09",
++                "mag": "3.4",
++                "size": "3.0°",
++                "grade": 70,
++                "best_time_local": "2026-06-17T22:00:00+02:00",
++            },
++            {
++                "name": "M13",
++                "type": "Globular",
++                "const": "Her",
++                "ra": "16 41 41",
++                "dec": "+36 27 36",
++                "mag": "5.8",
++                "size": "20′",
++                "grade": 95,
++                "best_time_local": "2026-06-18T01:00:00+02:00",
++            },
++        ],
++    }
++
++
++def test_parse_predefined_imaging_command_defaults():
++    command = parse_predefined_imaging_command("/nina-plan next 60s gain 200")
++
++    assert command is not None
++    assert command.mode == "next_best"
++    assert command.exposure_seconds == 60
++    assert command.gain == 200
++    assert command.frames == 0
++
++
++def test_parse_predefined_imaging_command_target_and_safety():
++    command = parse_predefined_imaging_command(
++        "/imaging-plan target M13 exposure 120s gain 101 frames 40 start automatically"
++    )
++
++    assert command is not None
++    assert command.mode == "target"
++    assert command.target == "M13"
++    assert command.exposure_seconds == 120
++    assert command.gain == 101
++    assert command.frames == 40
++    assert command.auto_start_requested
++
++
++def test_choose_best_seeing_window_prefers_dark_high_score():
++    window = choose_best_seeing_window(
++        _forecast_fixture(),
++        now=datetime(2026, 6, 17, 20, 0, tzinfo=ZoneInfo("Europe/Berlin")),
++    )
++
++    assert window.score == 88
++    assert window.start_label == "2026-06-18 01:00"
++    assert window.cloud_pct == 3
++
++
++def test_build_imaging_plan_from_results_writes_review_files(tmp_path: Path):
++    command = PredefinedImagingCommand(
++        raw_text="/nina-plan next 60s gain 200",
++        exposure_seconds=60,
++        gain=200,
++    )
++
++    plan = build_imaging_plan_from_results(
++        command=command,
++        location={"lat": 50.2, "lon": 8.4, "elev": 660, "tz": "Europe/Berlin"},
++        imaging={"preset_name": "ASI585MC", "focal_mm": 700},
++        forecast=_forecast_fixture(),
++        targets_result=_targets_fixture(),
++        output_dir=tmp_path,
++        created_at=datetime(2026, 6, 17, 20, 0, tzinfo=ZoneInfo("Europe/Berlin")),
++    )
++
++    assert plan.target_name == "M13"
++    assert plan.window.score == 88
++    assert plan.review_required
++    assert Path(plan.plan_json_path).exists()
++    assert Path(plan.plan_text_path).exists()
++    assert Path(plan.nina_review_path).exists()
++    assert "review-only" in Path(plan.plan_text_path).read_text(encoding="utf-8")

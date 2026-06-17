@@ -53,7 +53,7 @@ from fzastro_ai.composer_actions import (
 def test_composer_actions_registry_contains_web_document_and_python_actions():
     grouped = composer_actions_by_group()
 
-    assert list(grouped) == ["Text", "Web", "Documents", "Python"]
+    assert list(grouped) == ["Text", "Web", "Documents", "Imaging", "Python"]
     assert [action.label for action in grouped["Text"]] == [
         "Summarize",
         "Rewrite clearer",
@@ -80,6 +80,11 @@ def test_composer_actions_registry_contains_web_document_and_python_actions():
         "Open as book",
         "Ask about document",
         "Show page image",
+    ]
+    assert [action.label for action in grouped["Imaging"]] == [
+        "PLAN NEXT TARGET",
+        "PLAN SPECIFIC TARGET",
+        "OPEN PLANS FOLDER",
     ]
     assert [action.label for action in grouped["Python"]] == [
         "Run input as Python",
@@ -133,6 +138,20 @@ def test_composer_action_prompt_templates():
             assert "does not insert a prompt" in str(exc)
         else:
             raise AssertionError(f"{direct_document_action} should run locally")
+    for direct_imaging_action in (
+        "imaging.plan_next_target",
+        "imaging.plan_specific_target",
+        "imaging.open_plans_folder",
+    ):
+        try:
+            build_composer_action_prompt(
+                direct_imaging_action,
+                {"target": "M13", "exposure_seconds": 60, "gain": 200},
+            )
+        except ValueError as exc:
+            assert "does not insert a prompt" in str(exc)
+        else:
+            raise AssertionError(f"{direct_imaging_action} should run locally")
     assert (
         build_composer_action_prompt(
             "documents.find_in_documents", {"query": "Tycho crater"}

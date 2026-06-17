@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = $env:FZASTRO_PYTHON,
     [string]$BuildRoot = "",
@@ -857,7 +857,7 @@ if (Test-Path $VersionFile) {
 }
 $ManifestPath = Join-Path $ReleaseDir "release_manifest.txt"
 $Manifest = @"
-FZAstro AI Version 2 Production
+FZAstro AI Imaging Production
 Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 ProjectRoot: $ProjectRoot
 Python: $ResolvedPython
@@ -914,3 +914,4 @@ if ($ShouldRunValidation) {
 else {
     Write-Host "Validation not started. Run it later with the command above."
 }
+

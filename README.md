@@ -1,17 +1,17 @@
-# FZAstro AI v2.0.0
+# FZAstro AI v2.1.0
 
-FZAstro AI v2.0.0 is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document research, web/news/market tools, local Python execution, hardware telemetry, LLM benchmarking, and integrated astronomy planning.
+FZAstro AI v2.1.0 is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document research, web/news/market tools, local Python execution, hardware telemetry, LLM benchmarking, and integrated astronomy planning.
 
-Version 2 keeps the mature RC3 astronomy and Web Companion foundation, then cleans the project into a simpler production tree and adds the first integrated **AI Developer Workbench** for code-focused workflows.
+Version 2.1 is the Imaging Production release: it keeps the cleaned Version 2 production tree and adds the first safe Astro → FZAstro Imaging/N.I.N.A. planning bridge, real Advanced Sequencer JSON export, auto-launch/open handoff, and a polished imaging control panel.
 
 The **FZ** square in the app header opens the project GitHub repository: `https://github.com/Ghostaka1978/FZAstroAI`.
 
-## Version 2 focus
+## Version 2.1 focus
 
 - Clean source layout: application code lives under `fzastro_ai/`; root keeps launch, build, validation, version, and top-level docs only.
 - `overlay/` has been removed as a separate folder. The useful Developer Workbench pieces are now integrated under `fzastro_ai/dev_agent`, `fzastro_ai/ui/dev_workbench_dialog.py`, and `fzastro_ai/actions/dev_actions.py`.
 - Stale bundle/patch readmes were removed or consolidated into `docs/`.
-- The app identity is now `FZAstro AI v2.0.0 (Version 2 Production)`.
+- The app identity is now `FZAstro AI v2.1.0 (Imaging Production)`.
 - Build hygiene removes `__pycache__`, `.pyc`, `.bak`, and old overlay artifacts from the source package.
 - The standalone PyInstaller spec was cleaned so Web Companion static files are included safely.
 
@@ -32,6 +32,10 @@ FZAstro AI provides one local workstation for:
 - Web Companion browser interface for LAN/iPad/mobile access to the Windows host
 - Integrated Astro Tools Suite
 - AI Developer Workbench for coding context, planning, compile checks, pytest checks, and safe patch workflows
+- FZAstro Imaging / N.I.N.A. bundle launcher with safe update-check/download workflow
+- Safe predefined imaging commands that create review-only N.I.N.A. Advanced Sequencer plans from SITE, IMAGING, SEEING, and TARGETS context
+- Real `.nina-sequence.json` export, plus Markdown, XML, CSV, and review metadata files under `Documents\FZAstroAI\Imaging Plans`
+- Optional launch/open handoff that opens FZAstro Imaging and attempts to load the generated sequence without starting hardware actions
 
 ## Astro Tools Suite
 
@@ -57,6 +61,64 @@ Bortle tint rules remain: `8–9 white/urban`, `6–7 yellow`, `4–5 green`, `2
 Astropy/IERS and web provider timeouts are hardened so malformed upstream tables or provider-timeout failures are logged instead of crashing normal workflows.
 
 See `docs/ASTRO_TOOLS_SUITE.md` for the focused astronomy guide.
+
+
+## FZAstro Imaging / N.I.N.A. Bundle
+
+Open the imaging-control bundle with the **N.I.N.A.** button in the top bar or with **ASTRO → FZASTRO IMAGING CONTROL**. This integration keeps the N.I.N.A.-based app as a side-by-side executable instead of merging C# source into the Python package.
+
+Current scope:
+
+- Build, select, or auto-detect the bundled `FZAstroImaging.exe`
+- Preserve the internal N.I.N.A. WPF assembly names: `NINA.exe` and `NINA.dll` remain in the bundle
+- Launch the imaging app from FZAstro AI
+- Store local integration settings in `%APPDATA%\FZAstroAI\nina_integration.json`
+- Configure localhost API host/port for the later control bridge
+- Check a configured update manifest or GitHub latest-release API URL
+- Download update packages for review without replacing a running equipment-control app
+- Quietly build the imaging bundle from N.I.N.A. source with progress/logs through `deploy.ps1 -BuildImagingBundle`
+
+## Safe Astro → Imaging planning
+
+FZAstro AI v2.1 adds a review-first planning bridge between the Astro Tools Suite and FZAstro Imaging/N.I.N.A.
+
+Supported text commands include:
+
+```text
+/nina-plan next
+/nina-plan next 60s gain 200
+/nina-plan target M13 60s gain 200
+/imaging-plan target NGC 7000 exposure 120s gain 100 frames 80
+```
+
+The ASTRO menu and FZAstro Imaging Control panel also expose uppercase production actions:
+
+```text
+PLAN NEXT TARGET
+PLAN SPECIFIC TARGET
+OPEN LATEST PLAN IN IMAGING
+OPEN PLANS FOLDER
+FZASTRO IMAGING CONTROL
+```
+
+Generated plans are stored in a readable per-plan folder:
+
+```text
+Documents\FZAstroAI\Imaging Plans\<plan_id>\
+```
+
+Each plan creates:
+
+- `<plan>.nina-sequence.json` — real N.I.N.A. Advanced Sequencer JSON filled from the saved OSC template
+- `<plan>.nina-plan.xml` — review/helper XML
+- `<plan>.nina-target.csv` — target/sequence review helper
+- `<plan>.nina-review.json` — FZAstro review metadata
+- `<plan>.json` — FZAstro internal metadata
+- `<plan>.md` — readable summary
+
+FZAstro can launch the bundled imaging app and attempt to open the generated `.nina-sequence.json` for review. The safety boundary remains strict: FZAstro does **not** slew, center, start guiding, run autofocus, start capture, start a sequence, or schedule hardware execution automatically.
+
+See `docs/NINA_BUNDLE_INTEGRATION.md` for the bundle/update/planning workflow.
 
 ## AI Developer Workbench
 
