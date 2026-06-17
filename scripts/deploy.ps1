@@ -341,3 +341,35 @@ Complete-StageProgress
 
 Write-Host ""
 Write-Host "Deploy workflow complete."
+
+# FZAstro Imaging bundle copy for frozen EXE release
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$BuildRoot = Join-Path (Split-Path -Parent $ProjectRoot) "FZAstroAI_BUILD"
+$DistDir = Join-Path $BuildRoot "dist"
+$ImagingSource = Join-Path $ProjectRoot "bundled_apps\FZAstroImaging"
+$ImagingDest = Join-Path $DistDir "bundled_apps\FZAstroImaging"
+
+if (Test-Path $ImagingSource) {
+    Write-Host "[deploy] Copying bundled FZAstro Imaging runtime..."
+    Remove-Item -Recurse -Force $ImagingDest -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $ImagingDest -Force | Out-Null
+    Copy-Item -Path "$ImagingSource\*" -Destination $ImagingDest -Recurse -Force
+
+    $RequiredImagingFiles = @(
+        "FZAstroImaging.exe",
+        "NINA.exe",
+        "NINA.dll"
+    )
+
+    foreach ($file in $RequiredImagingFiles) {
+        $check = Join-Path $ImagingDest $file
+        if (-not (Test-Path $check)) {
+            throw "Bundled FZAstro Imaging runtime is incomplete. Missing: $check"
+        }
+    }
+
+    Write-Host "[deploy] FZAstro Imaging runtime copied to: $ImagingDest"
+} else {
+    Write-Host "[deploy] FZAstro Imaging runtime not copied because source folder was not found: $ImagingSource"
+}
+

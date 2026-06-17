@@ -116,6 +116,16 @@ def save_settings(settings: dict[str, Any], path: Path | None = None) -> dict[st
 
 
 def project_root() -> Path:
+    """Return the app root for source mode or frozen EXE mode.
+
+    In PyInstaller one-file builds, __file__ points inside the temporary
+    _MEI extraction folder. External bundled apps must be resolved beside
+    FZAstroAI.exe instead, not inside _MEI.
+    """
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+
     return Path(__file__).resolve().parents[2]
 
 
