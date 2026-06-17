@@ -5,11 +5,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptsRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = Split-Path -Parent $ScriptsRoot
 $PythonExe = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 
 if (-not (Test-Path $PythonExe)) {
-    throw "Virtual environment not found at $PythonExe. Run reset_venv.ps1 or create .venv first."
+    throw "Virtual environment not found at $PythonExe. Run .\scripts\reset_venv.ps1 or create .venv first."
 }
 
 if ($Token.Trim()) {

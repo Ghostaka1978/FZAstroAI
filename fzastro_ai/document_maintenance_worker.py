@@ -1,6 +1,6 @@
 from PySide6.QtCore import QThread, Signal
 
-from ..logging_utils import log_exception
+from .logging_utils import log_exception
 
 
 class DocumentKnowledgeMaintenanceWorker(QThread):

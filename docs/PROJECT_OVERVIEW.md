@@ -16,7 +16,7 @@ FZAstro AI is a Windows desktop AI workstation focused on astrophotography, loca
 | Astro tools | `fzastro_ai/astro_tools/`, `fzastro_ai/ui/*astro*`, `fzastro_ai/ui/seeing_dialog.py`, `fzastro_ai/ui/targets_dialog.py` | SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, SOLAR MAP. |
 | Web Companion | `fzastro_ai/web_companion/` | Local browser companion server and static interface for LAN/iPad/mobile workflows. |
 | Developer Workbench | `fzastro_ai/dev_agent/`, `fzastro_ai/ui/dev_workbench_dialog.py` | Project scanning, context building, planning, compile/pytest checks, failure analysis, patch snapshot helpers. |
-| Build/release | `build_exe.ps1`, `clean_build.ps1`, `deploy.ps1`, `validate_release.ps1` | Repeatable Windows EXE build and validation workflow. |
+| Build/release | `scripts/build_exe.ps1`, `scripts/clean_build.ps1`, `scripts/deploy.ps1`, `scripts/validate_release.ps1` | Repeatable Windows EXE build and validation workflow. |
 
 ## Runtime storage
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+__test__ = False
+
 import subprocess
 import sys
 from dataclasses import dataclass

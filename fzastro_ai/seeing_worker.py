@@ -5,8 +5,8 @@ from typing import Any
 
 from PySide6.QtCore import QThread, Signal
 
-from ..astro_tools.seeing_data import fetch_7timer_astro_forecast
-from ..logging_utils import log_exception
+from .astro_tools.seeing_data import fetch_7timer_astro_forecast
+from .logging_utils import log_exception
 
 
 class SeeingWorker(QThread):

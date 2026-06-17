@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectRoot = $PSScriptRoot,
+    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$Python311Exe = "",
     [string]$VenvPath = "",
     [string]$BuildRoot = "",
@@ -85,7 +85,7 @@ function Find-Python311 {
         }
     }
 
-    throw "Python 3.11 was not found. Install Python 3.11, then rerun: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1"
+    throw "Python 3.11 was not found. Install Python 3.11, then rerun: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1"
 }
 
 function Test-IsPathInside {
@@ -129,7 +129,7 @@ Safe recovery:
   1. Run: deactivate
   2. Close this terminal completely.
   3. Open a new PowerShell in the project folder.
-  4. Run: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1 -Force
+  4. Run: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1 -Force
 
 The previous reset may have partially deleted .venv. That is OK; rerun reset_venv.ps1 from a fresh non-venv shell.
 "@
@@ -153,7 +153,7 @@ Could not remove the existing virtual environment: $TargetVenvPath
 Most common cause: a terminal, IDE, Python process, or antivirus scanner still has a file open in .venv.
 
 Close PyCharm/VS Code terminals and any running FZAstro/Python processes, then run again:
-  powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1 -Force
+  powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1 -Force
 
 Original error:
 $($_.Exception.Message)
@@ -235,7 +235,7 @@ Write-Host "FZASTRO_PYTHON: $VenvPython"
 Write-Host "Build root:     $BuildRoot"
 Write-Host ""
 Write-Host "Activate it in the current shell with:"
-Write-Host ". .\activate_venv.ps1"
+Write-Host ". .\scripts\activate_venv.ps1"
 Write-Host ""
 Write-Host "Then deploy with:"
-Write-Host ".\deploy.ps1"
+Write-Host ".\scripts\deploy.ps1"

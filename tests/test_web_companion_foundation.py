@@ -13,7 +13,7 @@ def test_web_companion_files_exist():
         "fzastro_ai/web_companion/launcher.py",
         "fzastro_ai/web_companion/static/index.html",
         "docs/WEB_COMPANION.md",
-        "run_web_companion.ps1",
+        "scripts/run_web_companion.ps1",
     ]
 
     for relative_path in expected:
@@ -50,7 +50,9 @@ def test_requirements_include_web_companion_dependencies():
 
 def test_web_companion_documents_safe_lan_token():
     docs = (PROJECT_ROOT / "docs" / "WEB_COMPANION.md").read_text(encoding="utf-8")
-    runner = (PROJECT_ROOT / "run_web_companion.ps1").read_text(encoding="utf-8")
+    runner = (PROJECT_ROOT / "scripts" / "run_web_companion.ps1").read_text(
+        encoding="utf-8"
+    )
 
     assert "FZASTRO_WEB_TOKEN" in docs
     assert "Do not expose this directly to the public internet" in docs
@@ -71,7 +73,9 @@ def test_web_companion_request_annotation_imports_are_eager():
 
 
 def test_desktop_keeps_manual_web_only_launch_path():
-    runner = (PROJECT_ROOT / "run_web_companion.ps1").read_text(encoding="utf-8")
+    runner = (PROJECT_ROOT / "scripts" / "run_web_companion.ps1").read_text(
+        encoding="utf-8"
+    )
     launcher = (
         PROJECT_ROOT / "fzastro_ai" / "web_companion" / "launcher.py"
     ).read_text(encoding="utf-8")

@@ -132,7 +132,7 @@ Distance ladder calculations can use parallax, Gaia proxy, NED-D, and Hubble-sty
 Use the desktop Web Companion controls or run:
 
 ```powershell
-.\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
+.\scripts\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
 ```
 
 Open the LAN URL from an iPad/phone/other device on the same network. LAN mode uses `FZASTRO_WEB_TOKEN`; do not expose it directly to the public internet.
@@ -159,8 +159,8 @@ Stage 1 is review-first: it helps prepare and validate coding work, not silently
 ```powershell
 python -m pytest
 python -m compileall -q fzastro_ai tests
-powershell -ExecutionPolicy Bypass -File .\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -SkipLaunch
-powershell -ExecutionPolicy Bypass -File .\deploy.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -SkipLaunch
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1
 ```
 """
 

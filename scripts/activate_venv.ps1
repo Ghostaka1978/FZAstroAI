@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectRoot = $PSScriptRoot,
+    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$VenvPath = "",
     [string]$BuildRoot = ""
 )
@@ -53,10 +53,10 @@ function Assert-Python311 {
 
     $info = Get-PythonVersionInfo -PythonPath $PythonPath
     if (-not $info) {
-        throw "Python interpreter is not usable: $PythonPath. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1"
+        throw "Python interpreter is not usable: $PythonPath. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1"
     }
     if ($info.Major -ne 3 -or $info.Minor -ne 11) {
-        throw ("FZAstro AI build/deploy requires Python 3.11. Found Python {0} at {1}. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1" -f $info.Version, $info.Executable)
+        throw ("FZAstro AI build/deploy requires Python 3.11. Found Python {0} at {1}. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1" -f $info.Version, $info.Executable)
     }
     return $info
 }
@@ -92,7 +92,7 @@ function Resolve-PythonExecutable {
         }
     }
 
-    throw "Python 3.11 environment not found. Run: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1"
+    throw "Python 3.11 environment not found. Run: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1"
 }
 
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
@@ -102,17 +102,17 @@ if (-not $VenvPath) {
 $BuildRoot = Resolve-BuildRootPath -RequestedBuildRoot $BuildRoot -Root $ProjectRoot
 
 if (-not (Test-Path $VenvPath)) {
-    throw "Virtual environment not found: $VenvPath. Create it with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1 -Force"
+    throw "Virtual environment not found: $VenvPath. Create it with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1 -Force"
 }
 
 $PythonExe = Join-Path $VenvPath "Scripts\python.exe"
 $ActivateScript = Join-Path $VenvPath "Scripts\Activate.ps1"
 
 if (-not (Test-Path $PythonExe)) {
-    throw "Virtual environment Python not found: $PythonExe. Recreate it with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1 -Force"
+    throw "Virtual environment Python not found: $PythonExe. Recreate it with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1 -Force"
 }
 if (-not (Test-Path $ActivateScript)) {
-    throw "Virtual environment activation script not found: $ActivateScript. The venv may be partially deleted; open a fresh PowerShell and run: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1 -Force"
+    throw "Virtual environment activation script not found: $ActivateScript. The venv may be partially deleted; open a fresh PowerShell and run: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1 -Force"
 }
 
 $VenvPath = (Resolve-Path $VenvPath).Path
@@ -148,4 +148,4 @@ $env:FZASTRO_PYTHON = $PythonExe
 
 Write-Host ""
 Write-Host "Virtual environment active."
-Write-Host "Deploy command: .\deploy.ps1"
+Write-Host "Deploy command: .\scripts\deploy.ps1"

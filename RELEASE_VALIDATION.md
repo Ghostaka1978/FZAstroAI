@@ -8,13 +8,13 @@ GitHub repository: `https://github.com/Ghostaka1978/FZAstroAI`.
 
 ## 1. Recreate or activate the Python 3.11 environment
 
-`reset_venv.ps1` recreates the Python 3.11 virtual environment and sets up the expected release baseline.
+`scripts/reset_venv.ps1` recreates the Python 3.11 virtual environment and sets up the expected release baseline.
 
 Release builds require Python 3.11. Do not use Python 3.14 for production release builds.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1 -Force
-. .\activate_venv.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1 -Force
+. .\scripts\activate_venv.ps1
 ```
 
 Manual equivalent:
@@ -26,7 +26,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-`activate_venv.ps1` sets `FZASTRO_PYTHON`, `FZASTRO_PROJECT_ROOT`, and `FZASTRO_BUILD_ROOT`. By default, build output is created one folder above the project root under `..\FZAstroAI_BUILD`.
+`scripts/activate_venv.ps1` sets `FZASTRO_PYTHON`, `FZASTRO_PROJECT_ROOT`, and `FZASTRO_BUILD_ROOT`. By default, build output is created one folder above the project root under `..\FZAstroAI_BUILD`.
 
 Optional browser install for Playwright-backed web features:
 
@@ -37,14 +37,14 @@ python -m playwright install chromium
 ## 2. Format and test before building
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\format_code.ps1 -PythonExe ".\.venv\Scripts\python.exe"
+powershell -ExecutionPolicy Bypass -File .\scripts\format_code.ps1 -PythonExe ".\.venv\Scripts\python.exe"
 python -m pytest
 ```
 
 For CI/release verification:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\format_code.ps1 -PythonExe ".\.venv\Scripts\python.exe" -Check
+powershell -ExecutionPolicy Bypass -File .\scripts\format_code.ps1 -PythonExe ".\.venv\Scripts\python.exe" -Check
 ```
 
 ## 3. Deploy with the one-command workflow
@@ -52,17 +52,17 @@ powershell -ExecutionPolicy Bypass -File .\format_code.ps1 -PythonExe ".\.venv\S
 Recommended command:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\deploy.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1
 ```
 
-`deploy.ps1` is the single release workflow command. It calls `clean_build.ps1`, and `clean_build.ps1` starts `build_exe.ps1` automatically after cleaning previous build/cache output. At the end of a successful build, the build script displays a validation prompt asking whether to run `validate_release.ps1` immediately.
+`scripts/deploy.ps1` is the single release workflow command. It calls `scripts/clean_build.ps1`, and `scripts/clean_build.ps1` starts `build_exe.ps1` automatically after cleaning previous build/cache output. At the end of a successful build, the build script displays a validation prompt asking whether to run `validate_release.ps1` immediately.
 
 The deploy/build/validation scripts use a quiet progress display by default. They show a progress bar and the current cleanup, build, and validation stage while sending noisy pip, pytest, Black, and PyInstaller output to `..\FZAstroAI_BUILD\logs`. Use `-VerboseOutput` when full live command output is needed.
 
 To run the build without the cleaning wrapper:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -PythonExe ".\.venv\Scripts\python.exe"
+powershell -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1 -PythonExe ".\.venv\Scripts\python.exe"
 ```
 
 Release output should be created here:
@@ -76,7 +76,7 @@ The release folder includes `FZAstroAI.exe`, `README.md`, `RELEASE_VALIDATION.md
 ## 4. Automated validation
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -SkipLaunch
+powershell -ExecutionPolicy Bypass -File .\scripts\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -SkipLaunch
 ```
 
 Validation should check:
@@ -138,13 +138,13 @@ Confirm **SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP** work 
 - Start local mode:
 
 ```powershell
-.\run_web_companion.ps1 -Port 7860
+.\scripts\run_web_companion.ps1 -Port 7860
 ```
 
 - Start LAN/iPad mode:
 
 ```powershell
-.\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
+.\scripts\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
 ```
 
 - Confirm `FZASTRO_WEB_TOKEN` is required in LAN mode.
@@ -173,3 +173,6 @@ git tag -a v2.0.0 -m "FZAstro AI v2.0.0"
 git push origin main
 git push origin v2.0.0
 ```
+
+
+See also: `docs/SCRIPTS.md` for the consolidated PowerShell script folder layout.

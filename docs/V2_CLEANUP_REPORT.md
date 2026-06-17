@@ -71,5 +71,12 @@ Full pytest was not run here because this sandbox does not have PySide6 installe
 ```powershell
 python -m compileall -q fzastro_ai tests
 python -m pytest
-powershell -ExecutionPolicy Bypass -File .\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -SkipLaunch
+powershell -ExecutionPolicy Bypass -File .\scripts\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -SkipLaunch
 ```
+
+
+## Second cleanup pass: script folder consolidation
+
+PowerShell workflow scripts were moved from the project root into `scripts/`. Documentation, Help/About references, tests, and cross-script calls were updated so the root stays cleaner while release commands remain explicit.
+
+Use commands such as `powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1` and `. .\scripts\activate_venv.ps1`.

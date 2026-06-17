@@ -1,7 +1,12 @@
-"""FZAstro AI package metadata."""
-
 from __future__ import annotations
 
-__version__ = "2.0.0"
+from .config import APP_MILESTONE, APP_VERSION, APP_VERSION_LABEL
 
-__all__ = ["__version__"]
+__version__ = APP_VERSION
+
+__all__ = [
+    "APP_MILESTONE",
+    "APP_VERSION",
+    "APP_VERSION_LABEL",
+    "__version__",
+]

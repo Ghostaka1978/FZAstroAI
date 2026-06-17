@@ -5,7 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_clean_build_starts_build_script_after_cleaning():
-    script = (PROJECT_ROOT / "clean_build.ps1").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "scripts" / "clean_build.ps1").read_text(encoding="utf-8")
 
     assert "Starting build_exe.ps1 automatically" in script
     assert "$BuildParams = @{" in script
@@ -15,7 +15,7 @@ def test_clean_build_starts_build_script_after_cleaning():
 
 
 def test_build_script_prompts_for_validation_after_success():
-    script = (PROJECT_ROOT / "build_exe.ps1").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "scripts" / "build_exe.ps1").read_text(encoding="utf-8")
 
     assert "Run release validation now?" in script
     assert "Read-Host" in script
@@ -30,7 +30,7 @@ def test_release_docs_describe_clean_build_validation_chain():
         for name in ["README.md", "RELEASE_VALIDATION.md"]
     )
 
-    assert "clean_build.ps1" in docs
+    assert "scripts/clean_build.ps1" in docs
     assert "starts `build_exe.ps1` automatically" in docs
     assert "validation prompt" in docs
 
@@ -50,7 +50,7 @@ def test_memory_extraction_worker_export_is_not_broken():
 
 
 def test_deploy_script_is_single_command_wrapper():
-    script = (PROJECT_ROOT / "deploy.ps1").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "scripts" / "deploy.ps1").read_text(encoding="utf-8")
 
     assert "FZAstro AI deploy workflow" in script
     assert "clean_build.ps1" in script
@@ -62,7 +62,9 @@ def test_deploy_script_is_single_command_wrapper():
 
 
 def test_activate_venv_script_sets_runtime_python_and_build_environment():
-    script = (PROJECT_ROOT / "activate_venv.ps1").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "scripts" / "activate_venv.ps1").read_text(
+        encoding="utf-8"
+    )
 
     assert "Activate.ps1" in script
     assert "FZASTRO_PYTHON" in script
@@ -79,20 +81,20 @@ def test_release_docs_describe_deploy_and_venv_activation():
         for name in ["README.md", "RELEASE_VALIDATION.md"]
     )
 
-    assert "deploy.ps1" in docs
+    assert "scripts/deploy.ps1" in docs
     assert "single release workflow command" in docs or "one-command workflow" in docs
-    assert "activate_venv.ps1" in docs
-    assert ". .\\activate_venv.ps1" in docs
+    assert "scripts/activate_venv.ps1" in docs
+    assert ". .\\scripts\\activate_venv.ps1" in docs
 
 
 def test_deploy_build_validation_use_quiet_progress_workflow():
     scripts = "\n".join(
         (PROJECT_ROOT / name).read_text(encoding="utf-8")
         for name in [
-            "deploy.ps1",
-            "clean_build.ps1",
-            "build_exe.ps1",
-            "validate_release.ps1",
+            "scripts/deploy.ps1",
+            "scripts/clean_build.ps1",
+            "scripts/build_exe.ps1",
+            "scripts/validate_release.ps1",
         ]
     )
 
@@ -123,7 +125,7 @@ def test_release_docs_describe_quiet_progress_logs():
 
 
 def test_build_script_keeps_log_directory_available_after_prepare_step():
-    script = (PROJECT_ROOT / "build_exe.ps1").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "scripts" / "build_exe.ps1").read_text(encoding="utf-8")
 
     assert "New-Item -ItemType Directory -Force -Path $logDirectory" in script
     assert "Remove-Item -Recurse -Force $BuildRoot" not in script
@@ -138,10 +140,10 @@ def test_quiet_logging_avoids_native_stream_redirection_noise():
     scripts = "\n".join(
         (PROJECT_ROOT / name).read_text(encoding="utf-8")
         for name in [
-            "deploy.ps1",
-            "clean_build.ps1",
-            "build_exe.ps1",
-            "validate_release.ps1",
+            "scripts/deploy.ps1",
+            "scripts/clean_build.ps1",
+            "scripts/build_exe.ps1",
+            "scripts/validate_release.ps1",
         ]
     )
 
@@ -156,11 +158,11 @@ def test_build_root_defaults_to_sibling_folder_not_temp():
     scripts = "\n".join(
         (PROJECT_ROOT / name).read_text(encoding="utf-8")
         for name in [
-            "deploy.ps1",
-            "clean_build.ps1",
-            "build_exe.ps1",
-            "validate_release.ps1",
-            "activate_venv.ps1",
+            "scripts/deploy.ps1",
+            "scripts/clean_build.ps1",
+            "scripts/build_exe.ps1",
+            "scripts/validate_release.ps1",
+            "scripts/activate_venv.ps1",
         ]
     )
 
@@ -189,7 +191,7 @@ def test_release_docs_describe_sibling_build_folder_and_env_vars():
 
 
 def test_reset_venv_script_recreates_python_311_environment():
-    script = (PROJECT_ROOT / "reset_venv.ps1").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "scripts" / "reset_venv.ps1").read_text(encoding="utf-8")
 
     assert "Find-Python311" in script
     assert "py" in script and "-3.11" in script
@@ -204,11 +206,11 @@ def test_release_scripts_enforce_python_311():
     scripts = "\n".join(
         (PROJECT_ROOT / name).read_text(encoding="utf-8")
         for name in [
-            "activate_venv.ps1",
-            "deploy.ps1",
-            "clean_build.ps1",
-            "build_exe.ps1",
-            "validate_release.ps1",
+            "scripts/activate_venv.ps1",
+            "scripts/deploy.ps1",
+            "scripts/clean_build.ps1",
+            "scripts/build_exe.ps1",
+            "scripts/validate_release.ps1",
         ]
     )
 
@@ -226,7 +228,7 @@ def test_release_docs_describe_reset_venv_and_python_311_enforcement():
         for name in ["README.md", "RELEASE_VALIDATION.md"]
     )
 
-    assert "reset_venv.ps1" in docs
+    assert "scripts/reset_venv.ps1" in docs
     assert "Python 3.11" in docs
     assert "Python 3.14" in docs
     assert "py -3.11 -m venv .venv" in docs
@@ -234,20 +236,24 @@ def test_release_docs_describe_reset_venv_and_python_311_enforcement():
 
 
 def test_reset_venv_refuses_to_delete_active_environment(project_root):
-    text = (project_root / "reset_venv.ps1").read_text(encoding="utf-8")
+    text = (project_root / "scripts" / "reset_venv.ps1").read_text(encoding="utf-8")
     assert "Cannot reset .venv while it is active" in text
     assert "Assert-VenvNotActive" in text
     assert "Remove-VenvSafely" in text
 
 
 def test_repair_startup_import_script_exists(project_root):
-    text = (project_root / "repair_startup_import.ps1").read_text(encoding="utf-8")
+    text = (project_root / "scripts" / "repair_startup_import.ps1").read_text(
+        encoding="utf-8"
+    )
     assert r"fzastro_ai\__init__.py" in text
     assert "from .config import APP_VERSION as __version__" in text
 
 
 def test_validate_release_checks_release_artifact_hygiene():
-    script = (PROJECT_ROOT / "validate_release.ps1").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "scripts" / "validate_release.ps1").read_text(
+        encoding="utf-8"
+    )
 
     assert "Assert-ReleaseArtifactHygiene" in script
     assert "Check release artifact hygiene" in script
@@ -273,7 +279,9 @@ def test_release_docs_describe_artifact_hygiene_check():
 def test_validate_release_requires_manifest_resource_check_and_isolated_smoke_appdata(
     project_root,
 ):
-    script = (project_root / "validate_release.ps1").read_text(encoding="utf-8")
+    script = (project_root / "scripts" / "validate_release.ps1").read_text(
+        encoding="utf-8"
+    )
 
     assert "Assert-ReleaseManifest" in script
     assert "Assert-PyInstallerResourceConfiguration" in script
@@ -298,11 +306,32 @@ def test_release_docs_describe_manifest_resource_and_gui_smoke_checks(project_ro
 
 
 def test_release_package_includes_validation_documentation():
-    build_script = (PROJECT_ROOT / "build_exe.ps1").read_text(encoding="utf-8")
-    validation_script = (PROJECT_ROOT / "validate_release.ps1").read_text(
+    build_script = (PROJECT_ROOT / "scripts" / "build_exe.ps1").read_text(
+        encoding="utf-8"
+    )
+    validation_script = (PROJECT_ROOT / "scripts" / "validate_release.ps1").read_text(
         encoding="utf-8"
     )
 
     assert "RELEASE_VALIDATION.md" in build_script
     assert "RELEASE_VALIDATION.md" in validation_script
     assert "fzastro_ai.ui.llm_benchmark_dialog" in validation_script
+
+
+def test_powershell_scripts_live_under_scripts_folder():
+    scripts_dir = PROJECT_ROOT / "scripts"
+    assert scripts_dir.exists()
+    assert not list(PROJECT_ROOT.glob("*.ps1"))
+    for name in [
+        "activate_venv.ps1",
+        "build_exe.ps1",
+        "clean_build.ps1",
+        "deploy.ps1",
+        "format_code.ps1",
+        "install_offline_voice.ps1",
+        "repair_startup_import.ps1",
+        "reset_venv.ps1",
+        "run_web_companion.ps1",
+        "validate_release.ps1",
+    ]:
+        assert (scripts_dir / name).exists(), name

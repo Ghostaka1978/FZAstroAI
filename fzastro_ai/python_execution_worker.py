@@ -8,8 +8,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from ..config import PYTHON_EXECUTION_MAX_OUTPUT_CHARS, PYTHON_EXECUTION_TIMEOUT_SECONDS
-from ..logging_utils import log_exception
+from .config import PYTHON_EXECUTION_MAX_OUTPUT_CHARS, PYTHON_EXECUTION_TIMEOUT_SECONDS
+from .logging_utils import log_exception
 
 
 def resolve_python_execution_interpreter():

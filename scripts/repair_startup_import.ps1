@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectRoot = $PSScriptRoot
+    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot)
 )
 
 $ErrorActionPreference = "Stop"

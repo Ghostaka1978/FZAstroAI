@@ -1,11 +1,7 @@
 param(
-    [string]$ProjectRoot = $PSScriptRoot,
+    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = $env:FZASTRO_PYTHON,
     [string]$BuildRoot = "",
-    [string]$VoiceModelsRoot = $env:FZASTRO_VOICE_MODELS_DIR,
-    [string]$VoiceModelZip = "",
-    [switch]$SkipOfflineVoiceSetup,
-    [switch]$PersistVoiceEnvironment,
     [switch]$SkipDependencyInstall,
     [switch]$SkipFormat,
     [switch]$SkipValidationPrompt,
@@ -15,6 +11,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ScriptsRoot = $PSScriptRoot
 
 function Initialize-StageProgress {
     param(
@@ -88,10 +85,10 @@ function Assert-Python311 {
 
     $info = Get-PythonVersionInfo -PythonPath $PythonPath
     if (-not $info) {
-        throw "Python interpreter is not usable: $PythonPath. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1"
+        throw "Python interpreter is not usable: $PythonPath. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1"
     }
     if ($info.Major -ne 3 -or $info.Minor -ne 11) {
-        throw ("FZAstro AI build/deploy requires Python 3.11. Found Python {0} at {1}. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1" -f $info.Version, $info.Executable)
+        throw ("FZAstro AI build/deploy requires Python 3.11. Found Python {0} at {1}. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1" -f $info.Version, $info.Executable)
     }
     return $info
 }
@@ -127,7 +124,7 @@ function Resolve-PythonExecutable {
         }
     }
 
-    throw "Python 3.11 environment not found. Run: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1"
+    throw "Python 3.11 environment not found. Run: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1"
 }
 
 function Set-FZAstroBuildEnvironment {
@@ -157,31 +154,6 @@ function Set-FZAstroBuildEnvironment {
         }
     }
 }
-
-function Invoke-OfflineVoiceSetup {
-    param(
-        [string]$Root,
-        [string]$ModelsRoot,
-        [string]$ModelZipPath,
-        [switch]$PersistEnvironment,
-        [switch]$VerboseOutput
-    )
-
-    $VoiceSetupScript = Join-Path $Root "install_offline_voice.ps1"
-    if (-not (Test-Path $VoiceSetupScript)) {
-        throw "Offline voice setup script not found: $VoiceSetupScript"
-    }
-
-    $VoiceParams = @{}
-    if ($ModelsRoot) { $VoiceParams["VoiceModelsRoot"] = $ModelsRoot }
-    if ($ModelZipPath) { $VoiceParams["ModelZip"] = $ModelZipPath }
-    if ($PersistEnvironment) { $VoiceParams["PersistEnvironment"] = $true }
-    if ($VerboseOutput) { $VoiceParams["VerboseOutput"] = $true }
-
-    & $VoiceSetupScript @VoiceParams
-    if (-not $?) { throw "Offline voice setup failed." }
-}
-
 
 function ConvertTo-NativeArgumentLine {
     param([string[]]$Arguments)
@@ -274,49 +246,54 @@ function Invoke-LoggedCommand {
 
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 $BuildRoot = Resolve-BuildRootPath -RequestedBuildRoot $BuildRoot -Root $ProjectRoot
-$CleanScript = Join-Path $ProjectRoot "clean_build.ps1"
-
-if (-not (Test-Path $CleanScript)) {
-    throw "Clean/build script not found: $CleanScript"
-}
-
 $ResolvedPython = Resolve-PythonExecutable -RequestedPython $PythonExe -Root $ProjectRoot
 Set-FZAstroBuildEnvironment -PythonPath $ResolvedPython -Root $ProjectRoot -BuildPath $BuildRoot
-
+$BuildScript = Join-Path $ScriptsRoot "build_exe.ps1"
 $LogDir = Join-Path $BuildRoot "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-Write-Host "FZAstro AI deploy workflow"
-Write-Host "Project: $ProjectRoot"
-Write-Host "Build:   $BuildRoot"
-Write-Host "Logs:    $LogDir"
-Write-Host ""
-Initialize-StageProgress -Activity "FZAstro AI deploy" -TotalSteps 2
-if ($SkipOfflineVoiceSetup) {
-    Show-StageStep "Offline voice setup skipped"
-}
-else {
-    Show-StageStep "Offline voice model setup"
-    Invoke-OfflineVoiceSetup -Root $ProjectRoot -ModelsRoot $VoiceModelsRoot -ModelZipPath $VoiceModelZip -PersistEnvironment:$PersistVoiceEnvironment -VerboseOutput:$VerboseOutput
+$CleanLog = Join-Path $LogDir "clean_build.log"
+Set-Content -Path $CleanLog -Value "FZAstro AI clean/build log" -Encoding UTF8
+
+Write-Host "FZAstro AI clean/build workflow"
+Write-Host "Logs: $LogDir"
+Initialize-StageProgress -Activity "Clean/build" -TotalSteps 4
+
+Show-StageStep "Clean build output"
+Remove-Item -Recurse -Force $BuildRoot -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+Set-Content -Path $CleanLog -Value "FZAstro AI clean/build log" -Encoding UTF8
+
+Show-StageStep "Clean Python caches"
+Get-ChildItem -Path $ProjectRoot -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $ProjectRoot -Recurse -Directory -Filter ".pytest_cache" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $ProjectRoot -Recurse -File -Filter "*.pyc" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+if ($CleanOnly) {
+    Show-StageStep "Clean only requested"
+    Complete-StageProgress
+    Write-Host "CleanOnly was set, so the build step was skipped."
+    return
 }
 
-Show-StageStep "Clean/build workflow"
+if (-not (Test-Path $BuildScript)) {
+    throw "Build script not found: $BuildScript"
+}
 
-$CleanParams = @{
+Show-StageStep "Starting build_exe.ps1 automatically"
+
+$BuildParams = @{
     ProjectRoot = $ProjectRoot
     BuildRoot = $BuildRoot
 }
 
-if ($ResolvedPython) { $CleanParams["PythonExe"] = $ResolvedPython }
-if ($SkipDependencyInstall) { $CleanParams["SkipDependencyInstall"] = $true }
-if ($SkipFormat) { $CleanParams["SkipFormat"] = $true }
-if ($SkipValidationPrompt) { $CleanParams["SkipValidationPrompt"] = $true }
-if ($RunValidation) { $CleanParams["RunValidation"] = $true }
-if ($CleanOnly) { $CleanParams["CleanOnly"] = $true }
-if ($VerboseOutput) { $CleanParams["VerboseOutput"] = $true }
+if ($ResolvedPython) { $BuildParams["PythonExe"] = $ResolvedPython }
+if ($SkipDependencyInstall) { $BuildParams["SkipDependencyInstall"] = $true }
+if ($SkipFormat) { $BuildParams["SkipFormat"] = $true }
+if ($SkipValidationPrompt) { $BuildParams["SkipValidationPrompt"] = $true }
+if ($RunValidation) { $BuildParams["RunValidation"] = $true }
+if ($VerboseOutput) { $BuildParams["VerboseOutput"] = $true }
 
-& $CleanScript @CleanParams
-if (-not $?) { throw "Deploy workflow failed." }
+& $BuildScript @BuildParams
+if (-not $?) { throw "Build script failed." }
+Show-StageStep "Clean/build workflow complete"
 Complete-StageProgress
-
-Write-Host ""
-Write-Host "Deploy workflow complete."

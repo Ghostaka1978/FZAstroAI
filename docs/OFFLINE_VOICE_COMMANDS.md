@@ -10,8 +10,8 @@ UI actions the app already uses.
 Preferred production setup from the project root:
 
 ```powershell
-. .\activate_venv.ps1
-.\install_offline_voice.ps1 -PersistEnvironment
+. .\scripts\activate_venv.ps1
+.\scripts\install_offline_voice.ps1 -PersistEnvironment
 ```
 
 `install_offline_voice.ps1` downloads/extracts the small English Vosk model to:
@@ -24,7 +24,7 @@ The normal release workflow also runs this setup before build unless
 `-SkipOfflineVoiceSetup` is passed:
 
 ```powershell
-.\deploy.ps1
+.\scripts\deploy.ps1
 ```
 
 Manual setup remains supported:

@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectRoot = $PSScriptRoot,
+    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = $env:FZASTRO_PYTHON,
     [switch]$Check
 )
@@ -36,10 +36,10 @@ function Assert-Python311 {
 
     $info = Get-PythonVersionInfo -PythonPath $PythonPath
     if (-not $info) {
-        throw "Python interpreter is not usable: $PythonPath. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1"
+        throw "Python interpreter is not usable: $PythonPath. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1"
     }
     if ($info.Major -ne 3 -or $info.Minor -ne 11) {
-        throw ("FZAstro AI build/deploy requires Python 3.11. Found Python {0} at {1}. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1" -f $info.Version, $info.Executable)
+        throw ("FZAstro AI build/deploy requires Python 3.11. Found Python {0} at {1}. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1" -f $info.Version, $info.Executable)
     }
     return $info
 }
@@ -76,7 +76,7 @@ function Resolve-PythonExecutable {
         }
     }
 
-    throw "Python 3.11 environment not found. Run: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1"
+    throw "Python 3.11 environment not found. Run: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1"
 }
 
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
@@ -103,7 +103,7 @@ else {
 }
 
 if ($LASTEXITCODE -ne 0) {
-    if ($Check) { throw "Black formatting check failed. Run .\format_code.ps1 before release." }
+    if ($Check) { throw "Black formatting check failed. Run .\scripts\format_code.ps1 before release." }
     throw "Black formatting failed."
 }
 

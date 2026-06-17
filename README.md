@@ -82,7 +82,7 @@ The Web Companion lets the Windows desktop app expose a local browser interface 
 Typical LAN command:
 
 ```powershell
-.\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
+.\scripts\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
 ```
 
 Open from another device:
@@ -107,11 +107,8 @@ fzastro_ai/web_companion/   Local browser companion server and static UI
 fzastro_ai/workers/         Background worker classes
 tests/                      Automated tests
 docs/                       Consolidated detailed documentation
+scripts/                    PowerShell build, validation, setup, and utility scripts
 main.py                     Desktop/Web Companion entry point
-build_exe.ps1               Windows EXE build workflow
-clean_build.ps1             Cleans build output and starts `build_exe.ps1` automatically
-deploy.ps1                  Single release workflow command
-validate_release.ps1        Release validation workflow
 VERSION.txt                 Release version
 ```
 
@@ -120,8 +117,8 @@ VERSION.txt                 Release version
 Use Python 3.11 on Windows for release builds. Do not use Python 3.14 for release builds; the scripts enforce Python 3.11 so dependency and PyInstaller behavior stay predictable.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1 -Force
-. .\activate_venv.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1 -Force
+. .\scripts\activate_venv.ps1
 python -m pytest
 ```
 
@@ -136,10 +133,10 @@ python main.py
 Recommended one-command workflow:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\deploy.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1
 ```
 
-`deploy.ps1` calls `clean_build.ps1`; `clean_build.ps1` starts `build_exe.ps1` automatically. The workflow uses a progress bar for cleanup, build, and validation stages, logs noisy subprocess output under `..\FZAstroAI_BUILD\logs`, and supports `-VerboseOutput` when full live command output is needed.
+`scripts/deploy.ps1` calls `scripts/clean_build.ps1`; `scripts/clean_build.ps1` starts `build_exe.ps1` automatically. The workflow uses a progress bar for cleanup, build, and validation stages, logs noisy subprocess output under `..\FZAstroAI_BUILD\logs`, and supports `-VerboseOutput` when full live command output is needed.
 
 The default build folder is one folder above the project root:
 
@@ -147,9 +144,9 @@ The default build folder is one folder above the project root:
 ..\FZAstroAI_BUILD
 ```
 
-`activate_venv.ps1` sets `FZASTRO_PROJECT_ROOT`, `FZASTRO_BUILD_ROOT`, and `FZASTRO_PYTHON` for child commands.
+`scripts/activate_venv.ps1` sets `FZASTRO_PROJECT_ROOT`, `FZASTRO_BUILD_ROOT`, and `FZASTRO_PYTHON` for child commands.
 
-After a successful build, the script can show a validation prompt to run `validate_release.ps1`.
+After a successful build, the script can show a validation prompt to run `scripts/validate_release.ps1`.
 
 ## Release validation hygiene notes
 
@@ -163,4 +160,5 @@ Release validation checks development/repair artifacts such as `.bak`, `.patch`,
 - `docs/AI_DEVELOPER_WORKBENCH.md` — Developer Workbench guide
 - `docs/WEB_COMPANION.md` — LAN/iPad/browser workflow
 - `docs/OFFLINE_VOICE_COMMANDS.md` — optional local Vosk voice commands
+- `docs/SCRIPTS.md` — PowerShell script folder layout and common commands
 - `docs/archive/RC3_FINAL_PRODUCTION_NOTES.md` — historical RC3 notes

@@ -4,9 +4,9 @@ from collections import Counter
 
 from PySide6.QtCore import QThread, Signal
 
-from ..config import RUNTIME_CHAT_TIMEOUT_SECONDS, RUNTIME_VISION_CHAT_TIMEOUT_SECONDS
-from ..logging_utils import log_debug, log_exception, log_warning
-from ..runtime import (
+from .config import RUNTIME_CHAT_TIMEOUT_SECONDS, RUNTIME_VISION_CHAT_TIMEOUT_SECONDS
+from .logging_utils import log_debug, log_exception, log_warning
+from .runtime import (
     format_runtime_model_unavailable_message,
     is_ollama_base_url,
     is_runtime_model_not_found_error,

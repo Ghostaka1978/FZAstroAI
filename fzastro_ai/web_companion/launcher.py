@@ -72,7 +72,7 @@ class WebCompanionProcess:
 
     The standalone/manual launch path remains available through:
         python -m fzastro_ai.web_companion
-        .\run_web_companion.ps1
+        .\\scripts\\run_web_companion.ps1
 
     This class is only used by the PySide6 desktop app when it wants to start,
     open, or stop a web companion process in the background.

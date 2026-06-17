@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from ..logging_utils import log_debug, log_warning
+from .logging_utils import log_debug, log_warning
 
 
 class GpuMonitorWorker(QThread):

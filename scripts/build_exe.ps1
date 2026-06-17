@@ -1,5 +1,5 @@
 param(
-    [string]$ProjectRoot = $PSScriptRoot,
+    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = $env:FZASTRO_PYTHON,
     [string]$BuildRoot = "",
     [switch]$SkipDependencyInstall,
@@ -11,6 +11,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ScriptsRoot = $PSScriptRoot
 
 function Write-BuildLog {
     param(
@@ -122,10 +123,10 @@ function Assert-Python311 {
 
     $info = Get-PythonVersionInfo -PythonPath $PythonPath
     if (-not $info) {
-        throw "Python interpreter is not usable: $PythonPath. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1"
+        throw "Python interpreter is not usable: $PythonPath. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1"
     }
     if ($info.Major -ne 3 -or $info.Minor -ne 11) {
-        throw ("FZAstro AI build/deploy requires Python 3.11. Found Python {0} at {1}. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1" -f $info.Version, $info.Executable)
+        throw ("FZAstro AI build/deploy requires Python 3.11. Found Python {0} at {1}. Recreate the environment with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1" -f $info.Version, $info.Executable)
     }
     return $info
 }
@@ -162,7 +163,7 @@ function Resolve-PythonExecutable {
         }
     }
 
-    throw "Python 3.11 environment not found. Run: powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1"
+    throw "Python 3.11 environment not found. Run: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1"
 }
 
 function Set-FZAstroBuildEnvironment {
@@ -606,7 +607,7 @@ Set-Content -Path $BuildLog -Value "FZAstro AI build log" -Encoding UTF8
 $script:QuietOutput = -not $VerboseOutput
 $script:WorkflowLogPath = $BuildLog
 
-Write-Host "FZAstro AI Version 1 EXE Build"
+Write-Host "FZAstro AI Version 2 EXE Build"
 Write-Host "Python: $ResolvedPython"
 Write-Host "Logs:   $BuildLog"
 Initialize-StageProgress -Activity "Build EXE" -TotalSteps 15
@@ -662,7 +663,7 @@ if (-not $SkipFormat) {
     Invoke-LoggedCommand -Description "Black formatting" -CommandPath $ResolvedPython -Arguments @("-m", "black", "--workers", "1", $MainScript, (Join-Path $ProjectRoot "fzastro_ai"), (Join-Path $ProjectRoot "tests")) -LogPath $BuildLog -VerboseOutput:$VerboseOutput
 }
 else {
-    Write-Warning "Black formatting skipped. Run .\format_code.ps1 before release."
+    Write-Warning "Black formatting skipped. Run .\scripts\format_code.ps1 before release."
 }
 Show-StageStep "Compile source"
 Invoke-LoggedCommand -Description "Python compile check" -CommandPath $ResolvedPython -Arguments @("-m", "compileall", "-q", $ProjectRoot) -LogPath $BuildLog -VerboseOutput:$VerboseOutput
@@ -842,7 +843,7 @@ Copy-Item -Force $FinalExe $ReleaseExe
 Copy-Item -Force (Join-Path $ProjectRoot "README.md") $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $ProjectRoot "RELEASE_VALIDATION.md") $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $ProjectRoot "docs\OFFLINE_VOICE_COMMANDS.md") (Join-Path $ReleaseDir "OFFLINE_VOICE_COMMANDS.md") -ErrorAction SilentlyContinue
-Copy-Item -Force (Join-Path $ProjectRoot "install_offline_voice.ps1") $ReleaseDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $ScriptsRoot "install_offline_voice.ps1") $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $RequirementsFile $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $VersionFile $ReleaseDir -ErrorAction SilentlyContinue
 
@@ -878,7 +879,7 @@ Write-Host "SHA256:   $Hash"
 Write-Host "Manifest: $ManifestPath"
 Write-Host "Log:      $BuildLog"
 Write-Host ""
-$ValidationScript = Join-Path $ProjectRoot "validate_release.ps1"
+$ValidationScript = Join-Path $ScriptsRoot "validate_release.ps1"
 $ValidationCommand = "powershell -ExecutionPolicy Bypass -File `"$ValidationScript`" -PythonExe `"$ResolvedPython`" -ExePath `"$ReleaseExe`" -KeepRunning"
 
 Write-Host "Next validation command:"

@@ -18,7 +18,7 @@ Start the server with LAN access and a token:
 
 ~~~powershell
 cd D:\Dropbox\AI
-.\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
+.\scripts\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
 ~~~
 
 Open the LAN URL from another device:
@@ -50,7 +50,7 @@ $env:FZASTRO_WEB_TOKEN = "fzastro"
 Then start the Web Companion in LAN mode:
 
 ~~~powershell
-.\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
+.\scripts\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
 ~~~
 
 Or directly through Python:
@@ -66,7 +66,7 @@ $env:FZASTRO_WEB_ALLOW_LAN = "1"
 For PC-only testing:
 
 ~~~powershell
-.\run_web_companion.ps1 -Port 7860
+.\scripts\run_web_companion.ps1 -Port 7860
 ~~~
 
 Open:

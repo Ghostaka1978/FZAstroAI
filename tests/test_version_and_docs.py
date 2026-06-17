@@ -19,7 +19,7 @@ def test_release_docs_are_version_2_not_rc3_current_release():
         PROJECT_ROOT / "RELEASE_VALIDATION.md",
         PROJECT_ROOT / "fzastro_ai" / "ui" / "about_dialog.py",
         PROJECT_ROOT / "fzastro_ai" / "ui" / "help_dialog.py",
-        PROJECT_ROOT / "validate_release.ps1",
+        PROJECT_ROOT / "scripts" / "validate_release.ps1",
     ]
     combined = "\n".join(
         path.read_text(encoding="utf-8", errors="replace") for path in checked_files
@@ -50,8 +50,10 @@ def test_black_is_part_of_release_workflow():
         (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
     )
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    build_script = (PROJECT_ROOT / "build_exe.ps1").read_text(encoding="utf-8")
-    validation_script = (PROJECT_ROOT / "validate_release.ps1").read_text(
+    build_script = (PROJECT_ROOT / "scripts" / "build_exe.ps1").read_text(
+        encoding="utf-8"
+    )
+    validation_script = (PROJECT_ROOT / "scripts" / "validate_release.ps1").read_text(
         encoding="utf-8"
     )
 

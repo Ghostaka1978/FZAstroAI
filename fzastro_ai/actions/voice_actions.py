@@ -147,7 +147,7 @@ class VoiceActionsMixin:
             (
                 f"{message}\n\n"
                 "Setup:\n"
-                "1. Run: .\\install_offline_voice.ps1 -PersistEnvironment\n"
+                "1. Run: .\\scripts\\install_offline_voice.ps1 -PersistEnvironment\n"
                 "2. Or manually install packages: pip install vosk sounddevice\n"
                 "3. Put an extracted Vosk model folder here:\n"
                 f"   {Path(APP_DIR) / 'voice_models'}\n\n"
