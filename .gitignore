@@ -19,3 +19,5 @@ dist/
 .fzastro_ai_dev_sessions/
 .DS_Store
 Thumbs.db
+
+.idea/
