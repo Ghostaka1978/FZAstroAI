@@ -3,18 +3,71 @@ from __future__ import annotations
 import copy
 import json
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from importlib import resources
 
 
+TEMPLATE_FILENAME = "osc_advanced_sequence_template.json"
+TEMPLATE_PACKAGE = "fzastro_ai.resources.nina_templates"
 TEMPLATE_PATH = (
     Path(__file__).resolve().parents[1]
     / "resources"
     / "nina_templates"
-    / "osc_advanced_sequence_template.json"
+    / TEMPLATE_FILENAME
 )
+
+
+def resolve_osc_template_path(path: str | Path | None = None) -> Path:
+    """Resolve the bundled N.I.N.A. Advanced Sequencer template.
+
+    PyInstaller one-file builds extract data files under ``sys._MEIPASS``.
+    Developer runs load the same file from the source tree.  Keeping both
+    paths here makes the imaging planner work in source and in the EXE.
+    """
+
+    if path:
+        explicit_path = Path(path)
+        if explicit_path.is_file():
+            return explicit_path
+        raise FileNotFoundError(
+            f"N.I.N.A. sequence template not found: {explicit_path}"
+        )
+
+    candidates = [
+        TEMPLATE_PATH,
+    ]
+
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(
+            Path(meipass)
+            / "fzastro_ai"
+            / "resources"
+            / "nina_templates"
+            / TEMPLATE_FILENAME
+        )
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    try:
+        resource_path = resources.files(TEMPLATE_PACKAGE).joinpath(TEMPLATE_FILENAME)
+        if resource_path.is_file():
+            return Path(str(resource_path))
+    except Exception:
+        pass
+
+    searched = "; ".join(str(candidate) for candidate in candidates)
+    raise FileNotFoundError(
+        "N.I.N.A. sequence template is missing from the application bundle. "
+        "Rebuild the EXE after adding fzastro_ai/resources/nina_templates to PyInstaller data. "
+        f"Searched: {searched}"
+    )
 
 
 @dataclass(frozen=True)
@@ -41,7 +94,7 @@ def load_osc_template(path: str | Path | None = None) -> dict[str, Any]:
     item types, parent refs, and trigger runners in this serialized JSON shape.
     """
 
-    template_path = Path(path) if path else TEMPLATE_PATH
+    template_path = resolve_osc_template_path(path)
     return json.loads(template_path.read_text(encoding="utf-8-sig"))
 
 

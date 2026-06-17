@@ -444,6 +444,7 @@ function Assert-PyInstallerResourceConfiguration {
         "favicon.ico",
         "fzastro_ai/astro_tools/fzastro",
         "fzastro_ai/resources/astropy_samp",
+        "fzastro_ai/resources/nina_templates",
         "astroquery",
         "astropy",
         "skyfield",

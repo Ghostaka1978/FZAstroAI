@@ -780,6 +780,12 @@ function Resolve-AstroquerySimbadDataFile {
 
 $AstroquerySimbadCriteriaPath = Resolve-AstroquerySimbadDataFile -FileName "query_criteria_fields.json"
 
+$NinaTemplatesDir = Join-Path $ProjectRoot "fzastro_ai\resources\nina_templates"
+$NinaSequenceTemplatePath = Join-Path $NinaTemplatesDir "osc_advanced_sequence_template.json"
+if (-not (Test-Path -LiteralPath $NinaSequenceTemplatePath)) {
+    throw "N.I.N.A. sequence template resource not found: $NinaSequenceTemplatePath"
+}
+
 if (-not $PlaywrightLocalBrowsersDir) {
     $PlaywrightLocalBrowsersDir = Resolve-PlaywrightLocalBrowsersDir -PythonExe $ResolvedPython
 }
@@ -804,6 +810,8 @@ $PyInstallerArgs = @(
     "--add-data", "$AstropySampCrossdomainPath;astropy\samp\data",
     "--add-data", "$AstropySampClientPolicyPath;astropy\samp\data",
     "--add-data", "$AstroquerySimbadCriteriaPath;astroquery\simbad\data",
+    "--add-data", "$NinaTemplatesDir;fzastro_aiesources
+ina_templates",
     "--add-data", "$AstropySampIconPath;astropy\vo\samp\data",
     "--add-data", "$AstropySampCrossdomainPath;astropy\vo\samp\data",
     "--add-data", "$AstropySampClientPolicyPath;astropy\vo\samp\data",
