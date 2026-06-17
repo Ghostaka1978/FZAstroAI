@@ -7,13 +7,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def test_version_constants_match_version_file():
     version_file = PROJECT_ROOT / "VERSION.txt"
-    assert version_file.read_text(encoding="utf-8").strip() == "1.0.0"
-    assert APP_VERSION == "1.0.0"
-    assert APP_MILESTONE == "Version 1 RC 3 Final Production"
-    assert APP_VERSION_LABEL == "FZAstro AI v1.0.0 (Version 1 RC 3 Final Production)"
+    assert version_file.read_text(encoding="utf-8").strip() == "2.0.0"
+    assert APP_VERSION == "2.0.0"
+    assert APP_MILESTONE == "Version 2 Production"
+    assert APP_VERSION_LABEL == "FZAstro AI v2.0.0 (Version 2 Production)"
 
 
-def test_release_docs_are_version_1_not_production_2():
+def test_release_docs_are_version_2_not_rc3_current_release():
     checked_files = [
         PROJECT_ROOT / "README.md",
         PROJECT_ROOT / "RELEASE_VALIDATION.md",
@@ -25,11 +25,11 @@ def test_release_docs_are_version_1_not_production_2():
         path.read_text(encoding="utf-8", errors="replace") for path in checked_files
     )
 
-    assert "Version 1" in combined
-    assert "v1.0.0" in combined
+    assert "Version 2" in combined
+    assert "v2.0.0" in combined
     assert "Production 2.0 BETA" not in combined
     assert "2.0.0-beta" not in combined
-    assert "RC 3 Final Production" in combined
+    assert "RC 3 Final Production local AI workstation" not in combined
     assert "Release Candidate 2" not in combined
     assert "not a final production claim" not in combined
 
@@ -134,7 +134,7 @@ def test_distance_ladder_feature_is_documented():
     assert "hubble(z)" in engine_source
 
 
-def test_rc3_astro_tools_suite_is_documented():
+def test_v2_astro_tools_suite_is_documented():
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     release_docs = (PROJECT_ROOT / "RELEASE_VALIDATION.md").read_text(encoding="utf-8")
     help_dialog = (PROJECT_ROOT / "fzastro_ai" / "ui" / "help_dialog.py").read_text(

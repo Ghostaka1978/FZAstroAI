@@ -6,7 +6,14 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
-astro_datas=[] + web_companion_static_datas
+web_companion_static_datas = [
+    (
+        str(PROJECT_ROOT / "fzastro_ai" / "web_companion" / "static" / "index.html"),
+        "fzastro_ai/web_companion/static",
+    ),
+]
+
+astro_datas = []
 for package_name in ("astroquery", "astropy", "skyfield"):
     astro_datas += collect_data_files(package_name)
 
@@ -64,14 +71,6 @@ for simbad_filename in ("query_criteria_fields.json",):
 
 
 
-# Web Companion static UI files
-web_companion_static_datas = [
-    (
-        str(PROJECT_ROOT / "fzastro_ai" / "web_companion" / "static" / "index.html"),
-        "fzastro_ai/web_companion/static",
-    ),
-]
-
 a = Analysis(
     ['main.py'],
     pathex=[],
@@ -84,6 +83,7 @@ a = Analysis(
         ('fzastro_ai/resources/astropy_icon.png', 'fzastro_ai/resources'),
         ('fzastro_ai/resources/astropy_samp', 'fzastro_ai/resources/astropy_samp'),
         *astro_datas,
+        *web_companion_static_datas,
         *playwright_datas,
         *voice_datas,
     ],

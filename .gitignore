@@ -1,20 +1,21 @@
-@"
 .venv/
 venv/
 env/
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.log
 *.tmp
 *.bak
 *.orig
+*.rej
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 build/
 dist/
 *.egg-info/
+.fzastro_ai_patches/
+.fzastro_ai_dev_sessions/
 .DS_Store
 Thumbs.db
-"@ | Set-Content .gitignore -Encoding UTF8

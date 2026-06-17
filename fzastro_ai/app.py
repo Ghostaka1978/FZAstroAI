@@ -269,6 +269,7 @@ from .actions import (
     WebNewsActionsMixin,
     AstroActionsMixin,
     VoiceActionsMixin,
+    DevActionsMixin,
 )
 from .file_tools import (
     IMAGE_FILE_EXTENSIONS,
@@ -832,6 +833,7 @@ class FZAstroAI(
     WebNewsActionsMixin,
     AstroActionsMixin,
     VoiceActionsMixin,
+    DevActionsMixin,
     QMainWindow,
 ):
     # History and persistent-memory UI methods are implemented in fzastro_ai.ui modules.
@@ -1366,6 +1368,16 @@ class FZAstroAI(
         )
         self.new_chat_button.clicked.connect(self.new_chat)
 
+        self.dev_workbench_button = QPushButton("DEV")
+        self.dev_workbench_button.setObjectName("stockPriceButton")
+        self.dev_workbench_button.setFixedSize(62, 36)
+        self.dev_workbench_button.setCursor(Qt.PointingHandCursor)
+        self.dev_workbench_button.clicked.connect(self.open_dev_workbench)
+        self.dev_workbench_button.setToolTip(
+            "Open the AI Developer Workbench for scanning, context, plans, and checks"
+        )
+        self.dev_workbench_button.setAccessibleName("Open AI Developer Workbench")
+
         self.history_button = self._create_toolbar_button(
             "◷", "historyToggle", "Chat history"
         )
@@ -1623,6 +1635,7 @@ class FZAstroAI(
         quick_bar_layout.addWidget(quick_label)
         quick_bar_layout.addSpacing(4)
         quick_bar_layout.addWidget(self.new_chat_button)
+        quick_bar_layout.addWidget(self.dev_workbench_button)
         for skill_button in self.skill_buttons.values():
             quick_bar_layout.addWidget(skill_button)
         quick_bar_layout.addStretch(1)

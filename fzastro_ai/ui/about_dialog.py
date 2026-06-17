@@ -38,7 +38,9 @@ def open_about_window(parent):
         title.setObjectName("helpDialogTitle")
 
         subtitle = QLabel(
-            "RC 3 Final Production local AI workstation for chat, documents, web research, Python execution, memory, LLM benchmarking, and the integrated Astro Tools Suite."
+            "Version 2 Production local AI workstation for chat, documents, web "
+            "research, Python execution, memory, LLM benchmarking, the Astro Tools "
+            "Suite, Web Companion, and AI Developer Workbench."
         )
         subtitle.setObjectName("helpDialogSubtitle")
         subtitle.setWordWrap(True)
@@ -48,40 +50,43 @@ def open_about_window(parent):
         details.setOpenExternalLinks(False)
         details.setReadOnly(True)
         details.setPlainText(
-            "FZAstro AI\n"
-            f"Version: {APP_VERSION}\n"
-            f"Release: {APP_MILESTONE}\n\n"
-            "Version 1 RC 3 Final Production scope:\n"
-            "- Local AI workstation built around Ollama/OpenAI-compatible chat\n"
-            "- Modular PySide6 desktop interface\n"
-            "- Document Knowledge Library for PDFs, text, code, and Excel files\n"
-            "- Exact PDF page text retrieval when requested\n"
-            "- Real PDF page/image rendering when the user asks for visuals\n"
-            "- Optional OCR support for scanned documents\n"
-            "- Web search, Daily News, market, gold, and crude-oil actions with provider-timeout hardening\n"
-            "- Integrated Astro Tools Suite: SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP\n"
-            "- SEEING Astro Night Planner with current/tonight context, cloud-aware scoring, astronomical-dark prioritization, Moon periods, and Bortle-aware top-bar tint\n"
-            "- LOOKUP distance-ladder details for parallax, Gaia proxy, NED-D, and Hubble-law style estimates where available\n"
-            "- Optional distance-ladder calculation visibility via FZASTRO_USE_DISTANCE_LADDER=1\n"
-            "- Source tags that identify whether answers come from local knowledge, web, files, Python, or model reasoning\n"
-            "- Persistent memory with review/search tools\n"
-            "- Calibration profiles and model/profile controls\n"
-            "- Bottom-row hardware telemetry for GPU/VRAM, CPU and RAM, with best-effort temperatures\n"
-            "- Skills, Knowledge, Code Lab, Model Lab, Astro, Context, and Persona menus for common app workflows\n"
-            "- Clear Library compacts document_knowledge.sqlite3 after removing document assets\n"
-            "- Python code-block Run support through a real local Python interpreter\n"
-            "- Repeatable EXE build tooling for Windows release builds\n"
-            "- Starter automated test suite for routing, memory, documentation, and version checks\n\n"
-            "Runtime storage:\n"
-            f"App data: {APP_DIR}\n"
-            f"Log file: {LOG_FILE}\n\n"
-            "External runtime notes:\n"
-            "- Ollama or another OpenAI-compatible endpoint must be available for local chat.\n"
-            "- Installed local Ollama can be auto-started for the default local endpoint; set FZASTRO_AUTO_START_OLLAMA=0 to disable.\n- Auto-started Ollama is left running by default; set FZASTRO_STOP_OLLAMA_ON_EXIT=1 to stop only the app-started process.\n"
-            "- Set FZASTRO_PYTHON when using the EXE Python runner.\n"
-            "- Set FZASTRO_APP_DIR to override the runtime data folder for testing or portable runs.\n"
-            "- Tesseract OCR is optional and only required for OCR/scanned-page workflows.\n"
-            "- Playwright browser files are optional and only required for browser-backed web capture.\n"
+            f"""FZAstro AI
+Version: {APP_VERSION}
+Release: {APP_MILESTONE}
+
+Version 2 Production scope:
+- Local AI workstation built around Ollama/OpenAI-compatible chat
+- Clean project layout with application modules under fzastro_ai/
+- Consolidated docs under docs/ with one primary root README.md
+- Document Knowledge Library for PDFs, text, code, and Excel files
+- Exact PDF page text retrieval and real PDF page/image rendering
+- Optional OCR support for scanned documents
+- Web search, Daily News, market, gold, and crude-oil actions with provider-timeout hardening
+- Web Companion for local/LAN/iPad browser access
+- Integrated Astro Tools Suite: SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP
+- SEEING Astro Night Planner with cloud-aware scoring, astronomical-dark prioritization, Moon periods, and Bortle-aware top-bar tint
+- LOOKUP distance-ladder details for parallax, Gaia proxy, NED-D, and Hubble estimates where available
+- Optional distance-ladder calculation visibility via FZASTRO_USE_DISTANCE_LADDER=1
+- AI Developer Workbench for project scanning, coding context, visible plans, compile checks, pytest checks, and safe patch workflows
+- LLM Benchmark Dashboard with telemetry, Run All Presets, Delete Selected, history, compare, and persona/calibration controls
+- Source tags that identify whether answers come from local knowledge, web, files, Python, memory, app actions, or model reasoning
+- Persistent memory with review/search tools
+- Python code-block Run support through a real local Python interpreter
+- Repeatable EXE build tooling and release validation for Windows builds
+
+Runtime storage:
+App data: {APP_DIR}
+Log file: {LOG_FILE}
+
+External runtime notes:
+- Ollama or another OpenAI-compatible endpoint must be available for local chat.
+- Set FZASTRO_AUTO_START_OLLAMA=0 to disable default local Ollama auto-start.
+- Set FZASTRO_STOP_OLLAMA_ON_EXIT=1 to stop only the app-started Ollama process on exit.
+- Set FZASTRO_PYTHON when using the EXE Python runner.
+- Set FZASTRO_APP_DIR to override the runtime data folder for testing or portable runs.
+- Tesseract OCR is optional and only required for OCR/scanned-page workflows.
+- Playwright browser files are optional and only required for browser-backed web capture.
+"""
         )
 
         button_row = QHBoxLayout()

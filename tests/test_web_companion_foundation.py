@@ -12,7 +12,7 @@ def test_web_companion_files_exist():
         "fzastro_ai/web_companion/server.py",
         "fzastro_ai/web_companion/launcher.py",
         "fzastro_ai/web_companion/static/index.html",
-        "README_WEB_COMPANION.md",
+        "docs/WEB_COMPANION.md",
         "run_web_companion.ps1",
     ]
 
@@ -49,7 +49,7 @@ def test_requirements_include_web_companion_dependencies():
 
 
 def test_web_companion_documents_safe_lan_token():
-    docs = (PROJECT_ROOT / "README_WEB_COMPANION.md").read_text(encoding="utf-8")
+    docs = (PROJECT_ROOT / "docs" / "WEB_COMPANION.md").read_text(encoding="utf-8")
     runner = (PROJECT_ROOT / "run_web_companion.ps1").read_text(encoding="utf-8")
 
     assert "FZASTRO_WEB_TOKEN" in docs

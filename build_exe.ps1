@@ -841,7 +841,7 @@ Show-StageStep "Prepare release folder"
 Copy-Item -Force $FinalExe $ReleaseExe
 Copy-Item -Force (Join-Path $ProjectRoot "README.md") $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $ProjectRoot "RELEASE_VALIDATION.md") $ReleaseDir -ErrorAction SilentlyContinue
-Copy-Item -Force (Join-Path $ProjectRoot "OFFLINE_VOICE_COMMANDS.md") $ReleaseDir -ErrorAction SilentlyContinue
+Copy-Item -Force (Join-Path $ProjectRoot "docs\OFFLINE_VOICE_COMMANDS.md") (Join-Path $ReleaseDir "OFFLINE_VOICE_COMMANDS.md") -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $ProjectRoot "install_offline_voice.ps1") $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $RequirementsFile $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $VersionFile $ReleaseDir -ErrorAction SilentlyContinue
@@ -854,7 +854,7 @@ if (Test-Path $VersionFile) {
 }
 $ManifestPath = Join-Path $ReleaseDir "release_manifest.txt"
 $Manifest = @"
-FZAstro AI Version 1 Release Candidate
+FZAstro AI Version 2 Production
 Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 ProjectRoot: $ProjectRoot
 Python: $ResolvedPython

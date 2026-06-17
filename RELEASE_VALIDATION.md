@@ -1,14 +1,16 @@
-# FZAstro AI v1.0.0 RC 3 Final Production Build and Validation
+# FZAstro AI v2.0.0 Production Build and Validation
 
-This file is the final production release-candidate checklist for **FZAstro AI v1.0.0 — Version 1 RC 3 Final Production**.
+This file is the production release checklist for **FZAstro AI v2.0.0 — Version 2 Production**.
 
-A build can be marked **RC 3 Final Production** only after the automated tests, validation script, and manual acceptance checklist pass on the target Windows machine.
+A build can be marked production-ready only after automated tests, release validation, and manual acceptance checks pass on the target Windows machine.
+
+GitHub repository: `https://github.com/Ghostaka1978/FZAstroAI`.
 
 ## 1. Recreate or activate the Python 3.11 environment
 
-The release workflow requires Python 3.11. Do not use Python 3.14 or another non-3.11 interpreter for release builds. The release scripts enforce this with `Get-PythonVersionInfo` and `Assert-Python311`.
+`reset_venv.ps1` recreates the Python 3.11 virtual environment and sets up the expected release baseline.
 
-Use a fresh PowerShell window from the project root. If the prompt already shows `(.venv)`, run `deactivate` and open a fresh shell before resetting the environment.
+Release builds require Python 3.11. Do not use Python 3.14 for production release builds.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\reset_venv.ps1 -Force
@@ -24,7 +26,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-`activate_venv.ps1` sets `FZASTRO_PYTHON`, `FZASTRO_PROJECT_ROOT`, and `FZASTRO_BUILD_ROOT` for child build and validation commands. By default, build output is created one folder above the project root under `..\FZAstroAI_BUILD`.
+`activate_venv.ps1` sets `FZASTRO_PYTHON`, `FZASTRO_PROJECT_ROOT`, and `FZASTRO_BUILD_ROOT`. By default, build output is created one folder above the project root under `..\FZAstroAI_BUILD`.
 
 Optional browser install for Playwright-backed web features:
 
@@ -32,24 +34,18 @@ Optional browser install for Playwright-backed web features:
 python -m playwright install chromium
 ```
 
-Release builds install Chromium package-locally through `build_exe.ps1` so PyInstaller can bundle it. If the bundled browser is unavailable at runtime, the app falls back to installed Microsoft Edge or Google Chrome.
-
 ## 2. Format and test before building
-
-Run Black before testing and building:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\format_code.ps1 -PythonExe ".\.venv\Scripts\python.exe"
 python -m pytest
 ```
 
-For CI/release verification, use check mode:
+For CI/release verification:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\format_code.ps1 -PythonExe ".\.venv\Scripts\python.exe" -Check
 ```
-
-The build script also runs Black before compiling and testing unless `-SkipFormat` is passed.
 
 ## 3. Deploy with the one-command workflow
 
@@ -61,7 +57,7 @@ powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 
 `deploy.ps1` is the single release workflow command. It calls `clean_build.ps1`, and `clean_build.ps1` starts `build_exe.ps1` automatically after cleaning previous build/cache output. At the end of a successful build, the build script displays a validation prompt asking whether to run `validate_release.ps1` immediately.
 
-The deploy/build/validation scripts use a quiet progress display by default. They show a progress bar and the current cleanup/build/validation stage while sending noisy pip, pytest, Black, and PyInstaller output to `..\FZAstroAI_BUILD\logs`. Use `-VerboseOutput` on `deploy.ps1`, `build_exe.ps1`, or `validate_release.ps1` when full live command output is needed.
+The deploy/build/validation scripts use a quiet progress display by default. They show a progress bar and the current cleanup, build, and validation stage while sending noisy pip, pytest, Black, and PyInstaller output to `..\FZAstroAI_BUILD\logs`. Use `-VerboseOutput` when full live command output is needed.
 
 To run the build without the cleaning wrapper:
 
@@ -75,188 +71,105 @@ Release output should be created here:
 ..\FZAstroAI_BUILD\release\FZAstroAI.exe
 ```
 
-The release folder includes `FZAstroAI.exe`, `README.md`, `RELEASE_VALIDATION.md`, `requirements.txt`, `VERSION.txt`, and a `release_manifest.txt` with the EXE size and SHA256 hash. Validation requires the release manifest and these required release files.
+The release folder includes `FZAstroAI.exe`, `README.md`, `RELEASE_VALIDATION.md`, `OFFLINE_VOICE_COMMANDS.md`, `install_offline_voice.ps1`, `requirements.txt`, `VERSION.txt`, and `release_manifest.txt` with the EXE size and SHA256 hash.
 
-## 4. Validate the EXE
-
-Run:
+## 4. Automated validation
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -ExePath "..\FZAstroAI_BUILD\release\FZAstroAI.exe" -KeepRunning
+powershell -ExecutionPolicy Bypass -File .\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -SkipLaunch
 ```
 
-This checks:
+Validation should check:
 
-- EXE exists and SHA256 hash can be calculated.
-- `VERSION.txt` reports the Version 1 release version.
-- Black formatting check passes.
-- Source code compiles.
-- Automated tests pass.
-- Critical Python imports work, including `fzastro_ai.ui.llm_benchmark_dialog`.
-- Ollama availability, local auto-start behavior, and clear unavailable status when local Ollama cannot be reached.
-- Tesseract availability.
-- Playwright Chromium availability or installed Edge/Chrome fallback.
-- PyInstaller resource configuration markers for bundled icons, astronomy tools, Astropy/SAMP data, Astroquery data, Skyfield data, and Playwright data.
-- Release manifest and required release files, including `release_manifest.txt`, `README.md`, `RELEASE_VALIDATION.md`, `requirements.txt`, and `VERSION.txt`.
-- Release folder artifact hygiene, including `.bak`, `.patch`, `repair_*.ps1`, pytest cache, Python cache, and temporary repair files.
-- EXE smoke-launch stability using an isolated `..\FZAstroAI_BUILD\smoke_appdata` directory through `FZASTRO_APP_DIR`.
-- Optional GUI startup smoke coverage in pytest when PySide6 is installed.
-- Hardware telemetry row remains compact when GPU, CPU, RAM, and available temperatures are displayed.
-- LLM Benchmark Dashboard source imports and release resources remain available in the packaged app.
+- Release manifest and required release files
+- EXE existence, size, and hash
+- Source tree hygiene: no `overlay/`, no `__pycache__`, no `.pyc`, no stale `.bak` patch files in the source package
+- Release artifact hygiene: no development/repair artifacts such as `.bak`, `.patch`, or `repair_*.ps1` files in the final release folder
+- Version constants: `VERSION.txt`, `fzastro_ai.__version__`, and `APP_VERSION`
+- Required Web Companion files and static UI packaging
+- PyInstaller resource configuration for packaged static/assets/data files
+- Isolated `smoke_appdata` launch state for GUI smoke checks
+- Optional GUI smoke launch test when `-SkipLaunch` is not used
 
-## 5. Manual RC 3 Final Production acceptance test
+## 5. Manual acceptance checklist
 
-With the EXE open, confirm these items.
+### Desktop app
 
-Ollama-specific checks:
+- Launch `FZAstroAI.exe`.
+- Confirm the title/about identity is `FZAstro AI v2.0.0 (Version 2 Production)`.
+- Confirm normal chat works with the configured Ollama/OpenAI-compatible endpoint.
+- Confirm source chips still appear for LLM, Docs, Web, Files, Python, Memory, News, Market, and App workflows.
+- Confirm the app closes cleanly without worker shutdown errors.
 
-1. With Ollama installed but stopped, launch the app and confirm the model selector refreshes into the installed Ollama model list.
-2. With Ollama unavailable or auto-start disabled through `FZASTRO_AUTO_START_OLLAMA=0`, launch the app and confirm the model selector shows an `Ollama unavailable` status item without a long traceback.
-3. Confirm the app remains usable and refresh can be retried after starting Ollama manually.
-4. With Ollama already running before launch, set `FZASTRO_STOP_OLLAMA_ON_EXIT=1`, close the app, and confirm Ollama remains running.
-5. With Ollama stopped before launch, set `FZASTRO_STOP_OLLAMA_ON_EXIT=1`, let the app auto-start Ollama, close the app, and confirm only that app-started Ollama process exits.
+### Documentation/help/about
 
-Main app checks:
+- Help and About should describe v2.0.0, not RC3 as the current release.
+- Root should contain one primary `README.md`; detailed docs should live under `docs/`.
+- The separate `overlay/` folder should not exist.
+- Stale bundle readmes should not exist in the root.
 
-1. About window shows `FZAstro AI v1.0.0 (Version 1 RC 3 Final Production)`.
-2. Clicking the **FZ** square in the header opens `https://github.com/Ghostaka1978/FZAstroAI` in the external browser.
-3. Open App Data works.
-4. Open Log works.
-5. Model list refresh works.
-6. A normal local chat response works.
-7. Document import works.
-8. Re-importing the same document reports a duplicate/update instead of creating duplicate library entries.
-9. Clear Library removes indexed rows, clears document assets, and compacts `document_knowledge.sqlite3` plus WAL/SHM storage.
-10. Document Q&A works.
-10. Exact PDF page text retrieval works.
-11. PDF page/image rendering works only when explicitly requested.
-12. Daily News works.
-13. Web mode works, and individual DDGS provider timeouts are logged without crashing the app.
-14. Composer toolbar Code, Paste Code, Actions, Context, Persona, and Clear controls work; prompt actions do not auto-send.
-15. Python actions can insert explain/debug/refactor/test prompts; Run actions use the existing local Python execution path.
-16. Smart routing sends obvious URL, document inventory/search/brief/page-image, and explicit Python-run requests to the correct app tool without a generic model answer.
-17. Risky explicit Python execution asks for confirmation before running.
-18. Python code-block Run button works.
-19. Starting and cancelling/stopping a streamed chat response does not add `WinError 10038` traceback spam to the log.
-20. Persistent memory review/search works.
-21. Closing and reopening the EXE preserves history/settings.
+### LLM Benchmark checks
 
-LLM Benchmark checks:
+- Open **Skills → Model Lab → LLM Benchmark**.
+- Confirm the polished control layout shows Dashboard, History, and Compare areas.
+- Confirm telemetry appears in the benchmark dashboard.
+- Confirm model selection can target a different model than the main chat when needed.
+- Run a small benchmark.
+- Confirm `Run All Presets`, `Delete Selected`, persona/calibration options, Composite scoring, and history/compare behavior work.
+- The legacy `LLM BENCH` wording may remain in docs only for validation continuity.
 
-1. **LLM BENCH** opens the LLM Benchmark Dashboard from the Quick Actions row.
-2. The polished control layout fits without clipping: model, persona/calibration, benchmark preset, suite depth, repeat count, temperature, max tokens, compact custom prompt entry, and action buttons are readable.
-3. The dialog model selector auto-refreshes/refreshes models from the configured endpoint, allows selecting a different benchmark model inside the dialog, and runs without changing the main chat model.
-4. The persona/calibration selector includes Raw model, Active app persona, and installed calibration profiles; choosing a persona does not change the main app profile.
-5. Dashboard, History, and Compare tabs use the dark app theme; the old dedicated Benchmark tab is not shown.
-6. The telemetry row mirrors the main window GPU/VRAM and CPU/RAM labels while a benchmark is running or idle.
-7. Benchmark preset list includes Quick Q&A, Math Reasoning, Code Generation, Creative Writing, Logical Reasoning, Data Analysis, Translation & Multilingual, Summarization, and Instruction Following.
-8. **Run Selected** against Quick Q&A completes and fills tokens/sec, time to first token, total time, completion tokens, input tokens, accuracy score, trust score, quality score, deterministic grader evidence, telemetry snapshot, and model response.
-9. **Run All Presets** executes the full built-in benchmark suite in one pass and records each preset separately in History.
-10. Benchmark history persists after closing and reopening the dashboard.
-11. Compare tab groups results by model + persona and sorts by composite score; coverage, accuracy, speed, trust, instruction following, throughput, latency, and stability are populated.
-12. **Delete Selected** removes only the selected History row(s) after confirmation and updates Dashboard/Compare totals.
-13. Export JSON writes `llm_benchmark_history.json` successfully, and Clear History removes all saved entries after confirmation.
-14. Stop cancels an active benchmark without leaving the worker running.
+### Astro Tools Suite
 
-Astro Tools Suite checks:
+Confirm **SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP** work as production windows.
 
-1. **Skills → Astro** exposes the Astro Tools Suite: SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP.
-2. SITE opens the observing-site picker and saves latitude, longitude, elevation, timezone, and optional SQM/Bortle/source fields.
-3. IMAGING opens camera/FOV setup and updates the toolbar summary.
-4. LOOKUP opens its own compact dialog, keeps the migrated object dropdown catalogs available, and can query at least `M31`, `M82`, and `M101` without Gaia timeout.
-5. LOOKUP renders object details, distance method, and sky preview inside the LOOKUP window instead of relying on the main chat.
-6. SUN NOW opens its own window, displays at least one NASA/SDO channel, shows metadata, supports channel/size selection, and uses the cached image if the live feed is unavailable.
-7. SOLAR MAP opens a native 2D interactive map window with zoom, pan, Full/Inner/Outer modes, orbit/label/grid toggles, planet labels, and a planet data table.
-8. SEEING opens the Astro Night Planner in its own window and shows daily forecast cards for the available forecast period.
-9. SEEING uses 7Timer ASTRO seeing/transparency, Moon periods, astronomical-dark periods, cloud/seeing/transparency gauges, cloud-aware nightly scoring, and a Forecast Points table that prioritizes night/imaging rows over daytime rows.
-10. SEEING can display SQM/Bortle from saved SITE values or a successful automatic LightPollutionMap.app lookup; if no reliable value exists, it should show Not set instead of a fake estimate. The SEEING top bar tint must follow Bortle class: 8–9 white/urban, 6–7 yellow, 4–5 green, 2–3 blue, and 1 violet.
-11. Selecting SEEING forecast cards/rows updates the selected-hour details and dark/moon period panels without traceback errors.
-12. TARGETS opens its own native planner window, runs without posting primary output to main chat, supports date/min-alt/type/source filters, and can import an OpenNGC CSV into the local catalog.
-13. While the main chat is scrolled upward, LOOKUP, SEEING, TARGETS, SUN NOW, and SOLAR MAP do not force the main chat to auto-scroll to the bottom; standalone Astro tools should not post their primary UI output to main chat.
-14. ASTRO LOOKUP/SEEING/TARGETS/SOLAR MAP do not log `Astropy runtime data fallback missing` from the PyInstaller `_MEI` runtime folder.
+- SITE stores observing site, elevation, timezone, SQM, Bortle, and source notes.
+- IMAGING stores camera preset, focal length, FOV, image size, and rotation.
+- LOOKUP opens object details and distance-ladder details for parallax, Gaia proxy, NED-D, and Hubble estimates where available.
+- `FZASTRO_USE_DISTANCE_LADDER=1` exposes optional distance-ladder calculation visibility.
+- SUN NOW displays NASA/SDO imagery with metadata/cached fallback.
+- SEEING uses current/tonight context, astronomical-dark prioritization, Moon periods, cloud-aware scoring, and Bortle tint.
+- Bortle tint rules: `8–9 white/urban`, `6–7 yellow`, `4–5 green`, `2–3 blue`, and `1 violet`.
+- TARGETS ranks targets, exports CSV, and can use local OpenNGC import.
+- SOLAR MAP zoom/pan/orbit/label/grid controls work.
+- Astropy/IERS and provider timeouts should log warnings rather than crash workflows.
 
-## 6. Document knowledge library verification
+### Web Companion
 
-The document knowledge implementation is maintained in `fzastro_ai/knowledge_library.py`, not inline in `fzastro_ai/app.py`. Before release, run the focused regression tests:
+- Start local mode:
 
 ```powershell
-python -m pytest tests/test_knowledge_library.py -q
+.\run_web_companion.ps1 -Port 7860
 ```
 
-These tests cover text import/search/context behavior and duplicate import handling. Manual EXE validation must still cover PDF visual rendering, OCR availability messaging, and XLSX extraction because those depend on optional runtime packages and external tools.
-
-## 7. Expected external dependencies
-
-The EXE bundles the Python app through PyInstaller, but these tools are external system/runtime dependencies:
-
-- Ollama and downloaded models. The app may auto-start an installed local Ollama server for `http://localhost:11434/v1`, but it does not install Ollama or pull models.
-- Bundled Playwright Chromium, or installed Edge/Chrome fallback for browser-backed web capture.
-- Offline voice model installed by `install_offline_voice.ps1`, normally under `%APPDATA%\FZAstroAI\voice_models`, or pointed to by `FZASTRO_VOSK_MODEL`.
-- Tesseract OCR, if OCR is needed.
-- A real local Python interpreter, if EXE Python execution or migrated ASTRO subprocess tools are needed.
-
-For Python execution inside the EXE, set:
+- Start LAN/iPad mode:
 
 ```powershell
-$env:FZASTRO_PYTHON=".\.venv\Scripts\python.exe"
+.\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
 ```
 
-For offline voice model setup from the project root, run:
+- Confirm `FZASTRO_WEB_TOKEN` is required in LAN mode.
+- Confirm the desktop exposes Web Companion controls, `Start Local Web Server`, `Start LAN / iPad Mode`, `Copy LAN/iPad URL`, and `Auto-start local server with desktop`.
+- Confirm the web UI shows the control-panel, hidden advanced runtime area, Daily News Brief, and Astro Tools toolbar.
+- Confirm `with_image: true`, `/api/news/daily`, `/api/assets/file`, and image asset serving work.
+
+### AI Developer Workbench
+
+- Click **DEV** in the quick actions bar.
+- Scan the project root.
+- Enter a coding request and build context + plan.
+- Confirm selected files and plan are relevant.
+- Run compile check.
+- Run pytest or a targeted test group.
+- Confirm failures are summarized rather than silently ignored.
+- Confirm patch work remains review-first and backed up.
+
+## 6. Git release commands
 
 ```powershell
-.\install_offline_voice.ps1 -PersistEnvironment
+git status --short
+git add .
+git commit -m "Prepare FZAstro AI v2.0.0 production cleanup"
+git tag -a v2.0.0 -m "FZAstro AI v2.0.0"
+git push origin main
+git push origin v2.0.0
 ```
-
-For portable/test runtime data, set:
-
-```powershell
-$env:FZASTRO_APP_DIR=".\.fzastro_appdata"
-```
-
-## 8. ASTRO EXE packaging/runtime validation
-
-For the packaged EXE, the migrated ASTRO tools require two things:
-
-1. The folder `fzastro_ai/astro_tools/fzastro` must be bundled by PyInstaller.
-2. The EXE must be able to find a real Python environment with `astropy`, `astroquery`, `numpy`, `matplotlib`, and `skyfield` installed.
-
-The build script packages the full FZASTRO tools folder. The validation script sets `FZASTRO_PYTHON` before launching the EXE so LOOKUP, SEEING, TARGETS, and SOLAR MAP use the selected working Python environment.
-
-Manual ASTRO checks after launch:
-
-- LOOKUP: query `M18`; verify the compact LOOKUP window displays the result text and sky preview.
-- SUN NOW: open latest SDO AIA 171 or HMI Magnetogram image; verify metadata and cached fallback messaging.
-- SEEING: open the default site forecast; verify daily cards, night-first Forecast Points, Moon periods, astronomical-dark periods, selected-hour details, and SQM/Bortle handling.
-- SITE/SQM: save manual SQM/Bortle values, then reopen SEEING and confirm they display; if testing automatic lookup, confirm failures are shown as unavailable rather than guessed values.
-- TARGETS: native target planner window, default site run, object-type/min-alt/date filters, CSV export, and optional OpenNGC CSV import.
-- SOLAR MAP: native 2D map window, zoom/pan, Full/Inner/Outer modes, labels/orbits/grid toggles, planet table.
-- Main chat scroll preservation: scroll upward first, then run LOOKUP, SEEING, TARGETS, SUN NOW, and SOLAR MAP. Standalone Astro windows must not force the main chat to the bottom or post their primary UI output to chat.
-- Astropy runtime data: check the app log after LOOKUP. There should be no `_MEI.../fzastro_ai/resources/astropy_icon.png` fallback-missing warning.
-
-## 9. Quiet native command logging
-
-Native command output is captured through Start-Process redirect files instead of PowerShell stream redirection. This prevents successful tools such as Black from appearing as `NativeCommandError` messages when they print status text. Use `-VerboseOutput` only when you want the captured output echoed to the console.
-
-Build environment note: the scripts set the project root on `PYTHONPATH`, use the resolved `.venv` interpreter, and set `FZASTRO_PYTHON` before tests, build, validation, and EXE launch.
-
-## 10. GUI startup smoke test
-
-The pytest suite contains a GUI startup smoke test that is skipped when PySide6 is not installed. On the Windows release environment it sets `FZASTRO_DISABLE_STARTUP_GPU_MONITOR=1`, constructs the main window, confirms the editable prompt is populated, closes the window, and processes pending Qt events. This keeps the test focused on startup/shutdown safety rather than GPU telemetry.
-
-## 11. Release artifact hygiene check
-
-Release validation checks that development/repair artifacts are not present in the packaged release output.
-
-Development/repair artifacts include `.bak`, `.patch`, `repair_*.ps1`, pytest cache data, Python cache directories, debug files, and temporary repair files. These files may be useful while fixing the application, but they must not ship in release bundles.
-
-## 12. Release verdict rule
-
-The RC 3 Final Production release can be marked complete when:
-
-- Black formatting check completes without failures.
-- `python -m pytest` completes without failures.
-- `build_exe.ps1` completes without errors.
-- `validate_release.ps1` completes without fatal errors.
-- The EXE remains open during the smoke test.
-- The manual acceptance checklist passes, including the LLM Benchmark Dashboard checks and the Astro Tools Suite checks for LOOKUP, SUN NOW, SEEING/Astro Night Planner, TARGETS, SOLAR MAP, SITE, and IMAGING.
-- The About window shows `FZAstro AI v1.0.0 (Version 1 RC 3 Final Production)`.
