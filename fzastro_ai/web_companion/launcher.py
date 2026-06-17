@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+import signal
 import socket
 import subprocess
 import sys
@@ -20,6 +22,10 @@ DEFAULT_LOCAL_HOST = "127.0.0.1"
 DEFAULT_LAN_HOST = "0.0.0.0"
 WEB_HEALTH_TIMEOUT_SECONDS = 0.8
 WEB_START_WAIT_SECONDS = 10.0
+WEB_STOP_WAIT_SECONDS = 5.0
+_EXTERNAL_STOP_LEGACY_MESSAGE = (
+    "Web Companion was started manually, so the desktop app will not stop it."
+)
 
 
 @dataclass
@@ -65,6 +71,132 @@ def is_web_companion_available(port: int = DEFAULT_WEB_PORT) -> bool:
         return response.status_code == 200
     except requests.RequestException:
         return False
+
+
+def _run_hidden_command(
+    args: list[str],
+    *,
+    timeout: float = 5.0,
+) -> subprocess.CompletedProcess[str]:
+    """Run a small process-management command without flashing a console."""
+    creationflags = 0
+    startupinfo = None
+    if os.name == "nt":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+    return subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        creationflags=creationflags,
+        startupinfo=startupinfo,
+        check=False,
+    )
+
+
+def _line_matches_port(address: str, port: int) -> bool:
+    address = str(address or "").strip()
+    return address.endswith(f":{int(port)}") or address.endswith(f".{int(port)}")
+
+
+def _windows_port_listener_pids(port: int) -> set[int]:
+    """Return PIDs listening on the requested TCP port using built-in Windows tools."""
+    try:
+        result = _run_hidden_command(
+            ["netstat", "-ano", "-p", "tcp"],
+            timeout=6.0,
+        )
+    except Exception as exc:
+        log_warning("Web Companion netstat lookup failed", str(exc))
+        return set()
+
+    pids: set[int] = set()
+    for raw_line in (result.stdout or "").splitlines():
+        line = raw_line.strip()
+        if not line.upper().startswith("TCP"):
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local_address = parts[1]
+        state = parts[-2].upper()
+        pid_text = parts[-1]
+        if state != "LISTENING" or not _line_matches_port(local_address, port):
+            continue
+        try:
+            pids.add(int(pid_text))
+        except ValueError:
+            continue
+    return pids
+
+
+def _posix_port_listener_pids(port: int) -> set[int]:
+    """Return PIDs listening on the requested TCP port on Linux/macOS if tools exist."""
+    pids: set[int] = set()
+    commands = [
+        ["lsof", f"-tiTCP:{int(port)}", "-sTCP:LISTEN"],
+        ["fuser", f"{int(port)}/tcp"],
+    ]
+    for args in commands:
+        try:
+            result = _run_hidden_command(args, timeout=4.0)
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            log_warning("Web Companion listener lookup failed", f"{args[0]}: {exc}")
+            continue
+        output = (result.stdout or "") + " " + (result.stderr or "")
+        for value in re.findall(r"\b\d+\b", output):
+            try:
+                pids.add(int(value))
+            except ValueError:
+                continue
+        if pids:
+            break
+    return pids
+
+
+def find_web_companion_listener_pids(port: int = DEFAULT_WEB_PORT) -> set[int]:
+    """Find external processes holding the Web Companion TCP port."""
+    if os.name == "nt":
+        pids = _windows_port_listener_pids(port)
+    else:
+        pids = _posix_port_listener_pids(port)
+    current_pid = os.getpid()
+    return {pid for pid in pids if pid > 0 and pid != current_pid}
+
+
+def terminate_listener_pids(pids: set[int]) -> tuple[set[int], set[int]]:
+    """Terminate listener PIDs. Returns (terminated, failed)."""
+    terminated: set[int] = set()
+    failed: set[int] = set()
+    for pid in sorted(pids):
+        try:
+            if os.name == "nt":
+                result = _run_hidden_command(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    timeout=8.0,
+                )
+                if result.returncode == 0:
+                    terminated.add(pid)
+                else:
+                    failed.add(pid)
+                    log_warning(
+                        "Web Companion taskkill failed",
+                        f"pid={pid}, stdout={result.stdout!r}, stderr={result.stderr!r}",
+                    )
+            else:
+                os.kill(pid, signal.SIGTERM)
+                terminated.add(pid)
+        except ProcessLookupError:
+            terminated.add(pid)
+        except Exception as exc:
+            failed.add(pid)
+            log_warning("Web Companion external stop failed", f"pid={pid}: {exc}")
+    return terminated, failed
 
 
 class WebCompanionProcess:
@@ -166,7 +298,13 @@ class WebCompanionProcess:
             lan=False,
         )
 
-    def start(self, *, lan: bool = True, token: str = "") -> WebCompanionStatus:
+    def start(
+        self,
+        *,
+        lan: bool = True,
+        token: str = "",
+        replace_external: bool = False,
+    ) -> WebCompanionStatus:
         """Start the Web Companion.
 
         In source/dev mode this launches:
@@ -180,7 +318,21 @@ class WebCompanionProcess:
         """
         existing = self.status()
         if existing.running:
-            return existing
+            if existing.owned or not replace_external:
+                return existing
+            stopped = self.stop(force_external=True)
+            if stopped.running:
+                return WebCompanionStatus(
+                    running=True,
+                    owned=False,
+                    url=existing.url,
+                    message=(
+                        "A Web Companion process is already using this port and could "
+                        f"not be stopped automatically. {stopped.message}"
+                    ),
+                    pid=stopped.pid,
+                    lan=existing.lan,
+                )
 
         if existing.owned and self.is_owned_running():
             self.stop()
@@ -301,17 +453,68 @@ class WebCompanionProcess:
             lan=self.lan,
         )
 
-    def stop(self) -> WebCompanionStatus:
+    def _wait_until_stopped(self, timeout: float = WEB_STOP_WAIT_SECONDS) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not is_web_companion_available(self.port):
+                return True
+            time.sleep(0.2)
+        return not is_web_companion_available(self.port)
+
+    def stop(self, *, force_external: bool = True) -> WebCompanionStatus:
         if not self.is_owned_running():
             if is_web_companion_available(self.port):
+                if not force_external:
+                    return WebCompanionStatus(
+                        running=True,
+                        owned=False,
+                        url=self.lan_url,
+                        message=_EXTERNAL_STOP_LEGACY_MESSAGE,
+                        pid=None,
+                        lan=True,
+                    )
+
+                pids = find_web_companion_listener_pids(self.port)
+                if not pids:
+                    return WebCompanionStatus(
+                        running=True,
+                        owned=False,
+                        url=self.lan_url,
+                        message=(
+                            "Web Companion is running externally, but the desktop app "
+                            "could not find the listener PID for this port. Close the "
+                            "manual server or free the port, then start LAN mode again."
+                        ),
+                        pid=None,
+                        lan=True,
+                    )
+
+                terminated, failed = terminate_listener_pids(pids)
+                stopped = self._wait_until_stopped()
+                if stopped:
+                    pid_list = ", ".join(str(pid) for pid in sorted(terminated or pids))
+                    return WebCompanionStatus(
+                        running=False,
+                        owned=False,
+                        url=self.local_url,
+                        message=(
+                            "Stopped external Web Companion process(es): "
+                            f"{pid_list}."
+                        ),
+                        pid=next(iter(sorted(terminated or pids)), None),
+                        lan=False,
+                    )
+
+                failed_list = ", ".join(str(pid) for pid in sorted(failed or pids))
                 return WebCompanionStatus(
                     running=True,
                     owned=False,
                     url=self.lan_url,
                     message=(
-                        "Web Companion was started manually, so the desktop app will not stop it."
+                        "Tried to stop the external Web Companion process, but the "
+                        f"health endpoint is still responding. PID(s): {failed_list}."
                     ),
-                    pid=None,
+                    pid=next(iter(sorted(failed or pids)), None),
                     lan=True,
                 )
             return self.status()
@@ -326,6 +529,7 @@ class WebCompanionProcess:
             self.process.wait(timeout=3.0)
 
         self.process = None
+        self._wait_until_stopped(timeout=2.0)
         return WebCompanionStatus(
             running=False,
             owned=False,

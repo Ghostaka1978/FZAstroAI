@@ -823,6 +823,15 @@ def make_microphone_icon(color="#e8ebef"):
     return QIcon(pixmap)
 
 
+class AutoHideStatusLabel(QLabel):
+    """Status pill that disappears when it has no message text."""
+
+    def setText(self, text):  # noqa: N802 - Qt API override
+        clean_text = str(text or "")
+        super().setText(clean_text)
+        self.setVisible(bool(clean_text.strip()))
+
+
 class FZAstroAI(
     ShutdownControllerMixin,
     AttachmentControlsMixin,
@@ -1190,25 +1199,28 @@ class FZAstroAI(
         self.model_box.setObjectName("quickModelBox")
         self.model_box.addItems([DEFAULT_MODEL_NAME])
         self.model_box.setFixedHeight(36)
-        # Keep the active model selector compact in the quick bar.
+        # The runtime row gives the model selector enough room for long local model names.
         # Full model names remain available in the tooltip and the opened list.
-        self.model_box.setMinimumWidth(210)
-        self.model_box.setMaximumWidth(320)
+        self.model_box.setMinimumWidth(260)
+        self.model_box.setMaximumWidth(380)
         self.model_box.setFixedWidth(320)
         self.model_box.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.model_box.view().setMinimumWidth(440)
+        self.model_box.setToolTip(
+            "Active model. Open the list to switch local/API models."
+        )
+        self.model_box.view().setMinimumWidth(520)
 
         self.web_box = QComboBox()
         self.web_box.setObjectName("quickWebBox")
         self.web_box.addItems(["Off", "Auto", "Always"])
         self.web_box.setCurrentText("Auto")
         self.web_box.setFixedHeight(36)
-        self.web_box.setFixedWidth(104)
+        self.web_box.setFixedWidth(92)
         self.web_box.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
         self.web_companion_button = QPushButton("WEB UI")
-        self.web_companion_button.setObjectName("stockPriceButton")
-        self.web_companion_button.setFixedSize(82, 36)
+        self.web_companion_button.setObjectName("cockpitWebButton")
+        self.web_companion_button.setFixedSize(76, 36)
         self.web_companion_button.setCursor(Qt.PointingHandCursor)
         self.web_companion_button.setToolTip(
             "Open or manage the local FZAstro AI Web Companion"
@@ -1364,12 +1376,13 @@ class FZAstroAI(
         title_box_layout.addWidget(subtitle)
 
         self.new_chat_button = self._create_toolbar_button(
-            "＋", "newChatButton", "New chat", width=48, height=36
+            "＋", "newChatButton", "New chat", width=42, height=36
         )
         self.new_chat_button.clicked.connect(self.new_chat)
 
-        self.dev_workbench_button = QPushButton("DEV")
-        self.dev_workbench_button.setObjectName("stockPriceButton")
+        self.dev_workbench_button = QPushButton("⚙ DEV")
+        self.dev_workbench_button.setObjectName("cockpitSkillButton")
+        self.dev_workbench_button.setProperty("accent", "true")
         self.dev_workbench_button.setFixedSize(62, 36)
         self.dev_workbench_button.setCursor(Qt.PointingHandCursor)
         self.dev_workbench_button.clicked.connect(self.open_dev_workbench)
@@ -1425,39 +1438,87 @@ class FZAstroAI(
             )
             self.calibration_buttons[profile_key] = button
 
-        mode_label = QLabel("MODE")
-        mode_label.setObjectName("toolbarCaption")
+        def _create_cockpit_group(title_text, object_name, title_width=48):
+            group = QFrame()
+            group.setObjectName(object_name)
+            group_layout = QHBoxLayout(group)
+            group_layout.setContentsMargins(6, 5, 6, 5)
+            group_layout.setSpacing(4)
 
-        separator = QFrame()
-        separator.setObjectName("toolbarDivider")
-        separator.setFrameShape(QFrame.VLine)
-        separator.setFixedWidth(1)
+            if title_text == "SKILLS":
+                group_title = QLabel("SKILLS")
+            else:
+                group_title = QLabel(title_text)
+            group_title.setObjectName("cockpitGroupTitle")
+            group_title.setAlignment(Qt.AlignCenter)
+            group_title.setMinimumWidth(title_width)
+            group_layout.addWidget(group_title, 0, Qt.AlignVCenter)
+
+            return group, group_layout
+
+        runtime_group, runtime_group_layout = _create_cockpit_group(
+            "MODEL", "cockpitRuntimeGroup", title_width=52
+        )
+        runtime_group.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        runtime_group_layout.addWidget(self.model_box, 0, Qt.AlignVCenter)
+        runtime_group_layout.addWidget(
+            self.quick_refresh_models_button, 0, Qt.AlignVCenter
+        )
+        runtime_group_layout.addWidget(
+            self.quick_restart_ollama_button, 0, Qt.AlignVCenter
+        )
+
+        web_group, web_group_layout = _create_cockpit_group(
+            "WEB", "cockpitWebGroup", title_width=42
+        )
+        web_group.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        web_group_layout.addWidget(self.web_box, 0, Qt.AlignVCenter)
+        web_group_layout.addWidget(self.web_companion_button, 0, Qt.AlignVCenter)
+
+        mode_group, mode_group_layout = _create_cockpit_group(
+            "MODE", "cockpitModeGroup", title_width=44
+        )
+        for profile_key in profile_order:
+            mode_group_layout.addWidget(
+                self.calibration_buttons[profile_key], 0, Qt.AlignVCenter
+            )
+
+        self.system_menu_button = QPushButton("Menu ▾")
+        self.system_menu_button.setObjectName("cockpitSystemMenuButton")
+        self.system_menu_button.setFixedSize(88, 36)
+        self.system_menu_button.setCursor(Qt.PointingHandCursor)
+        self.system_menu_button.setToolTip(
+            "Open system tools: history, help, diagnostics, and version info"
+        )
+        self.system_menu_button.setAccessibleName("Open system tools menu")
+        self.system_menu_button.setMenu(self.build_system_menu())
+
+        system_group, system_group_layout = _create_cockpit_group(
+            "SYS", "cockpitSystemGroup", title_width=36
+        )
+        system_group_layout.addWidget(self.system_menu_button, 0, Qt.AlignVCenter)
 
         top_bar_layout.addWidget(self.sidebar_button)
         top_bar_layout.addWidget(brand_mark)
-        top_bar_layout.addWidget(title_box)
-        top_bar_layout.addStretch(1)
-        top_bar_layout.addWidget(mode_label)
+        top_bar_layout.addWidget(title_box, 1)
+        top_bar_layout.addWidget(mode_group, 0)
+        top_bar_layout.addWidget(system_group, 0)
 
-        for profile_key in profile_order:
-            top_bar_layout.addWidget(self.calibration_buttons[profile_key])
-
-        top_bar_layout.addSpacing(4)
-        top_bar_layout.addWidget(separator)
-        top_bar_layout.addSpacing(4)
-        top_bar_layout.addWidget(self.history_button)
-        top_bar_layout.addWidget(self.help_button)
-        top_bar_layout.addWidget(self.diagnostics_button)
-        top_bar_layout.addWidget(self.about_button)
+        runtime_bar = QFrame()
+        runtime_bar.setObjectName("runtimeBar")
+        runtime_bar_layout = QHBoxLayout(runtime_bar)
+        runtime_bar_layout.setContentsMargins(10, 8, 10, 8)
+        runtime_bar_layout.setSpacing(8)
+        runtime_bar_layout.addWidget(runtime_group, 0, Qt.AlignVCenter)
+        runtime_bar_layout.addWidget(web_group, 0, Qt.AlignVCenter)
+        runtime_bar_layout.addStretch(1)
+        self.runtime_bar = runtime_bar
 
         quick_bar = QFrame()
         quick_bar.setObjectName("skillsDrawer")
         quick_bar_layout = QHBoxLayout(quick_bar)
-        quick_bar_layout.setContentsMargins(12, 8, 12, 8)
-        quick_bar_layout.setSpacing(7)
-
-        quick_label = QLabel("SKILLS")
-        quick_label.setObjectName("toolbarCaption")
+        quick_bar_layout.setContentsMargins(8, 7, 8, 7)
+        quick_bar_layout.setSpacing(6)
 
         self.news_button = QPushButton("Daily News")
         self.news_button.setObjectName("dailyNewsButton")
@@ -1620,32 +1681,44 @@ class FZAstroAI(
         web_quick_label.setObjectName("toolbarCaption")
         web_quick_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
+        compact_skill_labels = {
+            "knowledge": "Know",
+            "code_lab": "Code",
+            "model_lab": "Models",
+            "workspace": "Work",
+        }
+        compact_skill_widths = {
+            "research": 78,
+            "knowledge": 66,
+            "code_lab": 68,
+            "astro": 62,
+            "markets": 68,
+            "model_lab": 70,
+            "workspace": 62,
+        }
+
         self.skill_buttons = {}
         for skill in SKILLS:
-            skill_button = QPushButton(skill.label)
-            skill_button.setObjectName("stockPriceButton")
-            skill_button.setFixedHeight(36)
-            skill_button.setMinimumWidth(max(82, len(skill.label) * 9 + 24))
+            display_label = compact_skill_labels.get(skill.skill_id, skill.label)
+            skill_button = QPushButton(f"{skill.icon} {display_label}")
+            skill_button.setObjectName("cockpitSkillButton")
+            skill_button.setFixedSize(compact_skill_widths.get(skill.skill_id, 70), 36)
             skill_button.setCursor(Qt.PointingHandCursor)
-            skill_button.setToolTip(skill.description)
+            skill_button.setToolTip(f"{skill.label}: {skill.description}")
             skill_button.setAccessibleName(f"Open {skill.label} skill")
             skill_button.setMenu(self.build_skill_menu(skill.skill_id))
             self.skill_buttons[skill.skill_id] = skill_button
 
-        quick_bar_layout.addWidget(quick_label)
-        quick_bar_layout.addSpacing(4)
-        quick_bar_layout.addWidget(self.new_chat_button)
-        quick_bar_layout.addWidget(self.dev_workbench_button)
+        skills_group, skills_group_layout = _create_cockpit_group(
+            "SKILLS", "cockpitSkillsGroup"
+        )
+        skills_group_layout.addWidget(self.new_chat_button, 0, Qt.AlignVCenter)
+        skills_group_layout.addWidget(self.dev_workbench_button, 0, Qt.AlignVCenter)
         for skill_button in self.skill_buttons.values():
-            quick_bar_layout.addWidget(skill_button)
-        quick_bar_layout.addStretch(1)
-        quick_bar_layout.addWidget(model_quick_label)
-        quick_bar_layout.addWidget(self.model_box)
-        quick_bar_layout.addWidget(self.quick_refresh_models_button)
-        quick_bar_layout.addWidget(self.quick_restart_ollama_button)
-        quick_bar_layout.addWidget(web_quick_label)
-        quick_bar_layout.addWidget(self.web_box)
-        quick_bar_layout.addWidget(self.web_companion_button)
+            skills_group_layout.addWidget(skill_button, 0, Qt.AlignVCenter)
+        skills_group_layout.addStretch(1)
+
+        quick_bar_layout.addWidget(skills_group, 1)
         self.skills_drawer = quick_bar
         self.skills_drawer.hide()
 
@@ -1761,16 +1834,16 @@ class FZAstroAI(
             "CPU load, best-effort CPU temperature and system RAM usage"
         )
 
-        self.stats_label = QLabel("")
+        self.stats_label = AutoHideStatusLabel("")
         self.stats_label.setObjectName("statsLabel")
         self.stats_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.stats_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
 
-        self.status_row = QWidget()
+        self.status_row = QFrame()
         self.status_row.setObjectName("statusRow")
 
         status_row_layout = QHBoxLayout(self.status_row)
-        status_row_layout.setContentsMargins(2, 0, 2, 0)
+        status_row_layout.setContentsMargins(0, 2, 0, 0)
         status_row_layout.setSpacing(8)
         status_row_layout.addWidget(self.time_label, 0, Qt.AlignLeft | Qt.AlignVCenter)
         status_row_layout.addStretch(1)
@@ -1863,7 +1936,7 @@ class FZAstroAI(
         self.composer_code_button.setShortcut(QKeySequence("Ctrl+K"))
         self.composer_code_button.setMenu(self.build_skill_menu("code_lab"))
 
-        self.composer_paste_code_button = QPushButton("Add")
+        self.composer_paste_code_button = QPushButton("＋ Add")
         self.composer_paste_code_button.setObjectName("composerToolButton")
         self.composer_paste_code_button.setCursor(Qt.PointingHandCursor)
         self.composer_paste_code_button.setToolTip(
@@ -1978,8 +2051,8 @@ class FZAstroAI(
         composer_shell = QFrame()
         composer_shell.setObjectName("composerShell")
         composer_layout = QVBoxLayout(composer_shell)
-        composer_layout.setContentsMargins(11, 8, 11, 8)
-        composer_layout.setSpacing(5)
+        composer_layout.setContentsMargins(12, 9, 12, 9)
+        composer_layout.setSpacing(7)
         composer_layout.addWidget(self.attachment_row_container)
         composer_layout.addWidget(self.skills_drawer)
         composer_layout.addWidget(composer_toolbar)
@@ -1987,8 +2060,10 @@ class FZAstroAI(
         composer_layout.addWidget(self.status_row)
 
         main_layout.addWidget(top_bar)
-        # Option A UI polish: skills/model/web controls now live in the bottom expandable Skills drawer.
-        # Astro actions remain available under the Astro skill menu instead of a permanent top toolbar.
+        main_layout.addWidget(runtime_bar)
+        # Cockpit polish: the main title/mode/system bar stays clean; runtime/web
+        # controls sit on their own row directly below it.
+        # The bottom drawer stays focused on Skills and composer tooling.
         main_layout.addWidget(self.thought_panel)
         main_layout.addWidget(chat_surface, 1)
         main_layout.addWidget(composer_shell)
@@ -2132,6 +2207,48 @@ class FZAstroAI(
         self.save_web_companion_settings()
         self.update_web_companion_sidebar()
 
+    def build_system_menu(self):
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+
+        self.system_history_action = QAction("Chat history", self)
+        self.system_history_action.setCheckable(True)
+        self.system_history_action.setToolTip("Open or close the chat history panel")
+        self.system_history_action.triggered.connect(
+            lambda _checked=False: self.toggle_history_panel()
+        )
+        menu.addAction(self.system_history_action)
+
+        help_action = QAction("Help cheat sheet", self)
+        help_action.setToolTip("Open FZAstro AI help and command hints")
+        help_action.triggered.connect(
+            lambda _checked=False: self.open_help_cheat_sheet()
+        )
+        menu.addAction(help_action)
+
+        diagnostics_action = QAction("Diagnostics / error log", self)
+        diagnostics_action.setToolTip("Open diagnostics, paths, and recent error logs")
+        diagnostics_action.triggered.connect(
+            lambda _checked=False: self.open_diagnostics_window()
+        )
+        menu.addAction(diagnostics_action)
+
+        menu.addSeparator()
+
+        about_action = QAction("About / version", self)
+        about_action.setToolTip("Open FZAstro AI version and release information")
+        about_action.triggered.connect(lambda _checked=False: self.open_about_window())
+        menu.addAction(about_action)
+
+        menu.aboutToShow.connect(self.refresh_system_menu_state)
+        return menu
+
+    def refresh_system_menu_state(self):
+        history_action = getattr(self, "system_history_action", None)
+        if history_action is not None:
+            history_action.setChecked(bool(self.history_panel.isVisible()))
+            history_action.setEnabled(bool(self.history_button.isEnabled()))
+
     def build_web_companion_menu(self):
         menu = QMenu(self)
 
@@ -2139,7 +2256,11 @@ class FZAstroAI(
         open_action.triggered.connect(self.open_web_companion)
         menu.addAction(open_action)
 
-        start_action = QAction("Start local hidden server", self)
+        start_action = QAction("Start / take over LAN server", self)
+        start_action.setToolTip(
+            "Start the desktop-owned Web Companion. If a stale external "
+            "server is using the port, stop it first."
+        )
         start_action.triggered.connect(self.start_web_companion_background)
         menu.addAction(start_action)
 
@@ -2147,7 +2268,11 @@ class FZAstroAI(
         start_lan_action.triggered.connect(self.start_web_companion_lan_prompt)
         menu.addAction(start_lan_action)
 
-        stop_action = QAction("Stop desktop-owned server", self)
+        stop_action = QAction("Stop current Web server", self)
+        stop_action.setToolTip(
+            "Stop the desktop-owned server, or clear a stale external "
+            "process using the Web Companion port."
+        )
         stop_action.triggered.connect(self.stop_web_companion_background)
         menu.addAction(stop_action)
 
@@ -2174,7 +2299,7 @@ class FZAstroAI(
         return status
 
     def start_web_companion_background(self):
-        status = self.web_companion.start(lan=True)
+        status = self.web_companion.start(lan=True, replace_external=True)
         self.update_web_companion_button(status)
         if not status.running:
             log_warning("Web Companion local start failed", status.message)
@@ -2201,7 +2326,11 @@ class FZAstroAI(
             )
             return
 
-        status = self.web_companion.start(lan=True, token=token)
+        status = self.web_companion.start(
+            lan=True,
+            token=token,
+            replace_external=True,
+        )
         self.update_web_companion_button(status)
 
         if status.running:
@@ -2218,9 +2347,12 @@ class FZAstroAI(
             QMessageBox.warning(self, "Web Companion", status.message)
 
     def stop_web_companion_background(self):
-        status = self.web_companion.stop()
+        status = self.web_companion.stop(force_external=True)
         self.update_web_companion_button(status)
-        QMessageBox.information(self, "Web Companion", status.message)
+        if status.running:
+            QMessageBox.warning(self, "Web Companion", status.message)
+        else:
+            QMessageBox.information(self, "Web Companion", status.message)
 
     def open_web_companion(self):
         status = self.web_companion.status()
@@ -2288,18 +2420,37 @@ class FZAstroAI(
             label.setText(
                 f"Status: {state}\n"
                 f"LAN URL: {status.url}\n"
-                f"LAN/iPad URL: {extra_url if status.lan else lan_web_url(self.web_companion.port)}\n"
+                "LAN/iPad URL: "
+                f"{extra_url if status.lan else lan_web_url(self.web_companion.port)}\n"
                 f"Owner: {owner if status.running else 'none'}\n"
                 f"{status.message}"
             )
 
         stop_button = getattr(self, "web_companion_stop_button", None)
         if stop_button is not None:
-            stop_button.setEnabled(bool(status.owned))
+            stop_button.setEnabled(bool(status.running or status.owned))
+            if status.running and not status.owned:
+                stop_button.setToolTip(
+                    "Stop the stale/manual process currently using the Web Companion port."
+                )
+            else:
+                stop_button.setToolTip("Stop the desktop-owned Web Companion server.")
 
         start_button = getattr(self, "web_companion_start_button", None)
         if start_button is not None:
-            start_button.setEnabled(not status.running)
+            if status.running and not status.owned:
+                start_button.setText("Restart as Desktop LAN Server")
+                start_button.setEnabled(True)
+                start_button.setToolTip(
+                    "Stop the stale/manual server on this port and start "
+                    "a desktop-owned LAN server."
+                )
+            else:
+                start_button.setText("Start LAN Web Server")
+                start_button.setEnabled(not status.running)
+                start_button.setToolTip(
+                    "Start the desktop-owned Web Companion LAN server."
+                )
 
     def open_document_knowledge_library(self):
         dialog = QDialog(self)
