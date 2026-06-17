@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$PythonExe = $env:FZASTRO_PYTHON,
     [string]$BuildRoot = "",
@@ -810,8 +810,7 @@ $PyInstallerArgs = @(
     "--add-data", "$AstropySampCrossdomainPath;astropy\samp\data",
     "--add-data", "$AstropySampClientPolicyPath;astropy\samp\data",
     "--add-data", "$AstroquerySimbadCriteriaPath;astroquery\simbad\data",
-    "--add-data", "$NinaTemplatesDir;fzastro_aiesources
-ina_templates",
+    "--add-data", "$NinaTemplatesDir;fzastro_ai/resources/nina_templates",
     "--add-data", "$AstropySampIconPath;astropy\vo\samp\data",
     "--add-data", "$AstropySampCrossdomainPath;astropy\vo\samp\data",
     "--add-data", "$AstropySampClientPolicyPath;astropy\vo\samp\data",
