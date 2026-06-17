@@ -138,7 +138,7 @@ SKILLS: tuple[Skill, ...] = (
             ),
             _composer(
                 "documents.list_documents",
-                "List imported documents",
+                "List documents",
                 "Show the indexed document inventory in chat.",
                 section="Library",
             ),

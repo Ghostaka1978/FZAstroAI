@@ -156,7 +156,7 @@ COMPOSER_DOCUMENT_ACTIONS: tuple[ComposerAction, ...] = (
     ComposerAction(
         action_id="documents.list_documents",
         group="Documents",
-        label="List imported documents",
+        label="List documents",
         description="List the documents currently indexed in the knowledge library.",
         mode="direct",
     ),

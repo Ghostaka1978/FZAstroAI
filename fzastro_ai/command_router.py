@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
-from .skill_registry import SKILLS
+from ..skill_registry import SKILLS
 
 
 @dataclass(frozen=True)

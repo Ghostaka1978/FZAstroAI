@@ -11,9 +11,9 @@ from urllib.parse import urlencode
 
 from PySide6.QtCore import QThread, Signal
 
-from .config import APP_DIR
-from .logging_utils import log_debug, log_exception, log_warning
-from .network_utils import get_limited_json, get_limited_response
+from ..config import APP_DIR
+from ..logging_utils import log_debug, log_exception, log_warning
+from ..network_utils import get_limited_json, get_limited_response
 
 SUN_NOW_CACHE_DIR = APP_DIR / "sun_now"
 SDO_LATEST_BASE_URL = "https://sdo.gsfc.nasa.gov/assets/img/latest"

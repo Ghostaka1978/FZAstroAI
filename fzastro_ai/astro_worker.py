@@ -5,8 +5,8 @@ from typing import Any, Dict
 
 from PySide6.QtCore import QThread, Signal
 
-from .astro_tools import engine as astro_engine
-from .logging_utils import log_exception, log_warning
+from ..astro_tools import engine as astro_engine
+from ..logging_utils import log_exception, log_warning
 
 
 class AstroWorker(QThread):

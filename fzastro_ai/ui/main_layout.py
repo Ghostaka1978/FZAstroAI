@@ -441,21 +441,13 @@ class MainLayoutMixin:
         self.sidebar_button.setChecked(self.sidebar_visible)
 
     def toggle_skills_drawer(self):
-        """Expand/collapse the bottom Skills drawer without disturbing the composer."""
-        drawer = getattr(self, "skills_drawer", None)
+        """Backward-compatible helper: open the Skills menu instead of an inline drawer."""
         button = getattr(self, "composer_actions_button", None)
 
-        if drawer is None:
+        if button is None:
             return
 
-        visible = not drawer.isVisible()
-        drawer.setVisible(visible)
+        menu = button.menu() if hasattr(button, "menu") else None
 
-        if button is not None:
-            button.setChecked(visible)
-            button.setText("Skills ▾" if visible else "Skills ▴")
-
-        try:
-            self.refresh_chat_layout(scroll_to_bottom=False)
-        except Exception:
-            pass
+        if menu is not None:
+            menu.popup(button.mapToGlobal(button.rect().bottomLeft()))

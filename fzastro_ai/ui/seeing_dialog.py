@@ -1147,7 +1147,7 @@ class SeeingDialog(QDialog):
 
         site_caption = QLabel("Site")
         site_caption.setObjectName("toolbarCaption")
-        record_caption = QLabel("Detail record")
+        record_caption = QLabel("Selected day")
         record_caption.setObjectName("toolbarCaption")
         altitude_caption = QLabel("Altitude (m)")
         altitude_caption.setObjectName("toolbarCaption")
@@ -1250,7 +1250,7 @@ class SeeingDialog(QDialog):
         planner_title = QLabel("Astro Night Planner")
         planner_title.setObjectName("astroLookupSectionTitle")
         planner_hint = QLabel(
-            "Daily cards: clouds + seeing + transparency gauges · click a card for details"
+            "Daily cards: clouds + seeing + transparency gauges · click a day for same-day hours"
         )
         planner_hint.setObjectName("astroLookupStatusLabel")
         planner_header.addWidget(planner_title)
@@ -1279,9 +1279,7 @@ class SeeingDialog(QDialog):
         table_layout = QVBoxLayout(table_panel)
         table_layout.setContentsMargins(9, 9, 9, 9)
         table_layout.setSpacing(6)
-        table_title = QLabel(
-            "Forecast points for selected 24-hour record · night first"
-        )
+        table_title = QLabel("Forecast points for selected day · chronological")
         table_title.setObjectName("astroLookupSectionTitle")
         self.table = QTableWidget(0, 10)
         self.table.setObjectName("seeingForecastTable")
@@ -1848,6 +1846,12 @@ class SeeingDialog(QDialog):
         return 45
 
     def _build_24h_blocks(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Build one planner block per local calendar day.
+
+        The table below the planner is selected by these blocks. Grouping by
+        local date keeps each table view limited to the hours of that selected
+        day instead of mixing a noon-to-noon 24-hour record across two dates.
+        """
         dated_rows = []
         for index, row in enumerate(rows or []):
             copied = dict(row)
@@ -1857,67 +1861,59 @@ class SeeingDialog(QDialog):
                 dated_rows.append((dt, copied))
         if not dated_rows:
             return []
+
         dated_rows.sort(key=lambda item: item[0])
-        first_dt = dated_rows[0][0]
-        noon = first_dt.replace(hour=12, minute=0, second=0, microsecond=0)
-        start = noon if first_dt.hour >= 12 else noon - timedelta(days=1)
-        last_dt = dated_rows[-1][0]
+        rows_by_day: dict[Any, list[tuple[datetime, dict[str, Any]]]] = {}
+        for dt, row in dated_rows:
+            rows_by_day.setdefault(dt.date(), []).append((dt, row))
+
         blocks: list[dict[str, Any]] = []
-        block_index = 1
-        cursor = start
-        while cursor <= last_dt:
-            end = cursor + timedelta(hours=24)
-            block_rows = [row for dt, row in dated_rows if cursor <= dt < end]
-            if block_rows:
-                dark_rows = [row for row in block_rows if row.get("astro_dark") is True]
-                imaging_rows = dark_rows or block_rows
-                cloud_values = [
-                    int(row.get("cloud_mid_pct") or 0) for row in imaging_rows
-                ]
-                seeing_values = [
-                    int(row.get("seeing_code") or 99) for row in imaging_rows
-                ]
-                dark_count = len(dark_rows)
-                moon_up_count = sum(
-                    1 for row in imaging_rows if row.get("moon_up") is True
-                )
-                best = max(imaging_rows, key=lambda row: int(row.get("score") or 0))
-                avg_cloud = round(sum(cloud_values) / max(1, len(cloud_values)))
-                block_score = min(
-                    int(best.get("score") or 0),
-                    self._record_cloud_cap(avg_cloud, bool(dark_rows)),
-                )
-                moon_row = imaging_rows[len(imaging_rows) // 2]
-                first_block_dt = self._row_local_dt(block_rows[0]) or cursor
-                # Display the card by the first actual forecast date, not by an
-                # artificial noon cursor. This avoids showing yesterday as the
-                # first planner card when 7Timer starts today before noon.
-                display_dt = (
-                    first_block_dt if first_block_dt.date() > cursor.date() else cursor
-                )
-                exact_range = f"{cursor.strftime('%a %Y-%m-%d %H:%M')} → {end.strftime('%a %H:%M')}"
-                blocks.append(
-                    {
-                        "label": f"Record {block_index}: {exact_range} (24h)",
-                        "short_label": f"{display_dt.strftime('%a %d %b')} · {cursor.strftime('%H:%M')} → {end.strftime('%a %H:%M')}",
-                        "day_label": display_dt.strftime("%A %d"),
-                        "display_iso": display_dt.isoformat(),
-                        "start_iso": cursor.isoformat(),
-                        "end_iso": end.isoformat(),
-                        "rows": block_rows,
-                        "best_score": block_score,
-                        "best_time": best.get("local_label"),
-                        "avg_cloud": avg_cloud,
-                        "avg_cloud_scope": "night" if dark_rows else "record",
-                        "best_seeing_code": min(seeing_values),
-                        "astro_dark_points": dark_count,
-                        "moon_up_points": moon_up_count,
-                        "moon_pct": moon_row.get("moon_pct"),
-                        "moon_phase": moon_row.get("moon_phase"),
-                    }
-                )
-                block_index += 1
-            cursor = end
+        for block_index, day in enumerate(sorted(rows_by_day), start=1):
+            day_items = sorted(rows_by_day[day], key=lambda item: item[0])
+            block_rows = [row for _dt, row in day_items]
+            if not block_rows:
+                continue
+
+            start = day_items[0][0].replace(hour=0, minute=0, second=0, microsecond=0)
+            end = start + timedelta(days=1)
+            dark_rows = [row for row in block_rows if row.get("astro_dark") is True]
+            imaging_rows = dark_rows or block_rows
+            cloud_values = [int(row.get("cloud_mid_pct") or 0) for row in imaging_rows]
+            seeing_values = [int(row.get("seeing_code") or 99) for row in imaging_rows]
+            dark_count = len(dark_rows)
+            moon_up_count = sum(1 for row in imaging_rows if row.get("moon_up") is True)
+            best = max(imaging_rows, key=lambda row: int(row.get("score") or 0))
+            avg_cloud = round(sum(cloud_values) / max(1, len(cloud_values)))
+            block_score = min(
+                int(best.get("score") or 0),
+                self._record_cloud_cap(avg_cloud, bool(dark_rows)),
+            )
+            moon_row = imaging_rows[len(imaging_rows) // 2]
+            display_dt = start
+            exact_range = (
+                f"{start.strftime('%a %Y-%m-%d 00:00')} → "
+                f"{end.strftime('%a 00:00')}"
+            )
+            blocks.append(
+                {
+                    "label": f"Day {block_index}: {exact_range}",
+                    "short_label": f"{display_dt.strftime('%a %d %b')} · 00:00 → 23:59",
+                    "day_label": display_dt.strftime("%A %d"),
+                    "display_iso": display_dt.isoformat(),
+                    "start_iso": start.isoformat(),
+                    "end_iso": end.isoformat(),
+                    "rows": block_rows,
+                    "best_score": block_score,
+                    "best_time": best.get("local_label"),
+                    "avg_cloud": avg_cloud,
+                    "avg_cloud_scope": "night" if dark_rows else "day",
+                    "best_seeing_code": min(seeing_values),
+                    "astro_dark_points": dark_count,
+                    "moon_up_points": moon_up_count,
+                    "moon_pct": moon_row.get("moon_pct"),
+                    "moon_phase": moon_row.get("moon_phase"),
+                }
+            )
         return blocks
 
     def _populate_day_graph_combo(self):
@@ -1926,11 +1922,11 @@ class SeeingDialog(QDialog):
         for index, block in enumerate(self._day_blocks):
             score = block.get("best_score")
             cloud = block.get("avg_cloud")
-            scope = str(block.get("avg_cloud_scope") or "record")
+            scope = str(block.get("avg_cloud_scope") or "day")
             best_label = "best score"
-            cloud_label = "night cloud" if scope == "night" else "cloud"
+            cloud_label = "night cloud" if scope == "night" else "day cloud"
             self.day_graph_combo.addItem(
-                f"Record {index + 1}: {block.get('short_label', f'24h {index + 1}')} · {best_label} {score if score is not None else '—'} · {cloud_label} {cloud if cloud is not None else '—'}%",
+                f"Day {index + 1}: {block.get('short_label', f'day {index + 1}')} · {best_label} {score if score is not None else '—'} · {cloud_label} {cloud if cloud is not None else '—'}%",
                 index,
             )
         self.day_graph_combo.blockSignals(False)
@@ -2056,33 +2052,25 @@ class SeeingDialog(QDialog):
         text = str(row.get("astro_dark_text", "")).lower()
         return text.startswith("astro dark")
 
-    def _forecast_point_sort_key(
-        self, row: dict[str, Any]
-    ) -> tuple[int, int, int, datetime]:
-        """Sort forecast points for astrophotography use: dark/moon-safe hours first."""
-        local_dt = self._row_local_dt(row) or datetime.max
-        score = self._safe_int(row.get("score"), 0)
-        moon_up = row.get("moon_up") is True
-        night = self._is_night_row(row)
-        if night and not moon_up:
-            bucket = 0
-        elif night:
-            bucket = 1
-        elif not moon_up:
-            bucket = 2
-        else:
-            bucket = 3
-        # Within each bucket, better score appears first, then chronological order.
-        return (bucket, -score, self._safe_int(row.get("cloud_mid_pct"), 100), local_dt)
+    def _forecast_point_sort_key(self, row: dict[str, Any]) -> tuple[datetime, int]:
+        """Sort selected-day forecast points chronologically.
 
-    def _night_first_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        Day cards already surface the best imaging periods. The detailed table
+        should read like a timeline for the selected local calendar day, so the
+        user sees 05:00, 08:00, 11:00, 14:00, etc. in natural order instead of
+        score/night buckets.
+        """
+        local_dt = self._row_local_dt(row) or datetime.max
+        return (local_dt, self._safe_int(row.get("row_index"), 0))
+
+    def _chronological_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(
             [dict(row) for row in (rows or [])], key=self._forecast_point_sort_key
         )
 
     def _populate_table(self, rows: list[dict[str, Any]]):
         self.table.setRowCount(0)
-        display_rows = self._night_first_rows(rows)
+        display_rows = self._chronological_rows(rows)
         for index, row_data in enumerate(display_rows):
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -2136,7 +2124,6 @@ class SeeingDialog(QDialog):
         if not items:
             return
         row = items[0].row()
-        self.cloud_chart.set_selected_index(row)
         item = self.table.item(row, 0)
         if item is None:
             return
@@ -2144,12 +2131,15 @@ class SeeingDialog(QDialog):
         if isinstance(data, dict):
             self.detail_browser.setHtml(self._detail_html(data))
             row_index = int(data.get("row_index", row))
+            self.cloud_chart.set_selected_index(row_index)
             block_index = self._block_index_for_row(data)
             if block_index >= 0 and self.day_graph_combo.currentIndex() != block_index:
                 self.day_graph_combo.blockSignals(True)
                 self.day_graph_combo.setCurrentIndex(block_index)
                 self.day_graph_combo.blockSignals(False)
             self.night_planner.set_blocks(self._day_blocks, row_index)
+        else:
+            self.cloud_chart.set_selected_index(row)
 
     def _selected_row_index(self) -> int:
         items = self.table.selectedItems()

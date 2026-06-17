@@ -31,15 +31,26 @@ from PySide6.QtWidgets import (
 
 
 CAMERA_PRESETS: Dict[str, Dict[str, float | int | str]] = {
-    "aps": {
-        "name": "IMX571",
-        "label": "IMX571 (APS-C, 6248 × 4176)",
-        "preset_label_text": "IMX571 (2.337°, 6248 × 4176)",
-        "sensor_width_mm": 23.5,
-        "native_width": 6248,
-        "native_height": 4176,
+    # Keep dropdowns ordered from smallest to largest field of view at 700 mm.
+    "120": {
+        "name": "ASI120",
+        "label": "ASI120 (1280 × 960)",
+        "preset_label_text": "ASI120 (0.393°, 1280 × 960)",
+        "sensor_width_mm": 4.8,
+        "native_width": 1280,
+        "native_height": 960,
+        "output_width": 1280,
+        "output_height": 960,
+    },
+    "220": {
+        "name": "ASI220",
+        "label": "ASI220 (1920 × 1080)",
+        "preset_label_text": "ASI220 (0.629°, 1920 × 1080)",
+        "sensor_width_mm": 7.68,
+        "native_width": 1920,
+        "native_height": 1080,
         "output_width": 1536,
-        "output_height": 1024,
+        "output_height": 864,
     },
     "533": {
         "name": "IMX533",
@@ -60,6 +71,26 @@ CAMERA_PRESETS: Dict[str, Dict[str, float | int | str]] = {
         "native_height": 2160,
         "output_width": 1536,
         "output_height": 864,
+    },
+    "aps": {
+        "name": "IMX571",
+        "label": "IMX571 (APS-C, 6248 × 4176)",
+        "preset_label_text": "IMX571 (2.337°, 6248 × 4176)",
+        "sensor_width_mm": 23.5,
+        "native_width": 6248,
+        "native_height": 4176,
+        "output_width": 1536,
+        "output_height": 1024,
+    },
+    "455": {
+        "name": "IMX455",
+        "label": "IMX455 (full frame, 9576 × 6388)",
+        "preset_label_text": "IMX455 (2.946°, full frame, 9576 × 6388)",
+        "sensor_width_mm": 36.0,
+        "native_width": 9576,
+        "native_height": 6388,
+        "output_width": 1536,
+        "output_height": 1024,
     },
 }
 

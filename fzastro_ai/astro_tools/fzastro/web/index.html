@@ -961,9 +961,12 @@ pre .line.yellow { color: #ffd84d; }
         <label for="preset" style="margin:0 0 6px;line-height:1">Camera Preset</label>
         <!-- FIX: Removed duplicate style attribute -->
         <select id="preset" class="ui-input" style="width:clamp(220px,40vw,320px)">
-        <option value="aps">IMX571 (2.337°, 6248 × 4176)</option>
+        <option value="120">ASI120 (0.393°, 1280 × 960)</option>
+        <option value="220">ASI220 (0.629°, 1920 × 1080)</option>
         <option value="533">IMX533 (1.12°, 3008 × 3008)</option>
         <option value="585" selected>IMX585 (1.33°, 3840 × 2160)</option>
+        <option value="aps">IMX571 (2.337°, 6248 × 4176)</option>
+        <option value="455">IMX455 (2.946°, full frame, 9576 × 6388)</option>
         </select>
     </div>
     <div class="menu-block" style="display:flex;flex-direction:column;margin-top:14px">
@@ -1003,7 +1006,7 @@ pre .line.yellow { color: #ffd84d; }
       </li>
       <li>Common Names (<code>Iris Nebula</code>, <code>Andromeda Galaxy</code>)</li>
       <li>Rotation (<code>rotation=0-90-180-270</code>)</li>
-      <li>Camera Preset (<code>preset=Askar103_1x_IMX585</code>)</li>
+      <li>Camera Preset (<code>preset=Askar103_1x_IMX585</code>, <code>preset=455</code>)</li>
       <li>Focal Length (<code>focal=700mm</code>, — range <code>50–6000 mm</code><code> — 0.1–10 FOV</code></li>
     </ul>
     <em>Note: Some informal names (e.g. "Rosette Cluster") are not in SIMBAD. Use the official catalog ID instead.</em>
@@ -1171,9 +1174,12 @@ const dropdownIds = [
   "nebulas","galaxies","spacecraft","messier","localgroup","virgosupercluster","localsc",
 ];
 const SENSOR_MM = {
-  aps:  { w: 23.5 },  // IMX571 APS-C
+  "120":{ w: 4.8 },   // ASI120
+  "220":{ w: 7.68 },  // ASI220
   "533":{ w: 11.3 },  // IMX533
   "585":{ w: 11.2 },  // IMX585
+  aps:  { w: 23.5 },  // IMX571 APS-C
+  "455":{ w: 36.0 },  // IMX455 full frame
 };
 
 // compute horizontal FOV in degrees from focal length
@@ -1193,9 +1199,12 @@ function syncFov(){
 }
 
 function applyPresetDims(k){
-  if (k === "aps")      { wEl.value = 1536; hEl.value = 1024; }
+  if (k === "120")      { wEl.value = 1280; hEl.value =  960; }
+  else if (k === "220") { wEl.value = 1536; hEl.value =  864; }
   else if (k === "533") { wEl.value = 1024; hEl.value = 1024; }
   else if (k === "585") { wEl.value = 1536; hEl.value =  864; }
+  else if (k === "aps") { wEl.value = 1536; hEl.value = 1024; }
+  else if (k === "455") { wEl.value = 1536; hEl.value = 1024; }
 }
 
 preset?.addEventListener("change", () => { applyPresetDims(preset.value); syncFov(); });

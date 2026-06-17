@@ -972,6 +972,7 @@ class FZAstroAI(
         self.knowledge_clear_button = None
         self.knowledge_compact_button = None
         self.knowledge_close_button = None
+        self.imported_documents_button = None
         self.knowledge_search_input = None
         self.knowledge_search_preview = None
         self.pending_memory_source_records = []
@@ -1199,16 +1200,25 @@ class FZAstroAI(
         self.model_box.setObjectName("quickModelBox")
         self.model_box.addItems([DEFAULT_MODEL_NAME])
         self.model_box.setFixedHeight(36)
-        # The runtime row gives the model selector enough room for long local model names.
-        # Full model names remain available in the tooltip and the opened list.
-        self.model_box.setMinimumWidth(260)
-        self.model_box.setMaximumWidth(380)
-        self.model_box.setFixedWidth(320)
+        # Keep the unified runtime row compact while leaving full model names in tooltips.
+        self.model_box.setMinimumWidth(170)
+        self.model_box.setMaximumWidth(190)
+        self.model_box.setFixedWidth(185)
         self.model_box.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.model_box.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.model_box.setMinimumContentsLength(12)
         self.model_box.setToolTip(
             "Active model. Open the list to switch local/API models."
         )
-        self.model_box.view().setMinimumWidth(520)
+        # Keep the opened model list compact so it matches the unified top command bar.
+        self.model_box.setMaxVisibleItems(8)
+        self.model_box.view().setFixedWidth(185)
+        self.model_box.view().setMinimumWidth(185)
+        self.model_box.view().setMaximumWidth(185)
+        self.model_box.view().setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.model_box.view().setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         self.web_box = QComboBox()
         self.web_box.setObjectName("quickWebBox")
@@ -1376,8 +1386,9 @@ class FZAstroAI(
         title_box_layout.addWidget(subtitle)
 
         self.new_chat_button = self._create_toolbar_button(
-            "＋", "newChatButton", "New chat", width=42, height=36
+            "New Chat", "newChatButton", "Start a new empty chat", width=68, height=24
         )
+        self.new_chat_button.setAccessibleName("Start new chat")
         self.new_chat_button.clicked.connect(self.new_chat)
 
         self.dev_workbench_button = QPushButton("⚙ DEV")
@@ -1475,13 +1486,20 @@ class FZAstroAI(
         web_group_layout.addWidget(self.web_box, 0, Qt.AlignVCenter)
         web_group_layout.addWidget(self.web_companion_button, 0, Qt.AlignVCenter)
 
+        self.mode_menu_button = QPushButton("Mode ▾")
+        self.mode_menu_button.setObjectName("cockpitModeButton")
+        self.mode_menu_button.setFixedSize(104, 36)
+        self.mode_menu_button.setCursor(Qt.PointingHandCursor)
+        self.mode_menu_button.setToolTip(
+            "Expand assistant mode, calibration, persona, memory, and runtime tools."
+        )
+        self.mode_menu_button.setAccessibleName("Open assistant mode menu")
+        self.mode_menu_button.setMenu(self.build_top_mode_menu())
+
         mode_group, mode_group_layout = _create_cockpit_group(
             "MODE", "cockpitModeGroup", title_width=44
         )
-        for profile_key in profile_order:
-            mode_group_layout.addWidget(
-                self.calibration_buttons[profile_key], 0, Qt.AlignVCenter
-            )
+        mode_group_layout.addWidget(self.mode_menu_button, 0, Qt.AlignVCenter)
 
         self.system_menu_button = QPushButton("Menu ▾")
         self.system_menu_button.setObjectName("cockpitSystemMenuButton")
@@ -1501,18 +1519,10 @@ class FZAstroAI(
         top_bar_layout.addWidget(self.sidebar_button)
         top_bar_layout.addWidget(brand_mark)
         top_bar_layout.addWidget(title_box, 1)
+        top_bar_layout.addWidget(runtime_group, 0)
+        top_bar_layout.addWidget(web_group, 0)
         top_bar_layout.addWidget(mode_group, 0)
         top_bar_layout.addWidget(system_group, 0)
-
-        runtime_bar = QFrame()
-        runtime_bar.setObjectName("runtimeBar")
-        runtime_bar_layout = QHBoxLayout(runtime_bar)
-        runtime_bar_layout.setContentsMargins(10, 8, 10, 8)
-        runtime_bar_layout.setSpacing(8)
-        runtime_bar_layout.addWidget(runtime_group, 0, Qt.AlignVCenter)
-        runtime_bar_layout.addWidget(web_group, 0, Qt.AlignVCenter)
-        runtime_bar_layout.addStretch(1)
-        self.runtime_bar = runtime_bar
 
         quick_bar = QFrame()
         quick_bar.setObjectName("skillsDrawer")
@@ -1682,18 +1692,18 @@ class FZAstroAI(
         web_quick_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         compact_skill_labels = {
-            "knowledge": "Know",
+            "knowledge": "Context",
             "code_lab": "Code",
-            "model_lab": "Models",
+            "model_lab": "Mode",
             "workspace": "Work",
         }
         compact_skill_widths = {
             "research": 78,
-            "knowledge": 66,
+            "knowledge": 92,
             "code_lab": 68,
             "astro": 62,
             "markets": 68,
-            "model_lab": 70,
+            "model_lab": 76,
             "workspace": 62,
         }
 
@@ -1712,9 +1722,13 @@ class FZAstroAI(
         skills_group, skills_group_layout = _create_cockpit_group(
             "SKILLS", "cockpitSkillsGroup"
         )
-        skills_group_layout.addWidget(self.new_chat_button, 0, Qt.AlignVCenter)
         skills_group_layout.addWidget(self.dev_workbench_button, 0, Qt.AlignVCenter)
-        for skill_button in self.skill_buttons.values():
+        for skill_id, skill_button in self.skill_buttons.items():
+            # Astro now has a promoted main composer button, so keep the Skills
+            # drawer focused on non-astronomy workflows without removing the
+            # registry-backed Astro menu from the app.
+            if skill_id == "astro":
+                continue
             skills_group_layout.addWidget(skill_button, 0, Qt.AlignVCenter)
         skills_group_layout.addStretch(1)
 
@@ -1940,34 +1954,40 @@ class FZAstroAI(
         self.composer_paste_code_button.setObjectName("composerToolButton")
         self.composer_paste_code_button.setCursor(Qt.PointingHandCursor)
         self.composer_paste_code_button.setToolTip(
-            "Add content: paste code, attach files, import documents, or insert context."
+            "Add content: paste code, attach files, or insert context."
         )
         self.composer_paste_code_button.setMenu(self.build_composer_add_menu())
 
-        self.composer_actions_button = QPushButton("Skills ▴")
+        self.imported_documents_button = QPushButton("Imported Documents (0)")
+        self.imported_documents_button.setObjectName("composerToolButton")
+        self.imported_documents_button.setCursor(Qt.PointingHandCursor)
+        self.imported_documents_button.setToolTip(
+            "Show the imported documents command picker in chat. The number in parentheses is the current imported document count."
+        )
+        self.imported_documents_button.setAccessibleName(
+            "Show imported documents command picker"
+        )
+        self.imported_documents_button.clicked.connect(
+            self.show_knowledge_documents_in_chat
+        )
+        self.refresh_imported_documents_button()
+
+        self.composer_astro_button = QPushButton("☉ Astro ▾")
+        self.composer_astro_button.setObjectName("composerAstroButton")
+        self.composer_astro_button.setCursor(Qt.PointingHandCursor)
+        self.composer_astro_button.setToolTip(
+            "Open the Astro Tools Suite: SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP."
+        )
+        self.composer_astro_button.setAccessibleName("Open Astro Tools Suite")
+        self.composer_astro_button.setMenu(self.build_skill_menu("astro"))
+
+        self.composer_actions_button = QPushButton("Skills ▾")
         self.composer_actions_button.setObjectName("composerToolButton")
         self.composer_actions_button.setCursor(Qt.PointingHandCursor)
-        self.composer_actions_button.setToolTip(
-            "Expand or collapse the bottom Skills drawer."
-        )
-        self.composer_actions_button.setCheckable(True)
-        self.composer_actions_button.clicked.connect(self.toggle_skills_drawer)
+        self.composer_actions_button.setToolTip("Open the Skills menu.")
+        self.composer_actions_button.setMenu(self.build_composer_skills_menu())
 
-        self.composer_context_button = QPushButton("Context")
-        self.composer_context_button.setObjectName("composerToolButton")
-        self.composer_context_button.setCursor(Qt.PointingHandCursor)
-        self.composer_context_button.setToolTip(
-            "Open imported documents, search the knowledge library, brief books, and browse PDF pages."
-        )
-        self.composer_context_button.setMenu(self.build_skill_menu("knowledge"))
-
-        self.composer_persona_button = QPushButton("Mode")
-        self.composer_persona_button.setObjectName("composerToolButton")
-        self.composer_persona_button.setCursor(Qt.PointingHandCursor)
-        self.composer_persona_button.setToolTip(
-            "Show the current persona/calibration or open persona-related tools."
-        )
-        self.composer_persona_button.setMenu(self.build_skill_menu("model_lab"))
+        # Context and Mode are available inside the expandable Skills and top Mode menus.
 
         self.composer_clear_button = QPushButton("Clear")
         self.composer_clear_button.setObjectName("composerToolButton")
@@ -1976,17 +1996,18 @@ class FZAstroAI(
         self.composer_clear_button.clicked.connect(self.clear_composer)
 
         composer_toolbar_layout.addWidget(composer_tools_label, 0, Qt.AlignVCenter)
+        composer_toolbar_layout.addWidget(self.new_chat_button, 0, Qt.AlignVCenter)
         composer_toolbar_layout.addWidget(
             self.composer_paste_code_button, 0, Qt.AlignVCenter
+        )
+        composer_toolbar_layout.addWidget(
+            self.composer_astro_button, 0, Qt.AlignVCenter
         )
         composer_toolbar_layout.addWidget(
             self.composer_actions_button, 0, Qt.AlignVCenter
         )
         composer_toolbar_layout.addWidget(
-            self.composer_context_button, 0, Qt.AlignVCenter
-        )
-        composer_toolbar_layout.addWidget(
-            self.composer_persona_button, 0, Qt.AlignVCenter
+            self.imported_documents_button, 0, Qt.AlignVCenter
         )
         composer_toolbar_layout.addWidget(
             self.composer_clear_button, 0, Qt.AlignVCenter
@@ -2054,16 +2075,14 @@ class FZAstroAI(
         composer_layout.setContentsMargins(12, 9, 12, 9)
         composer_layout.setSpacing(7)
         composer_layout.addWidget(self.attachment_row_container)
-        composer_layout.addWidget(self.skills_drawer)
         composer_layout.addWidget(composer_toolbar)
         composer_layout.addLayout(input_row)
         composer_layout.addWidget(self.status_row)
 
         main_layout.addWidget(top_bar)
-        main_layout.addWidget(runtime_bar)
-        # Cockpit polish: the main title/mode/system bar stays clean; runtime/web
-        # controls sit on their own row directly below it.
-        # The bottom drawer stays focused on Skills and composer tooling.
+        # Cockpit polish: title, model, web, mode, and system controls now share
+        # one unified top command bar.
+        # The bottom composer toolbar stays focused on Skills and message tooling.
         main_layout.addWidget(self.thought_panel)
         main_layout.addWidget(chat_surface, 1)
         main_layout.addWidget(composer_shell)
@@ -2643,6 +2662,7 @@ class FZAstroAI(
             getattr(self, "knowledge_brief_button", None),
             getattr(self, "knowledge_reader_button", None),
             getattr(self, "knowledge_search_inside_button", None),
+            getattr(self, "imported_documents_button", None),
             self.knowledge_import_button,
             self.knowledge_remove_button,
             self.knowledge_clear_button,
@@ -2659,8 +2679,26 @@ class FZAstroAI(
             memory_busy = bool(self.memory_worker and self.memory_worker.isRunning())
             self.import_documents_memory_button.setEnabled(not busy and not memory_busy)
 
+    def refresh_imported_documents_button(self, document_count=None):
+        button = getattr(self, "imported_documents_button", None)
+
+        if button is None:
+            return
+
+        if document_count is None:
+            try:
+                document_count = len(self.knowledge_library.list_documents())
+            except Exception:
+                document_count = 0
+
+        try:
+            button.setText(f"Imported Documents ({int(document_count):,})")
+        except RuntimeError:
+            pass
+
     def refresh_document_knowledge_view(self):
         documents = self.knowledge_library.list_documents()
+        self.refresh_imported_documents_button(len(documents))
         total_characters = sum(document["character_count"] for document in documents)
         total_chunks = sum(document["chunk_count"] for document in documents)
         total_visuals = sum(
@@ -3869,6 +3907,30 @@ class FZAstroAI(
                 )
                 menu.addAction(action)
 
+    def build_top_mode_menu(self):
+        """Build the expandable top-bar Mode menu."""
+        menu = QMenu(self)
+
+        calibration_header = QAction("Calibration profiles", self)
+        calibration_header.setEnabled(False)
+        menu.addAction(calibration_header)
+
+        for profile_key, profile in (self.calibration_profiles or {}).items():
+            action = QAction(f"{profile['icon']} {profile['name']}", self)
+            action.setToolTip(profile.get("tooltip", ""))
+            action.setCheckable(True)
+            action.setChecked(profile_key == self.active_calibration_profile)
+            action.triggered.connect(
+                lambda checked=False, key=profile_key: self.apply_calibration_profile(
+                    key
+                )
+            )
+            menu.addAction(action)
+
+        menu.addSeparator()
+        self._add_skill_actions_to_menu(menu, "model_lab")
+        return menu
+
     def build_skill_menu(self, skill_id):
         menu = QMenu(self)
         skill = SKILL_BY_ID.get(skill_id)
@@ -3885,8 +3947,26 @@ class FZAstroAI(
     def build_composer_skills_menu(self):
         menu = QMenu(self)
 
+        dev_action = QAction("⚙ Developer Workbench", self)
+        dev_action.setToolTip(
+            "Open the AI Developer Workbench for scanning, context, plans, and checks."
+        )
+        dev_action.triggered.connect(lambda checked=False: self.open_dev_workbench())
+        menu.addAction(dev_action)
+        menu.addSeparator()
+
+        compact_skill_labels = {
+            "knowledge": "Context",
+            "model_lab": "Mode",
+        }
+
         for skill in SKILLS:
-            skill_menu = menu.addMenu(skill.label)
+            if skill.skill_id == "astro":
+                # Astro has its own promoted composer menu, so do not duplicate it here.
+                continue
+
+            skill_label = compact_skill_labels.get(skill.skill_id, skill.label)
+            skill_menu = menu.addMenu(f"{skill.icon} {skill_label}")
             skill_menu.setToolTipsVisible(True)
             self._add_skill_actions_to_menu(skill_menu, skill.skill_id)
 
@@ -3967,11 +4047,6 @@ class FZAstroAI(
             ),
             ("Attach files", self.attach_files, "Attach files to the current message."),
             (
-                "Import PDF/document",
-                self.open_document_knowledge_library,
-                "Open the Document Knowledge Library and import searchable documents.",
-            ),
-            (
                 "Add project/context prompt",
                 self.show_active_context_dialog,
                 "Inspect current context before adding or sending more information.",
@@ -3999,14 +4074,6 @@ class FZAstroAI(
     def build_composer_library_menu(self):
         menu = QMenu(self)
 
-        open_library = QAction("Imported documents", self)
-        open_library.setToolTip("Open the Document Knowledge Library.")
-        open_library.triggered.connect(
-            lambda checked=False: self.open_document_knowledge_library()
-        )
-        menu.addAction(open_library)
-
-        menu.addSeparator()
         self._add_registry_actions_to_menu(menu, LIBRARY_MENU_GROUPS)
 
         menu.addSeparator()

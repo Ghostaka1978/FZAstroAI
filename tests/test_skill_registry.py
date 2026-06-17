@@ -94,3 +94,66 @@ def test_main_window_uses_skill_registry_for_top_and_composer_menus():
     assert "build_composer_skills_menu" in app_text
     assert "run_skill_action" in app_text
     assert "main_layout.addWidget(astro_bar)" not in app_text
+
+
+def test_new_chat_and_imported_documents_buttons_live_next_to_tools():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+
+    composer_snippet = (
+        "composer_toolbar_layout.addWidget(composer_tools_label, 0, Qt.AlignVCenter)\n"
+        "        composer_toolbar_layout.addWidget(self.new_chat_button, 0, Qt.AlignVCenter)"
+    )
+    imported_before_clear_snippet = (
+        "composer_toolbar_layout.addWidget(\n"
+        "            self.imported_documents_button, 0, Qt.AlignVCenter\n"
+        "        )\n"
+        "        composer_toolbar_layout.addWidget(\n"
+        "            self.composer_clear_button, 0, Qt.AlignVCenter"
+    )
+    assert composer_snippet in app_text
+    assert imported_before_clear_snippet in app_text
+    assert (
+        '"New Chat", "newChatButton", "Start a new empty chat", width=68, height=24'
+        in app_text
+    )
+    assert 'QPushButton("Imported Documents (0)")' in app_text
+    assert "self.show_knowledge_documents_in_chat" in app_text
+    assert 'button.setText(f"Imported Documents ({int(document_count):,})")' in app_text
+    assert "runtime_group_layout.addWidget(self.new_chat_button" not in app_text
+    assert "skills_group_layout.addWidget(self.new_chat_button" not in app_text
+
+
+def test_model_web_and_expandable_mode_share_top_bar():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+
+    assert 'self.mode_menu_button = QPushButton("Mode ▾")' in app_text
+    assert "self.mode_menu_button.setMenu(self.build_top_mode_menu())" in app_text
+    assert "top_bar_layout.addWidget(runtime_group, 0)" in app_text
+    assert "top_bar_layout.addWidget(web_group, 0)" in app_text
+    assert "top_bar_layout.addWidget(mode_group, 0)" in app_text
+    assert "self.model_box.setFixedWidth(185)" in app_text
+    assert "self.model_box.view().setFixedWidth(185)" in app_text
+    assert "self.model_box.view().setMinimumWidth(185)" in app_text
+    assert "self.model_box.view().setMinimumWidth(240)" not in app_text
+    assert "self.model_box.view().setMinimumWidth(340)" not in app_text
+    assert "self.model_box.view().setMinimumWidth(520)" not in app_text
+    assert "main_layout.addWidget(runtime_bar)" not in app_text
+
+
+def test_context_and_mode_are_in_skills_menu_labels():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+
+    assert 'self.composer_actions_button = QPushButton("Skills ▾")' in app_text
+    assert (
+        "self.composer_actions_button.setMenu(self.build_composer_skills_menu())"
+        in app_text
+    )
+    assert '"knowledge": "Context"' in app_text
+    assert '"model_lab": "Mode"' in app_text
+    assert 'if skill.skill_id == "astro":' in app_text
+    assert "composer_layout.addWidget(self.skills_drawer)" not in app_text
+    assert (
+        "self.composer_actions_button.clicked.connect(self.toggle_skills_drawer)"
+        not in app_text
+    )
+    assert '"Import PDF/document"' not in app_text

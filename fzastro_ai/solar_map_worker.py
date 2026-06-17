@@ -4,8 +4,8 @@ import time
 
 from PySide6.QtCore import QThread, Signal
 
-from .astro_tools.solar_map_data import load_solar_map_snapshot
-from .logging_utils import log_exception
+from ..astro_tools.solar_map_data import load_solar_map_snapshot
+from ..logging_utils import log_exception
 
 
 class SolarMapWorker(QThread):

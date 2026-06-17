@@ -140,6 +140,10 @@ def apply_calibration_profile(self, profile_key, announce=True):
     if hasattr(self, "calibration_status_label"):
         self.calibration_status_label.setText(f"Active calibration: {profile['name']}")
 
+    if hasattr(self, "mode_menu_button"):
+        self.mode_menu_button.setText(f"{profile['name']} ▾")
+        self.mode_menu_button.setMenu(self.build_top_mode_menu())
+
     self.refresh_system_prompt_summary()
     self.persist_calibration_profile_store()
 
@@ -165,6 +169,10 @@ def mark_custom_calibration(self):
 
     if hasattr(self, "calibration_status_label"):
         self.calibration_status_label.setText("Active calibration: Custom")
+
+    if hasattr(self, "mode_menu_button"):
+        self.mode_menu_button.setText("Custom ▾")
+        self.mode_menu_button.setMenu(self.build_top_mode_menu())
 
     self.refresh_system_prompt_summary()
 

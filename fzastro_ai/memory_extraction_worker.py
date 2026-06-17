@@ -4,17 +4,17 @@ import re
 
 from PySide6.QtCore import QThread, Signal
 
-from .config import MEMORY_EXTRACTION_CHUNK_CHARS, MEMORY_EXTRACTION_CHUNK_OVERLAP
-from .config import RUNTIME_MEMORY_TIMEOUT_SECONDS
-from .logging_utils import log_exception
-from .memory_store import (
+from ..config import MEMORY_EXTRACTION_CHUNK_CHARS, MEMORY_EXTRACTION_CHUNK_OVERLAP
+from ..config import RUNTIME_MEMORY_TIMEOUT_SECONDS
+from ..logging_utils import log_exception
+from ..memory_store import (
     extract_history_code_entries,
     extract_news_article_entries,
     parse_memory_extraction_payload,
     remove_deterministic_code_blocks,
     remove_deterministic_news_sections,
 )
-from .runtime import (
+from ..runtime import (
     is_ollama_base_url,
     make_runtime_client,
     normalize_runtime_api_key,

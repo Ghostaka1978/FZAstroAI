@@ -257,7 +257,6 @@ def get_main_stylesheet():
             }
 
             QPushButton#sidebarToggle,
-            QPushButton#newChatButton,
             QPushButton#historyToggle,
             QPushButton#helpButton,
             QPushButton#diagnosticsButton,
@@ -657,7 +656,8 @@ def get_main_stylesheet():
                 padding: 0 4px 0 2px;
             }
 
-            QPushButton#composerToolButton {
+            QPushButton#composerToolButton,
+            QPushButton#newChatButton {
                 background: #121820;
                 color: #aeb8c3;
                 border: 1px solid #2a333d;
@@ -669,18 +669,21 @@ def get_main_stylesheet():
                 font-weight: 700;
             }
 
-            QPushButton#composerToolButton:hover {
+            QPushButton#composerToolButton:hover,
+            QPushButton#newChatButton:hover {
                 background: #17202a;
                 color: #eef4fb;
                 border-color: #526983;
             }
 
-            QPushButton#composerToolButton:pressed {
+            QPushButton#composerToolButton:pressed,
+            QPushButton#newChatButton:pressed {
                 background: #0f141a;
                 border-color: #607b9d;
             }
 
-            QPushButton#composerToolButton:disabled {
+            QPushButton#composerToolButton:disabled,
+            QPushButton#newChatButton:disabled {
                 background: #11151a;
                 color: #535d68;
                 border-color: #20262e;
@@ -1291,7 +1294,9 @@ def get_main_stylesheet():
             QPushButton#cockpitSkillButton::menu-indicator,
             QPushButton#cockpitWebButton::menu-indicator,
             QPushButton#cockpitSystemMenuButton::menu-indicator,
-            QPushButton#composerToolButton::menu-indicator {
+            QPushButton#composerToolButton::menu-indicator,
+            QPushButton#newChatButton::menu-indicator,
+            QPushButton#composerAstroButton::menu-indicator {
                 image: none;
                 width: 0;
             }
@@ -1337,6 +1342,11 @@ def get_main_stylesheet():
                 border-color: #668bb4;
             }
 
+            QComboBox#quickModelBox QAbstractItemView {
+                min-width: 185px;
+                max-width: 185px;
+            }
+
             QFrame#composerShell {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #10151d, stop:0.56 #0d1117, stop:1 #111923);
@@ -1359,7 +1369,8 @@ def get_main_stylesheet():
                 padding: 0 6px 0 4px;
             }
 
-            QPushButton#composerToolButton {
+            QPushButton#composerToolButton,
+            QPushButton#newChatButton {
                 background: #121a24;
                 color: #c6d1de;
                 border: 1px solid #2b3a4d;
@@ -1371,10 +1382,47 @@ def get_main_stylesheet():
                 font-weight: 760;
             }
 
-            QPushButton#composerToolButton:hover {
+            QPushButton#composerToolButton:hover,
+            QPushButton#newChatButton:hover {
                 background: #192535;
                 color: #ffffff;
                 border-color: #668bb4;
+            }
+
+            QPushButton#newChatButton {
+                min-height: 24px;
+                max-height: 24px;
+                padding: 0 7px;
+                font-size: 9px;
+                font-weight: 720;
+            }
+
+            QPushButton#composerAstroButton {
+                background: #17253a;
+                color: #e8f3ff;
+                border: 1px solid #416486;
+                border-radius: 9px;
+                min-height: 26px;
+                max-height: 26px;
+                padding: 0 12px;
+                font-size: 10px;
+                font-weight: 820;
+            }
+
+            QPushButton#composerAstroButton:hover {
+                background: #1e3350;
+                color: #ffffff;
+                border-color: #7ba7d4;
+            }
+
+            QPushButton#composerAstroButton:pressed {
+                background: #122033;
+                border-color: #97c2eb;
+            }
+
+            QPushButton#composerAstroButton::menu-indicator {
+                image: none;
+                width: 0;
             }
 
             QTextEdit#inputBox {

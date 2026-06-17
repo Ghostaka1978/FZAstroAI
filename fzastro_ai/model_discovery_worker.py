@@ -1,8 +1,8 @@
 from PySide6.QtCore import QThread, Signal
 
-from .config import DEFAULT_MODEL_NAME, RUNTIME_MODEL_LIST_TIMEOUT_SECONDS
-from .logging_utils import log_exception, log_warning
-from .runtime import (
+from ..config import DEFAULT_MODEL_NAME, RUNTIME_MODEL_LIST_TIMEOUT_SECONDS
+from ..logging_utils import log_exception, log_warning
+from ..runtime import (
     is_local_ollama_base_url,
     is_ollama_base_url,
     is_runtime_connection_error,

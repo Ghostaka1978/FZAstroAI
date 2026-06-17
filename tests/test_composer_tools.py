@@ -72,7 +72,7 @@ def test_composer_actions_registry_contains_web_document_and_python_actions():
         "Screenshot page",
     ]
     assert [action.label for action in grouped["Documents"]] == [
-        "List imported documents",
+        "List documents",
         "Search knowledge library",
         "Search inside document",
         "Find in documents",
@@ -180,10 +180,11 @@ def test_composer_actions_menu_is_wired_into_main_window():
     assert "build_composer_library_menu" in app_text
     assert "run_composer_action" in app_text
     assert "insert_prompt_into_composer" in app_text
-    assert "composer_context_button" in app_text
     assert "build_composer_context_menu" in app_text
-    assert "composer_persona_button" in app_text
     assert "build_composer_persona_menu" in app_text
+    assert "build_top_mode_menu" in app_text
+    assert "composer_context_button" not in app_text
+    assert "composer_persona_button" not in app_text
     assert "run_selected_python_from_composer" in app_text
     assert "try_handle_local_composer_command" in app_text
     assert "open_knowledge_document_reader_by_reference" in app_text

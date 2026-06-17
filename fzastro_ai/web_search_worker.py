@@ -1,8 +1,8 @@
 from PySide6.QtCore import QThread, Signal
 
-from .logging_utils import log_exception
-from .market_sources import perform_stock_quote
-from .web_tools import (
+from ..logging_utils import log_exception
+from ..market_sources import perform_stock_quote
+from ..web_tools import (
     perform_rendered_page_extraction,
     perform_web_image_search,
     perform_web_search,
