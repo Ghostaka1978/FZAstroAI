@@ -21,3 +21,6 @@ dist/
 Thumbs.db
 
 .idea/
+
+# Patch/package staging folders that must not be committed
+modified_files/

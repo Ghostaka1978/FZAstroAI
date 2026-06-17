@@ -16,6 +16,8 @@ def test_cleanup_fzastro_temp_dirs_removes_only_known_runtime_caches(tmp_path):
     failed = cleanup_fzastro_temp_dirs(tmp_path)
 
     assert failed == []
-    assert not any((tmp_path / dir_name).exists() for dir_name in FZASTRO_TEMP_DIR_NAMES)
+    assert not any(
+        (tmp_path / dir_name).exists() for dir_name in FZASTRO_TEMP_DIR_NAMES
+    )
     assert unrelated.exists()
     assert (unrelated / "keep.tmp").exists()
