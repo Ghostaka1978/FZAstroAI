@@ -663,6 +663,6 @@ Complete-StageProgress
 Write-Host ""
 Write-Host "VALIDATION SCRIPT COMPLETE"
 Write-Host "Log: $ValidationLog"
-Write-Host "Manual checklist: RELEASE_VALIDATION.md"
+Write-Host "Manual checklist: docs\RELEASE_VALIDATION.md"
 
 

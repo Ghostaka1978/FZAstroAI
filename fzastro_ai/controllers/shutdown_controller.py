@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover - PySide6 normally provides shiboken6
 from ..logging_utils import log_debug, log_exception, log_warning
 from ..memory_store import save_persistent_memory
 from ..runtime import should_stop_owned_ollama_on_exit, stop_owned_ollama_process
+from ..temp_cleanup import cleanup_fzastro_temp_dirs
 
 
 class ShutdownControllerMixin:
@@ -103,6 +104,19 @@ class ShutdownControllerMixin:
             log_exception(context, exc)
             return False
 
+    def _cleanup_exit_temp_artifacts(self):
+        """Remove known FZAstro-owned temp cache folders before the app exits."""
+        try:
+            cleanup_fzastro_temp_dirs()
+        except Exception as exc:
+            # The helper is already best-effort; this guard keeps shutdown safe if
+            # a platform-specific temp cleanup edge case escapes it.
+            log_warning(f"FZAstro temp cleanup failed during shutdown: {exc}")
+
+    def _finalize_app_exit(self):
+        self._cleanup_exit_temp_artifacts()
+        self._stop_owned_ollama_process_on_exit()
+
     def _stop_owned_ollama_process_on_exit(self):
         if not should_stop_owned_ollama_on_exit():
             return
@@ -128,7 +142,7 @@ class ShutdownControllerMixin:
             pass
 
         if getattr(self, "_allow_close", False):
-            self._stop_owned_ollama_process_on_exit()
+            self._finalize_app_exit()
             event.accept()
             return
 
@@ -505,7 +519,7 @@ class ShutdownControllerMixin:
                 unique_workers.append(worker)
 
         if not unique_workers:
-            self._stop_owned_ollama_process_on_exit()
+            self._finalize_app_exit()
             event.accept()
             return
 

@@ -41,7 +41,7 @@ Set `FZASTRO_APP_DIR` to override the runtime data folder for testing or portabl
 
 ## Version 2 cleanup result
 
-- Root documentation reduced to `README.md` and `RELEASE_VALIDATION.md`.
+- Root documentation reduced to `README.md`; release validation lives under `docs/`.
 - Detailed docs consolidated under `docs/`.
 - Overlay bundle integrated into the main package where useful.
 - Generated Python bytecode, backup files, and patch leftovers removed from the source package.

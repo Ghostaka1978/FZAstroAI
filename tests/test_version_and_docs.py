@@ -3,6 +3,11 @@ from pathlib import Path
 from fzastro_ai.config import APP_MILESTONE, APP_VERSION, APP_VERSION_LABEL
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RELEASE_VALIDATION_DOC = PROJECT_ROOT / "docs" / "RELEASE_VALIDATION.md"
+
+
+def read_release_validation_doc():
+    return RELEASE_VALIDATION_DOC.read_text(encoding="utf-8")
 
 
 def test_version_constants_match_version_file():
@@ -16,7 +21,7 @@ def test_version_constants_match_version_file():
 def test_release_docs_are_version_2_not_rc3_current_release():
     checked_files = [
         PROJECT_ROOT / "README.md",
-        PROJECT_ROOT / "RELEASE_VALIDATION.md",
+        RELEASE_VALIDATION_DOC,
         PROJECT_ROOT / "fzastro_ai" / "ui" / "about_dialog.py",
         PROJECT_ROOT / "fzastro_ai" / "ui" / "help_dialog.py",
         PROJECT_ROOT / "scripts" / "validate_release.ps1",
@@ -65,7 +70,7 @@ def test_black_is_part_of_release_workflow():
 
 def test_llm_benchmark_feature_is_documented_and_wired():
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
-    release_docs = (PROJECT_ROOT / "RELEASE_VALIDATION.md").read_text(encoding="utf-8")
+    release_docs = read_release_validation_doc()
     help_dialog = (PROJECT_ROOT / "fzastro_ai" / "ui" / "help_dialog.py").read_text(
         encoding="utf-8"
     )
@@ -111,7 +116,7 @@ def test_llm_benchmark_feature_is_documented_and_wired():
 
 def test_distance_ladder_feature_is_documented():
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
-    release_docs = (PROJECT_ROOT / "RELEASE_VALIDATION.md").read_text(encoding="utf-8")
+    release_docs = read_release_validation_doc()
     help_dialog = (PROJECT_ROOT / "fzastro_ai" / "ui" / "help_dialog.py").read_text(
         encoding="utf-8"
     )
@@ -138,7 +143,7 @@ def test_distance_ladder_feature_is_documented():
 
 def test_v2_astro_tools_suite_is_documented():
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
-    release_docs = (PROJECT_ROOT / "RELEASE_VALIDATION.md").read_text(encoding="utf-8")
+    release_docs = read_release_validation_doc()
     help_dialog = (PROJECT_ROOT / "fzastro_ai" / "ui" / "help_dialog.py").read_text(
         encoding="utf-8"
     )

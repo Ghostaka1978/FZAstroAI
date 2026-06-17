@@ -236,7 +236,7 @@ class MainLayoutMixin:
         title.setAlignment(Qt.AlignCenter)
 
         subtitle = QLabel(
-            "Ask a question, attach a document, or use a quick action above."
+            "Ask a question, attach a document, or expand Skills from the bottom bar."
         )
         subtitle.setObjectName("emptyStateSubtitle")
         subtitle.setAlignment(Qt.AlignCenter)
@@ -439,3 +439,23 @@ class MainLayoutMixin:
         self.sidebar_visible = not self.sidebar.isVisible()
         self.sidebar.setVisible(self.sidebar_visible)
         self.sidebar_button.setChecked(self.sidebar_visible)
+
+    def toggle_skills_drawer(self):
+        """Expand/collapse the bottom Skills drawer without disturbing the composer."""
+        drawer = getattr(self, "skills_drawer", None)
+        button = getattr(self, "composer_actions_button", None)
+
+        if drawer is None:
+            return
+
+        visible = not drawer.isVisible()
+        drawer.setVisible(visible)
+
+        if button is not None:
+            button.setChecked(visible)
+            button.setText("Skills ▾" if visible else "Skills ▴")
+
+        try:
+            self.refresh_chat_layout(scroll_to_bottom=False)
+        except Exception:
+            pass

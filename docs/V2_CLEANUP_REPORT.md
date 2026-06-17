@@ -18,7 +18,7 @@ The uploaded archive contained the current RC3 application plus a separate `over
   - `docs/AI_DEVELOPER_WORKBENCH.md`
 - Wired the Developer Workbench into the current app using a `DEV` quick-action button.
 - Consolidated docs:
-  - Root keeps `README.md` and `RELEASE_VALIDATION.md`.
+  - Root keeps `README.md`; release validation lives under `docs/`.
   - Detailed docs live under `docs/`.
   - Historical RC3 notes moved to `docs/archive/`.
   - Stale patch/bundle readmes removed.
@@ -35,7 +35,7 @@ tests/
 docs/
 main.py
 README.md
-RELEASE_VALIDATION.md
+docs/RELEASE_VALIDATION.md
 VERSION.txt
 requirements.txt
 pyproject.toml

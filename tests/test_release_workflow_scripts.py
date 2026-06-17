@@ -2,6 +2,18 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RELEASE_VALIDATION_DOC = PROJECT_ROOT / "docs" / "RELEASE_VALIDATION.md"
+
+
+def read_release_docs(project_root=PROJECT_ROOT):
+    return "\n".join(
+        [
+            (project_root / "README.md").read_text(encoding="utf-8"),
+            (project_root / "docs" / "RELEASE_VALIDATION.md").read_text(
+                encoding="utf-8"
+            ),
+        ]
+    )
 
 
 def test_clean_build_starts_build_script_after_cleaning():
@@ -25,10 +37,7 @@ def test_build_script_prompts_for_validation_after_success():
 
 
 def test_release_docs_describe_clean_build_validation_chain():
-    docs = "\n".join(
-        (PROJECT_ROOT / name).read_text(encoding="utf-8")
-        for name in ["README.md", "RELEASE_VALIDATION.md"]
-    )
+    docs = read_release_docs()
 
     assert "scripts/clean_build.ps1" in docs
     assert "starts `build_exe.ps1` automatically" in docs
@@ -76,10 +85,7 @@ def test_activate_venv_script_sets_runtime_python_and_build_environment():
 
 
 def test_release_docs_describe_deploy_and_venv_activation():
-    docs = "\n".join(
-        (PROJECT_ROOT / name).read_text(encoding="utf-8")
-        for name in ["README.md", "RELEASE_VALIDATION.md"]
-    )
+    docs = read_release_docs()
 
     assert "scripts/deploy.ps1" in docs
     assert "single release workflow command" in docs or "one-command workflow" in docs
@@ -110,10 +116,7 @@ def test_deploy_build_validation_use_quiet_progress_workflow():
 
 
 def test_release_docs_describe_quiet_progress_logs():
-    docs = "\n".join(
-        (PROJECT_ROOT / name).read_text(encoding="utf-8")
-        for name in ["README.md", "RELEASE_VALIDATION.md"]
-    )
+    docs = read_release_docs()
 
     assert "progress bar" in docs
     assert (
@@ -177,10 +180,7 @@ def test_build_root_defaults_to_sibling_folder_not_temp():
 
 
 def test_release_docs_describe_sibling_build_folder_and_env_vars():
-    docs = "\n".join(
-        (PROJECT_ROOT / name).read_text(encoding="utf-8")
-        for name in ["README.md", "RELEASE_VALIDATION.md"]
-    )
+    docs = read_release_docs()
 
     assert "one folder above the project root" in docs
     assert "..\\FZAstroAI_BUILD" in docs
@@ -223,10 +223,7 @@ def test_release_scripts_enforce_python_311():
 
 
 def test_release_docs_describe_reset_venv_and_python_311_enforcement():
-    docs = "\n".join(
-        (PROJECT_ROOT / name).read_text(encoding="utf-8")
-        for name in ["README.md", "RELEASE_VALIDATION.md"]
-    )
+    docs = read_release_docs()
 
     assert "scripts/reset_venv.ps1" in docs
     assert "Python 3.11" in docs
@@ -265,10 +262,7 @@ def test_validate_release_checks_release_artifact_hygiene():
 
 
 def test_release_docs_describe_artifact_hygiene_check():
-    docs = "\n".join(
-        (PROJECT_ROOT / name).read_text(encoding="utf-8")
-        for name in ["README.md", "RELEASE_VALIDATION.md"]
-    )
+    docs = read_release_docs()
 
     assert "development/repair artifacts" in docs
     assert ".bak" in docs
@@ -294,10 +288,7 @@ def test_validate_release_requires_manifest_resource_check_and_isolated_smoke_ap
 
 
 def test_release_docs_describe_manifest_resource_and_gui_smoke_checks(project_root):
-    docs = "\n".join(
-        (project_root / name).read_text(encoding="utf-8")
-        for name in ["README.md", "RELEASE_VALIDATION.md"]
-    )
+    docs = read_release_docs(project_root)
 
     assert "release manifest" in docs.lower()
     assert "PyInstaller resource" in docs
@@ -313,8 +304,10 @@ def test_release_package_includes_validation_documentation():
         encoding="utf-8"
     )
 
-    assert "RELEASE_VALIDATION.md" in build_script
+    assert "docs\\RELEASE_VALIDATION.md" in build_script
     assert "RELEASE_VALIDATION.md" in validation_script
+    assert RELEASE_VALIDATION_DOC.exists()
+    assert not (PROJECT_ROOT / "RELEASE_VALIDATION.md").exists()
     assert "fzastro_ai.ui.llm_benchmark_dialog" in validation_script
 
 

@@ -154,7 +154,7 @@ Release validation checks development/repair artifacts such as `.bak`, `.patch`,
 
 ## Detailed docs
 
-- `RELEASE_VALIDATION.md` — production build/validation checklist
+- `docs/RELEASE_VALIDATION.md` — production build/validation checklist
 - `docs/PROJECT_OVERVIEW.md` — concise architecture summary
 - `docs/ASTRO_TOOLS_SUITE.md` — astronomy tools guide
 - `docs/AI_DEVELOPER_WORKBENCH.md` — Developer Workbench guide

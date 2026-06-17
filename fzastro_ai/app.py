@@ -1451,7 +1451,7 @@ class FZAstroAI(
         top_bar_layout.addWidget(self.about_button)
 
         quick_bar = QFrame()
-        quick_bar.setObjectName("quickActionsBar")
+        quick_bar.setObjectName("skillsDrawer")
         quick_bar_layout = QHBoxLayout(quick_bar)
         quick_bar_layout.setContentsMargins(12, 8, 12, 8)
         quick_bar_layout.setSpacing(7)
@@ -1646,6 +1646,8 @@ class FZAstroAI(
         quick_bar_layout.addWidget(web_quick_label)
         quick_bar_layout.addWidget(self.web_box)
         quick_bar_layout.addWidget(self.web_companion_button)
+        self.skills_drawer = quick_bar
+        self.skills_drawer.hide()
 
         astro_bar = QFrame()
         astro_bar.setObjectName("quickActionsBar")
@@ -1849,7 +1851,7 @@ class FZAstroAI(
         composer_toolbar_layout.setContentsMargins(0, 0, 0, 0)
         composer_toolbar_layout.setSpacing(6)
 
-        composer_tools_label = QLabel("COMPOSER")
+        composer_tools_label = QLabel("TOOLS")
         composer_tools_label.setObjectName("composerToolsLabel")
 
         self.composer_code_button = QPushButton("Code Lab")
@@ -1869,15 +1871,16 @@ class FZAstroAI(
         )
         self.composer_paste_code_button.setMenu(self.build_composer_add_menu())
 
-        self.composer_actions_button = QPushButton("Skills")
+        self.composer_actions_button = QPushButton("Skills ▴")
         self.composer_actions_button.setObjectName("composerToolButton")
         self.composer_actions_button.setCursor(Qt.PointingHandCursor)
         self.composer_actions_button.setToolTip(
-            "Open all skill groups from the composer."
+            "Expand or collapse the bottom Skills drawer."
         )
-        self.composer_actions_button.setMenu(self.build_composer_skills_menu())
+        self.composer_actions_button.setCheckable(True)
+        self.composer_actions_button.clicked.connect(self.toggle_skills_drawer)
 
-        self.composer_context_button = QPushButton("Knowledge")
+        self.composer_context_button = QPushButton("Context")
         self.composer_context_button.setObjectName("composerToolButton")
         self.composer_context_button.setCursor(Qt.PointingHandCursor)
         self.composer_context_button.setToolTip(
@@ -1885,7 +1888,7 @@ class FZAstroAI(
         )
         self.composer_context_button.setMenu(self.build_skill_menu("knowledge"))
 
-        self.composer_persona_button = QPushButton("Model Lab")
+        self.composer_persona_button = QPushButton("Mode")
         self.composer_persona_button.setObjectName("composerToolButton")
         self.composer_persona_button.setCursor(Qt.PointingHandCursor)
         self.composer_persona_button.setToolTip(
@@ -1900,7 +1903,6 @@ class FZAstroAI(
         self.composer_clear_button.clicked.connect(self.clear_composer)
 
         composer_toolbar_layout.addWidget(composer_tools_label, 0, Qt.AlignVCenter)
-        composer_toolbar_layout.addWidget(self.composer_code_button, 0, Qt.AlignVCenter)
         composer_toolbar_layout.addWidget(
             self.composer_paste_code_button, 0, Qt.AlignVCenter
         )
@@ -1979,13 +1981,14 @@ class FZAstroAI(
         composer_layout.setContentsMargins(11, 8, 11, 8)
         composer_layout.setSpacing(5)
         composer_layout.addWidget(self.attachment_row_container)
+        composer_layout.addWidget(self.skills_drawer)
         composer_layout.addWidget(composer_toolbar)
         composer_layout.addLayout(input_row)
         composer_layout.addWidget(self.status_row)
 
         main_layout.addWidget(top_bar)
-        main_layout.addWidget(quick_bar)
-        # Astro actions now live under the Astro skill menu.
+        # Option A UI polish: skills/model/web controls now live in the bottom expandable Skills drawer.
+        # Astro actions remain available under the Astro skill menu instead of a permanent top toolbar.
         main_layout.addWidget(self.thought_panel)
         main_layout.addWidget(chat_surface, 1)
         main_layout.addWidget(composer_shell)

@@ -841,7 +841,9 @@ if (-not (Test-Path $FinalExe)) { throw "Build finished but EXE was not found: $
 Show-StageStep "Prepare release folder"
 Copy-Item -Force $FinalExe $ReleaseExe
 Copy-Item -Force (Join-Path $ProjectRoot "README.md") $ReleaseDir -ErrorAction SilentlyContinue
-Copy-Item -Force (Join-Path $ProjectRoot "RELEASE_VALIDATION.md") $ReleaseDir -ErrorAction SilentlyContinue
+$ReleaseValidationDoc = Join-Path $ProjectRoot "docs\RELEASE_VALIDATION.md"
+if (-not (Test-Path $ReleaseValidationDoc)) { $ReleaseValidationDoc = Join-Path $ProjectRoot "RELEASE_VALIDATION.md" }
+Copy-Item -Force $ReleaseValidationDoc (Join-Path $ReleaseDir "RELEASE_VALIDATION.md") -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $ProjectRoot "docs\OFFLINE_VOICE_COMMANDS.md") (Join-Path $ReleaseDir "OFFLINE_VOICE_COMMANDS.md") -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $ScriptsRoot "install_offline_voice.ps1") $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $RequirementsFile $ReleaseDir -ErrorAction SilentlyContinue

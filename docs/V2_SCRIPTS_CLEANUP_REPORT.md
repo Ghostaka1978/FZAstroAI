@@ -43,7 +43,8 @@ No `.ps1` files remain in the project root.
 ## Updated commands
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scriptseset_venv.ps1 -Force
+powershell -ExecutionPolicy Bypass -File .\scripts
+eset_venv.ps1 -Force
 . .\scriptsctivate_venv.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1
 powershell -ExecutionPolicy Bypass -File .\scriptsalidate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -SkipLaunch
