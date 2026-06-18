@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from ..config import APP_DIR
+from ..json_store import atomic_write_json
 from ..logging_utils import log_debug, log_warning
 from ..network_utils import get_limited_json
 
@@ -223,11 +224,7 @@ def _read_cache(path: Path) -> dict[str, Any]:
 
 def _write_cache(path: Path, payload: dict[str, Any]) -> None:
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_suffix(path.suffix + ".tmp")
-        with tmp_path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2)
-        tmp_path.replace(path)
+        atomic_write_json(path, payload, indent=2)
     except Exception as exc:
         log_debug("SEEING cache write skipped", exc)
 

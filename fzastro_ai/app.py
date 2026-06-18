@@ -151,7 +151,7 @@ from .config import (
     startup_gpu_monitor_enabled,
     startup_model_refresh_enabled,
 )
-from .controllers import ShutdownControllerMixin
+from .controllers import AppStateController, ShutdownControllerMixin
 from .logging_utils import log_exception, log_warning
 from .prompts import DEFAULT_CORE_SYSTEM_PROMPT
 from .knowledge_library import DocumentKnowledgeLibrary
@@ -205,7 +205,7 @@ from .ui.message_widgets import (
     SystemPromptTextEdit,
 )
 
-from .history_store import create_chat_record, load_chat_history, save_chat_history
+from .history_store import create_chat_record, save_chat_history
 from .ui.memory_dialog import (
     add_persistent_memory_entry as _add_persistent_memory_entry,
     clear_persistent_memory_library as _clear_persistent_memory_library,
@@ -283,12 +283,10 @@ from .file_tools import (
 
 from .memory_store import (
     empty_calibration_profile_store,
-    load_calibration_profile_store,
     save_calibration_profile_store,
     empty_persistent_memory,
     normalize_memory_entry,
     normalize_persistent_memory,
-    load_persistent_memory,
     compact_memory_entry_for_context,
     _persistent_memory_query_terms,
     search_persistent_memory_entries,
@@ -941,9 +939,12 @@ class FZAstroAI(
         self.setMinimumSize(1120, 720)
         apply_window_defaults(self)
 
+        self.app_state_controller = AppStateController()
+        app_state = self.app_state_controller.load()
+
         self.messages = []
         self.attached_files = []
-        self.chat_history = load_chat_history()
+        self.chat_history = app_state.chat_history
         self.selected_history_ids = set()
         self.memory_worker = None
         self.model_discovery_worker = None
@@ -1018,7 +1019,7 @@ class FZAstroAI(
         self.generation_timer.timeout.connect(self.update_generation_timer)
         self.sidebar_visible = False
         self.web_companion = WebCompanionProcess(port=7860)
-        self.web_companion_settings = self.load_web_companion_settings()
+        self.web_companion_settings = app_state.web_companion_settings
         self.web_companion_status_label = None
         self.web_companion_auto_start_checkbox = None
 
@@ -1088,7 +1089,7 @@ class FZAstroAI(
         self.system_prompt.setPlainText(DEFAULT_CORE_SYSTEM_PROMPT)
 
         self.core_system_prompt = self.system_prompt.toPlainText().strip()
-        self.calibration_profile_store = load_calibration_profile_store()
+        self.calibration_profile_store = app_state.calibration_profile_store
         self.calibration_profiles = self.create_calibration_profiles(
             self.core_system_prompt
         )
@@ -1122,7 +1123,7 @@ class FZAstroAI(
             "Open the complete AI role and system prompt in a dedicated editor window."
         )
         self.open_system_prompt_button.clicked.connect(self.open_system_prompt_editor)
-        self.persistent_memory_data = load_persistent_memory()
+        self.persistent_memory_data = app_state.persistent_memory_data
         self.persistent_memory = None
 
         self.persistent_memory_summary_label = QLabel("")
@@ -2218,28 +2219,10 @@ class FZAstroAI(
             QTimer.singleShot(750, self.start_web_companion_background)
         self.maybe_auto_check_nina_updates()
 
-    def web_companion_settings_path(self):
-        return Path(APP_DIR) / "web_companion_settings.json"
-
-    def load_web_companion_settings(self):
-        default = {"auto_start_desktop": False}
-        path = self.web_companion_settings_path()
-        try:
-            if path.exists():
-                data = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    default.update(data)
-        except Exception as exc:
-            log_exception("FZAstroAI.load_web_companion_settings", exc)
-        return default
-
     def save_web_companion_settings(self):
-        path = self.web_companion_settings_path()
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(self.web_companion_settings, indent=2, sort_keys=True),
-                encoding="utf-8",
+            self.app_state_controller.save_web_companion_settings(
+                self.web_companion_settings
             )
         except Exception as exc:
             log_exception("FZAstroAI.save_web_companion_settings", exc)

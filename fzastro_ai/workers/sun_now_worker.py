@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 from PySide6.QtCore import QThread, Signal
 
 from ..config import APP_DIR
+from ..json_store import atomic_write_json
 from ..logging_utils import log_debug, log_exception, log_warning
 from ..network_utils import get_limited_json, get_limited_response
 
@@ -236,11 +237,7 @@ def _load_cached_metadata(path: Path) -> dict[str, Any]:
 
 
 def _write_json(path: Path, payload: dict[str, Any]):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with tmp_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
-    tmp_path.replace(path)
+    atomic_write_json(path, payload, indent=2)
 
 
 def _fetch_helioviewer_metadata(channel: SunNowChannel) -> dict[str, Any]:

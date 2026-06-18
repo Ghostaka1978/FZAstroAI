@@ -16,6 +16,7 @@ except Exception:  # pragma: no cover - defensive for alternate PySide builds
 
 from ..workers import AstroWorker
 from ..config import APP_DIR
+from ..json_store import atomic_write_json
 from ..logging_utils import log_exception, log_warning, log_debug
 from ..ui.astro_location_dialog import choose_astro_location
 from ..ui.sun_now_dialog import show_sun_now_dialog
@@ -154,9 +155,7 @@ class AstroActionsMixin:
 
     def save_current_astro_location(self):
         try:
-            ASTRO_LOCATION_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with ASTRO_LOCATION_FILE.open("w", encoding="utf-8") as handle:
-                json.dump(self.get_current_astro_location(), handle, indent=2)
+            atomic_write_json(ASTRO_LOCATION_FILE, self.get_current_astro_location())
         except Exception as exc:
             log_warning("AstroActions.save_current_astro_location failed", exc)
 
@@ -216,9 +215,7 @@ class AstroActionsMixin:
 
     def save_current_astro_imaging(self):
         try:
-            ASTRO_IMAGING_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with ASTRO_IMAGING_FILE.open("w", encoding="utf-8") as handle:
-                json.dump(self.get_current_astro_imaging(), handle, indent=2)
+            atomic_write_json(ASTRO_IMAGING_FILE, self.get_current_astro_imaging())
         except Exception as exc:
             log_warning("AstroActions.save_current_astro_imaging failed", exc)
 

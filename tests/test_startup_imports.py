@@ -26,6 +26,32 @@ def test_worker_exports_match_current_module_layout():
     assert "class MemoryExtractionWorker" in memory_worker
 
 
+def test_legacy_root_worker_modules_are_only_compatibility_wrappers():
+    legacy_modules = [
+        "astro_worker.py",
+        "chat_worker.py",
+        "command_router.py",
+        "document_import_worker.py",
+        "document_maintenance_worker.py",
+        "gpu_monitor_worker.py",
+        "memory_extraction_worker.py",
+        "model_discovery_worker.py",
+        "python_execution_worker.py",
+        "seeing_worker.py",
+        "solar_map_worker.py",
+        "sun_now_worker.py",
+        "web_decision_worker.py",
+        "web_search_worker.py",
+    ]
+
+    for module_name in legacy_modules:
+        text = (PROJECT_ROOT / "fzastro_ai" / module_name).read_text(
+            encoding="utf-8-sig"
+        )
+        assert "Compatibility wrapper" in text
+        assert "from .." not in text
+
+
 def test_package_import_smoke_without_ui_dependencies():
     import fzastro_ai
 

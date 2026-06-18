@@ -1,12 +1,5 @@
-﻿from __future__ import annotations
+﻿"""FZAstro AI modular package."""
 
-from .config import APP_MILESTONE, APP_VERSION, APP_VERSION_LABEL
+from .config import APP_VERSION as __version__
 
-__version__ = APP_VERSION
-
-__all__ = [
-    "APP_MILESTONE",
-    "APP_VERSION",
-    "APP_VERSION_LABEL",
-    "__version__",
-]
+__all__ = ["__version__"]

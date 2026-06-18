@@ -53,6 +53,7 @@ from ..benchmarks import (
     run_statistics,
 )
 from ..config import APP_DIR, DEFAULT_MODEL_NAME, RUNTIME_CHAT_TIMEOUT_SECONDS
+from ..json_store import atomic_write_json
 from ..logging_utils import log_exception, log_warning
 from ..runtime import is_ollama_base_url, make_runtime_client
 from ..workers.model_discovery_worker import ModelDiscoveryWorker
@@ -2690,11 +2691,8 @@ def load_benchmark_history() -> list[dict]:
 
 def save_benchmark_history(history: list[dict]):
     try:
-        BENCHMARK_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
         trimmed = list(history or [])[:1000]
-        temp_path = BENCHMARK_HISTORY_FILE.with_suffix(".json.tmp")
-        temp_path.write_text(json.dumps(trimmed, indent=2), encoding="utf-8")
-        temp_path.replace(BENCHMARK_HISTORY_FILE)
+        atomic_write_json(BENCHMARK_HISTORY_FILE, trimmed, indent=2)
     except Exception as exc:
         log_exception("save_benchmark_history", exc)
 

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import APP_DIR
+from ..json_store import atomic_write_json
 from ..logging_utils import log_exception, log_warning
 
 SETTINGS_FILE = APP_DIR / "nina_integration.json"
@@ -470,11 +471,7 @@ def save_settings(settings: dict[str, Any], path: Path | None = None) -> dict[st
     normalized = _settings_from_mapping(settings)
     settings_path = Path(path or SETTINGS_FILE)
     try:
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(
-            json.dumps(normalized, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+        atomic_write_json(settings_path, normalized, indent=2, sort_keys=True)
     except Exception as exc:
         log_exception("nina_bridge.save_settings", exc)
     return normalized

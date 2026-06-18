@@ -88,12 +88,16 @@ def test_desktop_keeps_manual_web_only_launch_path():
 
 def test_desktop_config_panel_controls_web_companion():
     app = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8")
+    state_controller = (
+        PROJECT_ROOT / "fzastro_ai" / "controllers" / "app_state_controller.py"
+    ).read_text(encoding="utf-8")
 
     assert "Web Companion" in app
     assert "Start Local Web Server" in app
     assert "Start LAN / iPad Mode" in app
     assert "Auto-start local server with desktop" in app
-    assert "web_companion_settings.json" in app
+    assert "web_companion_settings.json" in state_controller
+    assert "AppStateController" in app
     assert "QTimer.singleShot(750, self.start_web_companion_background)" in app
     assert 'if self.web_companion_settings.get("auto_start_desktop")' in app
 

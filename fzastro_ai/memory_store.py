@@ -19,6 +19,7 @@ from .config import (
     SOURCE_CODE_EXTENSIONS,
     SOURCE_CODE_LANGUAGE_BY_EXTENSION,
 )
+from .json_store import atomic_write_json, preserve_corrupt_file
 from .logging_utils import log_exception
 
 
@@ -39,6 +40,9 @@ def load_calibration_profile_store():
         raw_data = json.loads(CALIBRATION_PROFILES_FILE.read_text(encoding="utf-8"))
     except Exception as exc:
         log_exception("load_calibration_profile_store line 629", exc)
+        preserve_corrupt_file(
+            CALIBRATION_PROFILES_FILE, "preserve_corrupt_calibration_profile_store"
+        )
         return empty_calibration_profile_store()
 
     if not isinstance(raw_data, dict):
@@ -123,12 +127,12 @@ def save_calibration_profile_store(profile_store):
                     }
 
         normalized["updated_at"] = datetime.now().isoformat(timespec="seconds")
-
-        temporary_file = CALIBRATION_PROFILES_FILE.with_suffix(".json.tmp")
-        temporary_file.write_text(
-            json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8"
+        atomic_write_json(
+            CALIBRATION_PROFILES_FILE,
+            normalized,
+            ensure_ascii=False,
+            indent=2,
         )
-        temporary_file.replace(CALIBRATION_PROFILES_FILE)
         return True
     except Exception as exc:
         log_exception("save_calibration_profile_store line 721", exc)
@@ -235,11 +239,7 @@ def save_persistent_memory(memory_data):
     try:
         normalized = normalize_persistent_memory(memory_data)
         normalized["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        temporary_file = MEMORY_FILE.with_suffix(".json.tmp")
-        temporary_file.write_text(
-            json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        temporary_file.replace(MEMORY_FILE)
+        atomic_write_json(MEMORY_FILE, normalized, ensure_ascii=False, indent=2)
         return True
     except Exception as exc:
         log_exception("save_persistent_memory line 831", exc)
@@ -253,6 +253,7 @@ def load_persistent_memory():
             return normalize_persistent_memory(raw_data)
         except Exception as exc:
             log_exception("load_persistent_memory line 840", exc)
+            preserve_corrupt_file(MEMORY_FILE, "preserve_corrupt_persistent_memory")
             return empty_persistent_memory()
 
     # One-time migration from versions that stored one unstructured text block.

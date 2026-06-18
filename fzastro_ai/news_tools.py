@@ -15,6 +15,7 @@ from .config import (
     DAILY_NEWS_RSS_TIMEOUT_SECONDS,
     DAILY_NEWS_RSS_MAX_BYTES,
 )
+from .json_store import atomic_write_json
 from .logging_utils import log_exception
 from .network_utils import get_limited_text
 
@@ -87,11 +88,12 @@ def save_daily_news_cache(context):
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "context": clean_context,
         }
-        temporary_file = DAILY_NEWS_CACHE_FILE.with_suffix(".json.tmp")
-        temporary_file.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        atomic_write_json(
+            DAILY_NEWS_CACHE_FILE,
+            payload,
+            ensure_ascii=False,
+            indent=2,
         )
-        temporary_file.replace(DAILY_NEWS_CACHE_FILE)
         return True
     except Exception as exc:
         log_exception("save_daily_news_cache line 2503", exc)

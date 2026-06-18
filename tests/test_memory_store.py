@@ -1,3 +1,6 @@
+import json
+
+import fzastro_ai.memory_store as memory_store
 from fzastro_ai.memory_store import (
     build_persistent_memory_context,
     empty_persistent_memory,
@@ -53,3 +56,27 @@ def test_empty_memory_shape_is_stable():
     memory = empty_persistent_memory()
     assert memory["entries"] == []
     assert "version" in memory
+
+
+def test_save_persistent_memory_writes_atomically(tmp_path, monkeypatch):
+    memory_file = tmp_path / "memory.json"
+    monkeypatch.setattr(memory_store, "MEMORY_FILE", memory_file)
+
+    assert memory_store.save_persistent_memory({"entries": [{"content": "Keep this"}]})
+
+    payload = json.loads(memory_file.read_text(encoding="utf-8"))
+    assert payload["entries"][0]["content"] == "Keep this"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_load_persistent_memory_preserves_corrupt_file(tmp_path, monkeypatch):
+    memory_file = tmp_path / "memory.json"
+    memory_file.write_text("{not valid json", encoding="utf-8")
+    monkeypatch.setattr(memory_store, "MEMORY_FILE", memory_file)
+
+    assert memory_store.load_persistent_memory() == empty_persistent_memory()
+    assert not memory_file.exists()
+
+    corrupt_files = list(tmp_path.glob("memory.corrupt-*.json"))
+    assert len(corrupt_files) == 1
+    assert corrupt_files[0].read_text(encoding="utf-8") == "{not valid json"
