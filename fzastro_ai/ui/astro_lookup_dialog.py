@@ -817,6 +817,16 @@ class AstroLookupDialog(QDialog):
         self.query_edit.setText(query)
         self.query_edit.setFocus()
 
+    def set_query(self, query: str, *, run: bool = False):
+        if not self.include_query:
+            return
+        clean_query = str(query or "").strip()
+        if clean_query:
+            self.query_edit.setText(clean_query)
+            self.query_edit.setFocus()
+        if run:
+            QTimer.singleShot(0, self.run_lookup)
+
     def reset_defaults(self):
         idx = self.preset_combo.findData(DEFAULT_ASTRO_IMAGING["preset"])
         self.preset_combo.setCurrentIndex(max(0, idx))
@@ -1058,6 +1068,65 @@ class AstroLookupDialog(QDialog):
     def closeEvent(self, event):
         self._stop_lookup_worker()
         super().closeEvent(event)
+
+
+def show_astro_lookup_dialog(
+    parent=None,
+    imaging: Optional[dict] = None,
+    query: str = "M31",
+    *,
+    auto_run: bool = False,
+):
+    clean_query = str(query or "M31").strip() or "M31"
+
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        def _clear_reference(_widget=None):
+            try:
+                if getattr(parent, "astro_lookup_dialog", None) is _widget:
+                    setattr(parent, "astro_lookup_dialog", None)
+            except Exception:
+                pass
+
+        def _create_lookup_tab():
+            dialog = AstroLookupDialog(
+                parent,
+                imaging=imaging,
+                query=clean_query,
+                include_query=True,
+            )
+            setattr(parent, "astro_lookup_dialog", dialog)
+            try:
+                dialog.destroyed.connect(lambda *_args: _clear_reference(dialog))
+            except Exception:
+                pass
+            return dialog
+
+        dialog = parent.open_workspace_tab(
+            "astro.lookup",
+            "LOOKUP",
+            _create_lookup_tab,
+            tooltip="Astro object lookup with sky preview and distance details",
+            on_close=_clear_reference,
+        )
+        if isinstance(dialog, AstroLookupDialog):
+            dialog.set_query(clean_query, run=auto_run)
+        return dialog
+
+    dialog = AstroLookupDialog(parent, imaging=imaging, query=clean_query, include_query=True)
+    if parent is not None:
+        try:
+            setattr(parent, "astro_lookup_dialog", dialog)
+            dialog.destroyed.connect(
+                lambda *_args: setattr(parent, "astro_lookup_dialog", None)
+            )
+        except Exception:
+            pass
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
+    if auto_run:
+        dialog.set_query(clean_query, run=True)
+    return dialog
 
 
 def choose_astro_lookup_settings(

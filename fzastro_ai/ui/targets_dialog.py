@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import html
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -97,10 +99,9 @@ class TargetsDialog(QDialog):
         self.setMinimumSize(980, 620)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(9)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(6)
 
-        root.addWidget(self._build_header())
         root.addWidget(self._build_controls())
         root.addWidget(self._build_results(), 1)
 
@@ -134,9 +135,9 @@ class TargetsDialog(QDialog):
         card = QFrame()
         card.setObjectName("astroLookupSettingsCard")
         layout = QGridLayout(card)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setHorizontalSpacing(10)
-        layout.setVerticalSpacing(6)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(4)
 
         self.site_label = QLabel(self._site_summary())
         self.site_label.setObjectName("toolbarCaption")
@@ -204,36 +205,63 @@ class TargetsDialog(QDialog):
         self.export_button.clicked.connect(self.export_csv)
         self.export_button.setEnabled(False)
 
-        captions = [
-            ("Site", 0, 0),
-            ("Date", 0, 2),
-            ("Min altitude", 0, 3),
-            ("Limit", 0, 4),
-            ("Catalog", 2, 0),
-            ("Type", 2, 1),
-            ("Min size", 2, 2),
-        ]
-        for text, row, column in captions:
-            label = QLabel(text)
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(1)
+        title = QLabel("TARGETS")
+        title.setObjectName("astroLookupSectionTitle")
+        subtitle = QLabel("Best targets for the selected night.")
+        subtitle.setObjectName("toolbarCaption")
+        subtitle.setWordWrap(True)
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+
+        def add_field(row: int, column: int, caption: str, widget, span: int = 1):
+            cell = QVBoxLayout()
+            cell.setContentsMargins(0, 0, 0, 0)
+            cell.setSpacing(2)
+            label = QLabel(caption)
             label.setObjectName("toolbarCaption")
-            layout.addWidget(label, row, column)
+            cell.addWidget(label)
+            cell.addWidget(widget)
+            layout.addLayout(cell, row, column, 1, span)
 
-        layout.addWidget(self.site_label, 1, 0, 1, 1)
-        layout.addWidget(self.change_site_button, 1, 1)
-        layout.addWidget(self.date_edit, 1, 2)
-        layout.addWidget(self.min_alt_spin, 1, 3)
-        layout.addWidget(self.limit_spin, 1, 4)
-        layout.addWidget(self.run_button, 1, 5)
+        def add_button(row: int, column: int, widget, span: int = 1):
+            cell = QVBoxLayout()
+            cell.setContentsMargins(0, 0, 0, 0)
+            cell.setSpacing(2)
+            spacer = QLabel("")
+            spacer.setObjectName("toolbarCaption")
+            cell.addWidget(spacer)
+            cell.addWidget(widget)
+            layout.addLayout(cell, row, column, 1, span)
 
-        layout.addWidget(self.catalog_combo, 3, 0)
-        layout.addWidget(self.type_combo, 3, 1)
-        layout.addWidget(self.min_size_spin, 3, 2)
-        layout.addWidget(self.use_mag_check, 2, 3)
-        layout.addWidget(self.max_mag_spin, 3, 3)
-        layout.addWidget(self.import_button, 3, 4)
-        layout.addWidget(self.export_button, 3, 5)
+        layout.addLayout(title_box, 0, 0, 1, 2)
+        add_field(0, 2, "Site", self.site_label, 3)
+        add_button(0, 5, self.change_site_button)
+        add_field(0, 6, "Date", self.date_edit)
+        add_field(0, 7, "Min alt", self.min_alt_spin)
+        add_field(0, 8, "Limit", self.limit_spin)
+        add_button(0, 9, self.run_button)
 
-        layout.setColumnStretch(0, 2)
+        add_field(1, 0, "Catalog", self.catalog_combo, 3)
+        add_field(1, 3, "Type", self.type_combo, 2)
+        add_field(1, 5, "Min size", self.min_size_spin)
+
+        mag_cell = QVBoxLayout()
+        mag_cell.setContentsMargins(0, 0, 0, 0)
+        mag_cell.setSpacing(2)
+        self.use_mag_check.setObjectName("toolbarCaption")
+        mag_cell.addWidget(self.use_mag_check)
+        mag_cell.addWidget(self.max_mag_spin)
+        layout.addLayout(mag_cell, 1, 6)
+
+        add_button(1, 7, self.import_button, 2)
+        add_button(1, 9, self.export_button)
+
+        layout.setColumnStretch(2, 2)
+        layout.setColumnStretch(3, 2)
+        layout.setColumnStretch(4, 2)
         return card
 
     def _build_results(self) -> QFrame:
@@ -278,47 +306,47 @@ class TargetsDialog(QDialog):
         split.addWidget(self.table, 3)
 
         side = QVBoxLayout()
+        side.setSpacing(6)
         self.summary_label = QLabel("Catalog loading…")
         self.summary_label.setObjectName("toolbarCaption")
         self.summary_label.setWordWrap(True)
         side.addWidget(self.summary_label)
 
-        self.details_browser = QTextBrowser()
+        self.details_browser = QTextBrowser(card)
         self.details_browser.setObjectName("astroLookupResultBrowser")
         self.details_browser.setOpenExternalLinks(False)
+        self.details_browser.setVisible(False)
+        self.details_browser.setMaximumHeight(0)
+        self.details_browser.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.details_browser.setHtml(
             self._status_html("Run the planner", "Targets will appear here.")
         )
-        side.addWidget(self.details_browser, 1)
 
-        lookup_header = QHBoxLayout()
-        lookup_title = QLabel("LOOKUP details")
-        lookup_title.setObjectName("astroLookupSectionTitle")
-        self.inline_lookup_status_label = QLabel("Idle")
+        self.inline_lookup_status_label = QLabel("Idle", card)
         self.inline_lookup_status_label.setObjectName("astroLookupStatusLabel")
         self.inline_lookup_status_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        lookup_header.addWidget(lookup_title)
-        lookup_header.addStretch(1)
-        lookup_header.addWidget(self.inline_lookup_status_label)
-        side.addLayout(lookup_header)
+        self.inline_lookup_status_label.setVisible(False)
 
-        self.inline_lookup_browser = QTextBrowser()
+        self.inline_lookup_browser = QTextBrowser(card)
         self.inline_lookup_browser.setObjectName("astroLookupResultBrowser")
         self.inline_lookup_browser.setOpenExternalLinks(True)
-        self.inline_lookup_browser.setMinimumHeight(130)
+        self.inline_lookup_browser.setVisible(False)
+        self.inline_lookup_browser.setMaximumHeight(0)
+        self.inline_lookup_browser.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.inline_lookup_browser.setHtml(
             self._status_html(
                 "Select a target",
                 "LOOKUP details and sky preview will load here.",
             )
         )
-        side.addWidget(self.inline_lookup_browser, 1)
 
         image_panel = QFrame()
         image_panel.setObjectName("astroLookupImagePanel")
+        image_panel.setMinimumHeight(300)
+        image_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         image_layout = QVBoxLayout(image_panel)
-        image_layout.setContentsMargins(7, 7, 7, 7)
-        image_layout.setSpacing(4)
+        image_layout.setContentsMargins(8, 8, 8, 8)
+        image_layout.setSpacing(6)
         image_header = QHBoxLayout()
         image_header.setContentsMargins(0, 0, 0, 0)
         image_title = QLabel("Sky preview")
@@ -333,12 +361,17 @@ class TargetsDialog(QDialog):
         self.inline_lookup_image_label.setObjectName("astroLookupImagePreview")
         self.inline_lookup_image_label.setAlignment(Qt.AlignCenter)
         self.inline_lookup_image_label.setWordWrap(True)
-        self.inline_lookup_image_label.setMinimumSize(240, 110)
-        self.inline_lookup_image_label.setMaximumHeight(170)
+        self.inline_lookup_image_label.setMinimumSize(320, 260)
+        self.inline_lookup_image_label.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
+        self.inline_lookup_meta_label = QLabel("Type: -- | Distance: --")
+        self.inline_lookup_meta_label.setObjectName("targetPreviewMetaLabel")
+        self.inline_lookup_meta_label.setWordWrap(True)
         image_layout.addLayout(image_header)
         image_layout.addWidget(self.inline_lookup_image_label, 1)
-        image_panel.setMaximumHeight(220)
-        side.addWidget(image_panel, 0)
+        image_layout.addWidget(self.inline_lookup_meta_label)
+        side.addWidget(image_panel, 4)
 
         framing_panel = QFrame()
         framing_panel.setObjectName("astroLookupSettingsCard")
@@ -444,6 +477,9 @@ class TargetsDialog(QDialog):
         except Exception:
             return "Site not set"
 
+    def _app_parent(self):
+        return getattr(self, "_workspace_host", None) or self.parent()
+
     def _status_html(self, title: str, body: str = "") -> str:
         safe_title = html.escape(str(title))
         safe_body = html.escape(str(body))
@@ -489,7 +525,7 @@ class TargetsDialog(QDialog):
         }
 
     def change_site(self):
-        parent = self.parent()
+        parent = self._app_parent()
         selected = choose_astro_location(self, self.location)
         if not selected:
             return
@@ -628,6 +664,7 @@ class TargetsDialog(QDialog):
         if not pick:
             return
         self.details_browser.setHtml(self._details_html(pick))
+        self._update_inline_lookup_meta(pick)
         self.refresh_targets_framing_summary(pick)
         self.queue_inline_lookup(pick)
 
@@ -665,6 +702,87 @@ class TargetsDialog(QDialog):
         </body></html>
         """
 
+    def _update_inline_lookup_meta(
+        self, pick: dict[str, Any] | None = None, lookup_text: str = ""
+    ):
+        if not hasattr(self, "inline_lookup_meta_label"):
+            return
+        data = dict(pick or self.selected_pick() or {})
+        if not data:
+            self.inline_lookup_meta_label.setText("Type: -- | Distance: --")
+            return
+        object_type = str(
+            data.get("type") or data.get("object_type") or "Object"
+        ).strip() or "--"
+        distance = self._target_distance_text(data, lookup_text=lookup_text)
+        self.inline_lookup_meta_label.setText(
+            f"Type: {object_type} | Distance: {distance}"
+        )
+
+    def _target_distance_text(
+        self, pick: dict[str, Any], lookup_text: str = ""
+    ) -> str:
+        for key in ("distance_text", "distance_label", "distance", "dist"):
+            value = pick.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+
+        for key, unit in (
+            ("distance_ly", "ly"),
+            ("distance_light_years", "ly"),
+            ("distance_pc", "pc"),
+            ("distance_kpc", "kpc"),
+            ("distance_mpc", "Mpc"),
+        ):
+            value = pick.get(key)
+            if value is not None and str(value).strip():
+                return self._fmt_distance_value(value, unit)
+
+        lookup_distance = self._lookup_distance_from_text(lookup_text)
+        return lookup_distance or "--"
+
+    @staticmethod
+    def _fmt_distance_value(value: Any, unit: str) -> str:
+        try:
+            number = float(value)
+        except Exception:
+            return str(value).strip() or "--"
+
+        clean_unit = str(unit or "").strip()
+        if clean_unit == "ly":
+            if abs(number) >= 1_000_000_000:
+                return f"{number / 1_000_000_000:.2f} Gly"
+            if abs(number) >= 1_000_000:
+                return f"{number / 1_000_000:.2f} Mly"
+            if abs(number) >= 1_000:
+                return f"{number / 1_000:.2f} kly"
+            return f"{number:.0f} ly"
+        if clean_unit == "pc" and abs(number) >= 1_000:
+            return f"{number / 1_000:.2f} kpc"
+        return f"{number:.2f} {clean_unit}".strip()
+
+    @staticmethod
+    def _lookup_distance_from_text(text: str) -> str:
+        body = html.unescape(re.sub(r"<[^>]+>", " ", str(text or "")))
+        body = re.sub(r"\s+", " ", body).strip()
+        if not body:
+            return ""
+        lower_body = body.casefold()
+        marker = lower_body.find("distance")
+        if marker < 0:
+            return ""
+        segment = body[marker : marker + 220]
+        if "not available" in segment.casefold():
+            return ""
+        match = re.search(
+            r"\b([0-9][0-9,.\s]*(?:k|M|G)?\s*(?:ly|light years?|pc|kpc|Mpc|Gpc))\b",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return ""
+        return re.sub(r"\s+", " ", match.group(1)).strip()
+
     def _clear_inline_lookup_panel(self, title: str, body: str = ""):
         self._inline_lookup_pixmap = None
         self._inline_lookup_image_path = None
@@ -674,6 +792,7 @@ class TargetsDialog(QDialog):
         self.inline_lookup_image_label.setPixmap(QPixmap())
         self.inline_lookup_image_label.setText("No image loaded.")
         self.inline_lookup_image_label.setToolTip("")
+        self._update_inline_lookup_meta({})
         self.open_image_button.setEnabled(False)
 
     def queue_inline_lookup(self, pick: dict[str, Any]):
@@ -688,6 +807,7 @@ class TargetsDialog(QDialog):
         serial = self._inline_lookup_serial
         self._stop_inline_lookup_worker()
         self._inline_lookup_pixmap = None
+        self._update_inline_lookup_meta(pick)
         self.inline_lookup_status_label.setText("Queued")
         self.inline_lookup_browser.setHtml(
             self._status_html(
@@ -753,6 +873,7 @@ class TargetsDialog(QDialog):
             self.inline_lookup_browser.setHtml(
                 self._status_html("LOOKUP problem", clean_text or "No output returned.")
             )
+        self._update_inline_lookup_meta(self.selected_pick(), clean_text)
         self._show_inline_lookup_image([str(path) for path in list(files or [])])
 
     def handle_inline_lookup_stopped(self, _elapsed: float):
@@ -769,6 +890,7 @@ class TargetsDialog(QDialog):
         )
         self.inline_lookup_image_label.setPixmap(QPixmap())
         self.inline_lookup_image_label.setText("No image loaded.")
+        self._update_inline_lookup_meta(self.selected_pick())
 
     def handle_inline_lookup_worker_finished(self):
         worker = self.sender()
@@ -904,8 +1026,11 @@ class TargetsDialog(QDialog):
         pick = self.selected_pick()
         if not pick:
             return
-        parent = self.parent()
+        parent = self._app_parent()
         query = str(pick.get("name") or "").strip()
+        if parent is not None and hasattr(parent, "open_astro_lookup_dialog"):
+            parent.open_astro_lookup_dialog(query, auto_run=True)
+            return
         imaging = None
         if parent is not None and hasattr(parent, "get_current_astro_imaging"):
             try:
@@ -940,7 +1065,7 @@ class TargetsDialog(QDialog):
         if not pick:
             QMessageBox.information(self, "FZASTRO IMAGING", "Select a target first.")
             return
-        parent = self.parent()
+        parent = self._app_parent()
         setter = (
             getattr(parent, "set_pending_imaging_target_from_targets", None)
             if parent is not None
@@ -984,7 +1109,7 @@ class TargetsDialog(QDialog):
         QTimer.singleShot(180, self.accept)
 
     def _load_parent_imaging_into_targets_controls(self):
-        parent = self.parent()
+        parent = self._app_parent()
         imaging = None
         if parent is not None and hasattr(parent, "get_current_astro_imaging"):
             try:

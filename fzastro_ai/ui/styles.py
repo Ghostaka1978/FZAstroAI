@@ -162,57 +162,94 @@ def get_main_stylesheet():
 
             QFrame#chatSurface {
                 background: #0d1014;
+                border: none;
+                border-radius: 0;
             }
 
             QTabWidget#workspaceTabs {
                 background: transparent;
                 border: none;
+                padding: 0;
             }
 
             QTabWidget#workspaceTabs::pane {
-                background: transparent;
-                border: none;
-                top: -1px;
+                background: #0d1014;
+                border: 1px solid #242d38;
+                border-radius: 10px;
+                top: -2px;
             }
 
             QTabWidget#workspaceTabs QTabBar::tab {
-                background: #111820;
-                color: #9ba7b5;
-                border: 1px solid #27313c;
-                border-bottom-color: #1f2730;
-                border-top-left-radius: 7px;
-                border-top-right-radius: 7px;
-                min-width: 84px;
-                min-height: 28px;
-                padding: 4px 12px;
-                margin-right: 4px;
+                background: #101820;
+                color: #a9b7c8;
+                border: 1px solid #253242;
+                border-bottom-color: #242d38;
+                border-top-left-radius: 9px;
+                border-top-right-radius: 9px;
+                min-width: 96px;
+                min-height: 30px;
+                padding: 5px 11px 5px 14px;
+                margin-right: 5px;
                 font-size: 11px;
-                font-weight: 750;
+                font-weight: 800;
             }
 
             QTabWidget#workspaceTabs QTabBar::tab:selected {
-                background: #182332;
-                color: #f2f7ff;
-                border-color: #45617f;
-                border-bottom-color: #182332;
+                background: #13233a;
+                color: #f5f8fd;
+                border-color: #496482;
+                border-bottom-color: #13233a;
             }
 
             QTabWidget#workspaceTabs QTabBar::tab:hover:!selected {
-                background: #16202a;
-                color: #d7e2ee;
-                border-color: #344253;
+                background: #152231;
+                color: #dae6f4;
+                border-color: #33465c;
             }
 
-            QTabWidget#workspaceTabs QTabBar::close-button {
-                subcontrol-position: right;
-                width: 12px;
-                height: 12px;
-                margin-left: 5px;
+            QPushButton#workspaceAppsButton {
+                background: #132033;
+                color: #e9f2fb;
+                border: 1px solid #38506b;
+                border-radius: 8px;
+                padding: 4px 12px;
+                margin: 0 8px 2px 8px;
+                font-size: 11px;
+                font-weight: 800;
+                min-height: 24px;
             }
 
-            QTabWidget#workspaceTabs QTabBar::close-button:hover {
-                background: #d25f72;
-                border-radius: 6px;
+            QPushButton#workspaceAppsButton:hover {
+                background: #18304f;
+                border-color: #5f7fa4;
+            }
+
+            QPushButton#workspaceAppsButton:pressed,
+            QPushButton#workspaceAppsButton:checked {
+                background: #1d3b63;
+                border-color: #81a6cf;
+            }
+
+            QPushButton#workspaceTabCloseButton {
+                background: transparent;
+                border: none;
+                border-radius: 8px;
+                min-width: 18px;
+                max-width: 18px;
+                min-height: 18px;
+                max-height: 18px;
+                padding: 0;
+                margin: 0;
+            }
+
+            QPushButton#workspaceTabCloseButton:hover {
+                background: #344254;
+                border: 1px solid #52677f;
+            }
+
+            QPushButton#workspaceTabCloseButton:pressed {
+                background: #b85063;
+                border: 1px solid #d47888;
             }
 
             QFrame#skillsDrawer {
@@ -1067,6 +1104,16 @@ def get_main_stylesheet():
                 border-radius: 12px;
                 padding: 3px;
                 font-size: 10px;
+            }
+
+            QLabel#targetPreviewMetaLabel {
+                background: #0f151b;
+                color: #bdd0e3;
+                border: 1px solid #2b3540;
+                border-radius: 9px;
+                padding: 6px 8px;
+                font-size: 11px;
+                font-weight: 650;
             }
 
             QProgressBar#astroLookupProgress {

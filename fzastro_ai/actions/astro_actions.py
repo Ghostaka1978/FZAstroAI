@@ -26,8 +26,8 @@ from ..ui.astro_lookup_dialog import (
     DEFAULT_ASTRO_IMAGING,
     astro_imaging_summary,
     choose_astro_imaging_settings,
-    choose_astro_lookup_settings,
     normalise_astro_imaging,
+    show_astro_lookup_dialog,
 )
 
 
@@ -341,21 +341,23 @@ class AstroActionsMixin:
         elev = float(values[2]) if len(values) >= 3 else DEFAULT_ASTRO_LOCATION["elev"]
         return {"lat": lat, "lon": lon, "elev": elev}
 
-    def open_astro_lookup_dialog(self):
+    def open_astro_lookup_dialog(self, query: str = "M31", *, auto_run: bool = False):
         if self._astro_busy():
             return
 
-        selected = choose_astro_lookup_settings(
-            self, self.get_current_astro_imaging(), query="M31"
+        if isinstance(query, bool):
+            query = "M31"
+        clean_query = str(query or "M31").strip() or "M31"
+        result = show_astro_lookup_dialog(
+            self,
+            self.get_current_astro_imaging(),
+            query=clean_query,
+            auto_run=auto_run,
         )
 
-        if not selected:
-            return
-
-        self.set_current_astro_imaging(selected)
-        clean = str(selected.get("query") or "").strip()
+        status = "opened" if hasattr(result, "setParent") else "closed"
         self.stats_label.setText(
-            f"Astro LOOKUP closed: {clean} · {self.astro_imaging_summary()}"
+            f"LOOKUP {status}: {clean_query} - {self.astro_imaging_summary()}"
         )
 
     def open_astro_targets_dialog(self):

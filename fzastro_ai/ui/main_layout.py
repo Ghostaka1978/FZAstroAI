@@ -202,6 +202,11 @@ class MainLayoutMixin:
         if panel is None or browser is None:
             return
 
+        workspace_tabs = getattr(self, "workspace_tabs", None)
+        if workspace_tabs is not None and workspace_tabs.currentIndex() != 0:
+            panel.hide()
+            return
+
         panel.setVisible(bool(browser.toPlainText().strip()))
 
     def show_empty_chat_state(self):

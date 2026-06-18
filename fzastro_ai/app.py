@@ -2093,6 +2093,7 @@ class FZAstroAI(
 
         composer_shell = QFrame()
         composer_shell.setObjectName("composerShell")
+        self.composer_shell = composer_shell
         composer_layout = QVBoxLayout(composer_shell)
         composer_layout.setContentsMargins(12, 9, 12, 9)
         composer_layout.setSpacing(7)
@@ -5046,7 +5047,7 @@ class FZAstroAI(
         if not object_name:
             return
 
-        self.execute_astro_direct_request(f"/astro {object_name}")
+        self.open_astro_lookup_dialog(object_name, auto_run=True)
 
     def add_message_widget(
         self,
