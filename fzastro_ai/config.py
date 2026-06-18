@@ -25,7 +25,7 @@ def env_float(name: str, default: float, *, minimum: float | None = None) -> flo
 
 
 APP_NAME = "FZAstro AI"
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.3.0"
 APP_MILESTONE = "Imaging Production"
 APP_VERSION_LABEL = f"{APP_NAME} v{APP_VERSION} ({APP_MILESTONE})"
 DEFAULT_MODEL_NAME = (

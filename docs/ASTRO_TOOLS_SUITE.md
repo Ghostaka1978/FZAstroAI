@@ -1,6 +1,6 @@
 # FZAstro AI Astro Tools Suite
 
-The Astro Tools Suite is the main astronomy and astrophotography workflow area in FZAstro AI v2.0.0. Open it from **Skills → Astro**.
+The Astro Tools Suite is the main astronomy and astrophotography workflow area in FZAstro AI v2.3.0. Open it from the main workspace **Apps** menu or the Astro controls. Tools open as tabs in the main app so LOOKUP, SEEING, TARGETS, SUN NOW, N.I.N.A., and chat can stay available together.
 
 ## Suite overview
 
@@ -28,7 +28,8 @@ SEEING is tuned for practical imaging decisions:
 
 ## Runtime expectations
 
-- Standalone Astro tools should not post their primary UI output to main chat.
+- Astro tools should not post their primary UI output to main chat.
 - Opening LOOKUP, SUN NOW, SEEING, TARGETS, or SOLAR MAP should not force the main chat to scroll to the bottom.
-- Astro windows should use the shared centered desktop-window defaults with minimize/maximize/close controls.
+- Astro tools should use the shared dark palette and open cleanly as workspace tabs when launched from the main app.
+- Standalone dialogs should still use shared centered desktop-window defaults with minimize/maximize/close controls.
 - Astropy/IERS failures and external provider timeouts should be logged without crashing the app.

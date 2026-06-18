@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
@@ -228,6 +228,7 @@ class WorkspaceTabsMixin:
                     tabs.setCurrentIndex(index)
                     if content is not None:
                         content.show()
+                        self._queue_workspace_tab_geometry_sync(content)
                         content.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
                         return content
                     existing.show()
@@ -276,13 +277,7 @@ class WorkspaceTabsMixin:
                 pass
 
         widget.show()
-        self._sync_workspace_tab_geometry(widget)
-        QTimer.singleShot(
-            0, lambda tab_widget=widget: self._sync_workspace_tab_geometry(tab_widget)
-        )
-        QTimer.singleShot(
-            40, lambda tab_widget=widget: self._sync_workspace_tab_geometry(tab_widget)
-        )
+        self._queue_workspace_tab_geometry_sync(widget)
         return widget
 
     def focus_workspace_tab(self, key: str) -> bool:
@@ -358,6 +353,10 @@ class WorkspaceTabsMixin:
         page = QWidget()
         page.setObjectName("workspaceTabPage")
         page.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        try:
+            page.installEventFilter(self)
+        except Exception:
+            pass
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -407,11 +406,35 @@ class WorkspaceTabsMixin:
         page = tabs.widget(index)
         widget = self._workspace_content_for_page(page) if page is not None else None
         if widget is not None:
-            self._sync_workspace_tab_geometry(widget)
+            self._queue_workspace_tab_geometry_sync(widget)
 
     def _handle_workspace_tab_changed(self, index: int):
         self._sync_current_workspace_tab_geometry(index)
         self._update_workspace_chat_chrome(index)
+
+    def eventFilter(self, watched, event):
+        try:
+            if (
+                getattr(watched, "objectName", lambda: "")() == "workspaceTabPage"
+                and event.type()
+                in (
+                    QEvent.Type.Resize,
+                    QEvent.Type.Show,
+                    QEvent.Type.LayoutRequest,
+                )
+            ):
+                widget = self._workspace_content_for_page(watched)
+                if widget is not None:
+                    self._sync_workspace_tab_geometry(widget)
+                    if event.type() != QEvent.Type.LayoutRequest:
+                        self._queue_workspace_tab_geometry_sync(widget)
+        except RuntimeError:
+            pass
+
+        parent_filter = getattr(super(), "eventFilter", None)
+        if callable(parent_filter):
+            return parent_filter(watched, event)
+        return False
 
     def _update_workspace_chat_chrome(self, index: int | None = None):
         tabs = getattr(self, "workspace_tabs", None)
@@ -441,10 +464,31 @@ class WorkspaceTabsMixin:
             parent = widget.parentWidget()
             if parent is None:
                 return
+            layout = parent.layout()
+            if layout is not None:
+                layout.invalidate()
+                layout.activate()
+            parent.updateGeometry()
             widget.setGeometry(parent.rect())
+            widget.resize(parent.size())
             widget.move(0, 0)
+            child_layout = widget.layout()
+            if child_layout is not None:
+                child_layout.activate()
+            widget.updateGeometry()
+            widget.update()
         except RuntimeError:
             return
+
+    def _queue_workspace_tab_geometry_sync(self, widget: QWidget):
+        self._sync_workspace_tab_geometry(widget)
+        for delay_ms in (0, 16, 40, 90, 180, 320):
+            QTimer.singleShot(
+                delay_ms,
+                lambda tab_widget=widget: self._sync_workspace_tab_geometry(
+                    tab_widget
+                ),
+            )
 
     def _finish_workspace_tab_close(self, widget: QWidget):
         self._workspace_tab_closing.discard(id(widget))

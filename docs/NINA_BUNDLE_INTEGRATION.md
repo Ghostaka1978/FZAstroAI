@@ -2,7 +2,7 @@
 
 FZAstro AI treats the N.I.N.A.-based imaging application as a side-by-side bundled app instead of requiring a separate N.I.N.A. installation or merging C# source into the Python package.
 
-This document covers the **v2.1.0 Imaging Production** workflow: launch the bundled app, build it quietly from source, create safe review-only imaging plans from Astro context, and attempt to open generated Advanced Sequencer plans for user review.
+This document covers the **v2.3.0 Imaging Production** workflow: launch the bundled app, build it quietly from source, create safe review-only imaging plans from Astro context, and attempt to open generated Advanced Sequencer plans for user review.
 
 ## Bundle identity rule
 

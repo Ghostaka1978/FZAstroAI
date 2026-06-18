@@ -90,6 +90,10 @@ def test_main_app_hosts_tool_windows_in_workspace_tabs():
     assert "def open_workspace_tab" in workspace_text
     assert "def close_workspace_tab" in workspace_text
     assert "def _update_workspace_chat_chrome" in workspace_text
+    assert "def eventFilter" in workspace_text
+    assert "def _queue_workspace_tab_geometry_sync" in workspace_text
+    assert "installEventFilter(self)" in workspace_text
+    assert "QEvent.Type.Resize" in workspace_text
     assert "composer_shell.setVisible(is_chat_tab)" in workspace_text
     assert "thought_panel.hide()" in workspace_text
     assert "workspace_tabs.currentIndex() != 0" in main_layout_text

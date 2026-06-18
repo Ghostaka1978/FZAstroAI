@@ -67,7 +67,39 @@ def test_deploy_script_is_single_command_wrapper():
     assert "& $CleanScript @CleanParams" in script
     assert "RunValidation" in script
     assert "SkipValidationPrompt" in script
+    assert "GitRelease" in script
+    assert "Invoke-GitRelease" in script
+    assert "GitTag" in script
+    assert "GitCommitMessage" in script
+    assert "GitPush" in script
+    assert "tag -a" in script
+    assert "push $Remote" in script
     assert '"-ProjectRoot"' not in script
+
+
+def test_root_deploy_button_runs_validation_and_git_release():
+    button = PROJECT_ROOT / "DEPLOY.bat"
+    text = button.read_text(encoding="utf-8")
+
+    assert button.exists()
+    assert r"scripts\deploy.ps1" in text
+    assert "-RunValidation" in text
+    assert "-GitRelease" in text
+    assert "-GitPush" in text
+    assert "%*" in text
+
+
+def test_project_root_keeps_only_one_deploy_button_and_no_stale_artifacts():
+    assert not list(PROJECT_ROOT.glob("*.ps1"))
+    assert (PROJECT_ROOT / "DEPLOY.bat").exists()
+
+    stale_root_files = [
+        "Codex Installer.exe",
+        "Microsoft.Services.Store.winmd",
+        "DELETE_THESE_FILES.txt",
+    ]
+    for name in stale_root_files:
+        assert not (PROJECT_ROOT / name).exists(), name
 
 
 def test_activate_venv_script_sets_runtime_python_and_build_environment():
@@ -87,10 +119,13 @@ def test_activate_venv_script_sets_runtime_python_and_build_environment():
 def test_release_docs_describe_deploy_and_venv_activation():
     docs = read_release_docs()
 
+    assert "DEPLOY.bat" in docs
     assert "scripts/deploy.ps1" in docs
     assert "single release workflow command" in docs or "one-command workflow" in docs
     assert "scripts/activate_venv.ps1" in docs
     assert ". .\\scripts\\activate_venv.ps1" in docs
+    assert "-GitRelease" in docs
+    assert "-GitPush" in docs
 
 
 def test_deploy_build_validation_use_quiet_progress_workflow():

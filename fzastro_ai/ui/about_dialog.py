@@ -32,7 +32,7 @@ def open_about_window(parent):
         apply_window_defaults(dialog)
         dialog.setObjectName("helpDialog")
         dialog.setWindowTitle(f"About {APP_NAME}")
-        dialog.resize(720, 520)
+        dialog.resize(980, 700)
 
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(18, 18, 18, 18)
@@ -59,6 +59,10 @@ Version: {APP_VERSION}
 Release: {APP_MILESTONE}
 
 Imaging Production scope:
+- Version 2.3 tabbed workspace: Chat, LOOKUP, SEEING, SUN NOW, N.I.N.A., TARGETS, Help/About, and system panels open as main-window tabs
+- Workspace Apps launcher keeps astronomy and system tools available from every tab
+- Root deploy button: DEPLOY.bat runs validation and local Git release commit/tag automation
+- Optional deploy push: DEPLOY.bat -GitPush pushes the current branch and release tag
 - Local AI workstation built around Ollama/OpenAI-compatible chat
 - Clean project layout with application modules under fzastro_ai/
 - Consolidated docs under docs/ with one primary root README.md
@@ -114,6 +118,8 @@ External runtime notes:
             lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(LOG_FILE)))
         )
         close_button.clicked.connect(dialog.accept)
+        if parent is not None and hasattr(parent, "open_workspace_tab"):
+            close_button.setVisible(False)
 
         button_row.addStretch(1)
         button_row.addWidget(open_app_dir_button)

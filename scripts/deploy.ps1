@@ -15,7 +15,13 @@ param(
     [switch]$SkipValidationPrompt,
     [switch]$RunValidation,
     [switch]$CleanOnly,
-    [switch]$VerboseOutput
+    [switch]$VerboseOutput,
+    [switch]$GitRelease,
+    [string]$GitTag = "",
+    [string]$GitCommitMessage = "",
+    [switch]$GitPush,
+    [string]$GitRemote = "origin",
+    [string]$GitBranch = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -276,6 +282,114 @@ function Invoke-LoggedCommand {
     }
 }
 
+function Invoke-GitRelease {
+    param(
+        [string]$Root,
+        [string]$RequestedTag,
+        [string]$RequestedCommitMessage,
+        [switch]$Push,
+        [string]$Remote,
+        [string]$Branch
+    )
+
+    $gitCommand = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $gitCommand) {
+        throw "Git release automation requested, but git was not found on PATH."
+    }
+
+    $inside = & $gitCommand.Source -C $Root rev-parse --is-inside-work-tree 2>$null
+    if ($LASTEXITCODE -ne 0 -or "$inside".Trim() -ne "true") {
+        throw "Git release automation requested, but ProjectRoot is not inside a git repository: $Root"
+    }
+
+    $repoRoot = (& $gitCommand.Source -C $Root rev-parse --show-toplevel).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $repoRoot) {
+        throw "Could not resolve git repository root for: $Root"
+    }
+
+    $versionFile = Join-Path $Root "VERSION.txt"
+    if (-not (Test-Path $versionFile)) {
+        throw "VERSION.txt not found; cannot derive release tag."
+    }
+
+    $version = (Get-Content -Path $versionFile -Raw).Trim()
+    if (-not $version) {
+        throw "VERSION.txt is empty; cannot derive release tag."
+    }
+
+    $resolvedTag = $RequestedTag.Trim()
+    if (-not $resolvedTag) { $resolvedTag = "v$version" }
+
+    $commitMessage = $RequestedCommitMessage.Trim()
+    if (-not $commitMessage) {
+        $commitMessage = "Release FZAstro AI $resolvedTag"
+    }
+
+    Write-Host "[git] Repository: $repoRoot"
+    Write-Host "[git] Release tag: $resolvedTag"
+
+    $initialStatus = & $gitCommand.Source -C $repoRoot status --short
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not read git status."
+    }
+
+    if ($initialStatus) {
+        Write-Host "[git] Staging release changes..."
+        & $gitCommand.Source -C $repoRoot add -A -- .
+        if ($LASTEXITCODE -ne 0) { throw "git add failed." }
+
+        $stagedStatus = & $gitCommand.Source -C $repoRoot status --short
+        if ($stagedStatus) {
+            Write-Host "[git] Creating release commit..."
+            & $gitCommand.Source -C $repoRoot commit -m $commitMessage
+            if ($LASTEXITCODE -ne 0) { throw "git commit failed." }
+        }
+        else {
+            Write-Host "[git] No staged changes after git add; skipping commit."
+        }
+    }
+    else {
+        Write-Host "[git] Working tree is clean; skipping release commit."
+    }
+
+    $existingTag = & $gitCommand.Source -C $repoRoot tag --list $resolvedTag
+    if ($LASTEXITCODE -ne 0) { throw "git tag lookup failed." }
+    if ($existingTag) {
+        Write-Host "[git] Tag already exists locally: $resolvedTag"
+    }
+    else {
+        $tagMessage = "FZAstro AI $resolvedTag"
+        Write-Host "[git] Creating annotated tag..."
+        & $gitCommand.Source -C $repoRoot tag -a $resolvedTag -m $tagMessage
+        if ($LASTEXITCODE -ne 0) { throw "git tag failed." }
+    }
+
+    if ($Push) {
+        $resolvedBranch = $Branch.Trim()
+        if (-not $resolvedBranch) {
+            $resolvedBranch = (& $gitCommand.Source -C $repoRoot branch --show-current).Trim()
+            if ($LASTEXITCODE -ne 0 -or -not $resolvedBranch) {
+                throw "Could not determine current git branch. Pass -GitBranch explicitly."
+            }
+        }
+
+        if (-not $Remote.Trim()) {
+            throw "Git push requested, but GitRemote is empty."
+        }
+
+        Write-Host "[git] Pushing branch $resolvedBranch to $Remote..."
+        & $gitCommand.Source -C $repoRoot push $Remote $resolvedBranch
+        if ($LASTEXITCODE -ne 0) { throw "git push branch failed." }
+
+        Write-Host "[git] Pushing tag $resolvedTag to $Remote..."
+        & $gitCommand.Source -C $repoRoot push $Remote $resolvedTag
+        if ($LASTEXITCODE -ne 0) { throw "git push tag failed." }
+    }
+    else {
+        Write-Host "[git] Push skipped. Add -GitPush to push the branch and tag."
+    }
+}
+
 
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 $BuildRoot = Resolve-BuildRootPath -RequestedBuildRoot $BuildRoot -Root $ProjectRoot
@@ -287,6 +401,9 @@ if (-not (Test-Path $CleanScript)) {
 }
 if ($BuildImagingBundle -and -not (Test-Path $ImagingBundleScript)) {
     throw "FZAstro Imaging bundle script not found: $ImagingBundleScript"
+}
+if ($GitRelease -and $CleanOnly) {
+    throw "Git release automation cannot run with -CleanOnly."
 }
 
 $ResolvedPython = Resolve-PythonExecutable -RequestedPython $PythonExe -Root $ProjectRoot
@@ -301,6 +418,7 @@ Write-Host "Logs:    $LogDir"
 Write-Host ""
 $TotalDeploySteps = 2
 if ($BuildImagingBundle) { $TotalDeploySteps += 1 }
+if ($GitRelease) { $TotalDeploySteps += 1 }
 Initialize-StageProgress -Activity "FZAstro AI deploy" -TotalSteps $TotalDeploySteps
 if ($SkipOfflineVoiceSetup) {
     Show-StageStep "Offline voice setup skipped"
@@ -337,10 +455,6 @@ if ($VerboseOutput) { $CleanParams["VerboseOutput"] = $true }
 
 & $CleanScript @CleanParams
 if (-not $?) { throw "Deploy workflow failed." }
-Complete-StageProgress
-
-Write-Host ""
-Write-Host "Deploy workflow complete."
 
 # FZAstro Imaging bundle copy for frozen EXE release
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -372,4 +486,20 @@ if (Test-Path $ImagingSource) {
 } else {
     Write-Host "[deploy] FZAstro Imaging runtime not copied because source folder was not found: $ImagingSource"
 }
+
+if ($GitRelease) {
+    Show-StageStep "Git release commit/tag"
+    Invoke-GitRelease `
+        -Root $ProjectRoot `
+        -RequestedTag $GitTag `
+        -RequestedCommitMessage $GitCommitMessage `
+        -Push:$GitPush `
+        -Remote $GitRemote `
+        -Branch $GitBranch
+}
+
+Complete-StageProgress
+
+Write-Host ""
+Write-Host "Deploy workflow complete."
 

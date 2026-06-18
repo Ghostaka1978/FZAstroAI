@@ -1,18 +1,19 @@
-# FZAstro AI v2.1.0 — Imaging Production
+# FZAstro AI v2.3.0 - Imaging Production
 
 FZAstro AI is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document knowledge, persistent local memory, Python execution, web/news/market tools, hardware telemetry, LLM benchmarking, Developer Workbench coding assistance, Web Companion, and integrated astronomy planning.
 
-Release identity: **FZAstro AI v2.1.0 (Imaging Production)**.
+Release identity: **FZAstro AI v2.3.0 (Imaging Production)**.
 GitHub repository: https://github.com/Ghostaka1978/FZAstroAI
 
 ## Major production areas
 
-- **Astro Tools Suite** — SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP.
-- **FZASTRO IMAGING / N.I.N.A. bridge** — safe Advanced Sequencer JSON export, bundled FZAstro Imaging launcher, N.I.N.A. API handoff, explicit ARM + START VIA API control, and session reports.
-- **LLM Benchmark Dashboard** — LLM BENCH opens a polished control layout with Dashboard, History, Compare, and benchmark controls.
-- **Developer Workbench** — project scanning, context building, patch creation, compile/pytest checks, error analysis, and code-building workflows.
-- **Document knowledge** — import/search local documents with SQLite-backed storage.
-- **Web Companion** — local browser/LAN companion for iPad/mobile workflows.
+- **Tabbed workspace** - Chat, LOOKUP, SEEING, SUN NOW, N.I.N.A., TARGETS, Help/About, and system panels open as main-window tabs with a shared style.
+- **Astro Tools Suite** - SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP.
+- **FZASTRO IMAGING / N.I.N.A. bridge** - safe Advanced Sequencer JSON export, bundled FZAstro Imaging launcher, N.I.N.A. API handoff, explicit ARM + START VIA API control, and session reports.
+- **LLM Benchmark Dashboard** - LLM BENCH opens a polished control layout with Dashboard, History, Compare, and benchmark controls.
+- **Developer Workbench** - project scanning, context building, patch creation, compile/pytest checks, error analysis, and code-building workflows.
+- **Document knowledge** - import/search local documents with SQLite-backed storage.
+- **Web Companion** - local browser/LAN companion for iPad/mobile workflows.
 
 ## Astro Tools Suite
 
@@ -49,12 +50,27 @@ Use a Python 3.11 virtual environment for the packaged app build and validation 
 ```powershell
 py -3.11 -m venv .venv
 . .\scripts\activate_venv.ps1
-.\scripts\deploy.ps1
+.\DEPLOY.bat
+```
+
+`DEPLOY.bat` is the root-folder deploy button. It runs `scripts/deploy.ps1 -RunValidation -GitRelease`, so a successful deploy also creates the local release commit and annotated tag from `VERSION.txt` (`v2.3.0` for this release). Add `-GitPush` when you want the branch and tag pushed:
+
+```powershell
+.\DEPLOY.bat -GitPush
+```
+
+PowerShell equivalent:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -RunValidation -GitRelease
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -RunValidation -GitRelease -GitPush
 ```
 
 The scripts enforce Python 3.11 for the build even if newer interpreters such as **Python 3.14** are installed on the system. `scripts/reset_venv.ps1` recreates the venv, sets `FZASTRO_PYTHON`, and uses the sibling build folder one folder above the project root: `..\FZAstroAI_BUILD`.
 
-`deploy.ps1` is the single release workflow command. It calls `scripts/clean_build.ps1`, which starts `build_exe.ps1` automatically, then the validation prompt can run `scripts/validate_release.ps1`. The cleanup/build/validation scripts use a progress bar, `VerboseOutput`, and logs under `..\FZAstroAI_BUILD\logs`.
+`deploy.ps1` is the scripted release workflow command. It calls `scripts/clean_build.ps1`, which starts `build_exe.ps1` automatically, then validation can run `scripts/validate_release.ps1`. The cleanup/build/validation scripts use a progress bar, `VerboseOutput`, and logs under `..\FZAstroAI_BUILD\logs`.
+
+The source handoff keeps the root folder lean: `main.py`, `DEPLOY.bat`, version/config files, README, requirements, pytest/Black config, icon/spec files used by the build, and the main `fzastro_ai/`, `docs/`, `scripts/`, and `tests/` folders. Generated caches, local virtual environments, external N.I.N.A. worktrees, bundled runtime binaries, and installer leftovers are not part of the clean source package.
 
 Important build variables:
 

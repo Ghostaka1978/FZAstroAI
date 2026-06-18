@@ -144,7 +144,7 @@ def test_open_meteo_hourly_weather_overrides_7timer_cloud_and_rescores():
     assert row["cloud_source"] == "Open-Meteo hourly"
     assert row["cloud_7timer_mid_pct"] == 88
     assert row["cloud_mid_pct"] == 0
-    assert row["cloud_text"] == "0â€“6%"
+    assert row["cloud_text"] == "0–6%"
     assert row["temp2m_c"] == 29.3
     assert row["wind_direction"] == "E"
     assert row["wind_speed_code"] == 2
@@ -436,7 +436,7 @@ def test_fetch_7timer_astro_forecast_uses_recent_cache_when_live_fails(
 
     assert result["cache_used"] is True
     assert result["cache_age_seconds"] <= SEEING_CACHE_MAX_AGE_SECONDS
-    assert "recent cached forecast" in result["status_note"]
+    assert "recent cached seeing/transparency" in result["status_note"]
     assert result["rows"][0]["cloud_mid_pct"] == 3
 
 

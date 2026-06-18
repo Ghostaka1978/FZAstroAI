@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
 from ..logging_utils import log_exception
 
 
-HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI v2.1.0 Help
+HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI v2.3.0 Help
 
-This guide shows what FZAstro AI can do and which source/mode is usually used. Imaging Production is the cleaned Version 2 baseline plus safe Astro → FZAstro Imaging/N.I.N.A. plan generation, real Advanced Sequencer JSON export, Web Companion, LLM Benchmark Dashboard, and AI Developer Workbench. Click the **FZ** square in the header to open the GitHub repository.
+This guide shows what FZAstro AI can do and which source/mode is usually used. Imaging Production v2.3 is the tabbed workspace release: chat stays clean, astronomy tools open as main-window tabs, the root folder has one deploy button, and release deploy can create the Git commit/tag automatically. Click the **FZ** square in the header to open the GitHub repository.
 
 ## 1. Main idea
 
@@ -111,7 +111,7 @@ The dashboard includes telemetry, Dashboard/History/Compare views, persona/calib
 
 ## 8. Astro Tools Suite
 
-Use **Skills → Astro** or the Astro toolbar. The production tools are:
+Use the workspace **Apps** button, **Skills → Astro**, or the Astro toolbar. The production tools are:
 
 `SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP`
 
@@ -173,13 +173,15 @@ Use it to:
 
 Stage 1 is review-first: it helps prepare and validate coding work, not silently rewrite the project.
 
-## 11. Useful commands
+## 12. Useful commands
 
 ```powershell
+.\DEPLOY.bat
+.\DEPLOY.bat -GitPush
 python -m pytest
 python -m compileall -q fzastro_ai tests
 powershell -ExecutionPolicy Bypass -File .\scripts\validate_release.ps1 -PythonExe ".\.venv\Scripts\python.exe" -SkipLaunch
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -RunValidation -GitRelease
 ```
 """
 
@@ -195,21 +197,22 @@ def open_help_cheat_sheet_dialog(parent):
     dialog = QDialog(parent)
     apply_window_defaults(dialog)
     dialog.setObjectName("helpDialog")
-    dialog.setWindowTitle("FZAstro AI v2.1.0 Help")
+    dialog.setWindowTitle("FZAstro AI v2.3.0 Help")
     dialog.resize(900, 760)
 
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(18, 18, 18, 18)
     layout.setSpacing(12)
 
-    title = QLabel("FZAstro AI v2.1.0 Help")
+    title = QLabel("FZAstro AI v2.3.0 Help")
     title.setObjectName("helpDialogTitle")
 
     subtitle = QLabel(
         "Imaging Production guide for chat, models, web, news, market quotes, documents, "
         "PDF page images/text, memory, history, attachments, Python execution, "
-        "LLM benchmarking, tests, Web Companion, the Astro Tools Suite, "
-        "FZAstro Imaging/N.I.N.A. planning, AI Developer Workbench, and distance-ladder lookup details."
+        "LLM benchmarking, tests, Web Companion, tabbed Astro tools, "
+        "FZAstro Imaging/N.I.N.A. planning, AI Developer Workbench, root deploy, Git release tags, "
+        "and distance-ladder lookup details."
     )
     subtitle.setObjectName("helpDialogSubtitle")
     subtitle.setWordWrap(True)
@@ -248,6 +251,8 @@ def open_help_cheat_sheet_dialog(parent):
 
     copy_button.clicked.connect(copy_cheat_sheet)
     close_button.clicked.connect(dialog.accept)
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        close_button.setVisible(False)
 
     button_row.addStretch(1)
     button_row.addWidget(copy_button)

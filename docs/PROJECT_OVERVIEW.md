@@ -1,4 +1,4 @@
-# FZAstro AI v2.1.0 Project Overview
+# FZAstro AI v2.3.0 Project Overview
 
 FZAstro AI is a Windows desktop AI workstation focused on astrophotography, local LLM work, project-aware coding assistance, document research, web research, local Python execution, and astronomy planning.
 
@@ -17,7 +17,7 @@ FZAstro AI is a Windows desktop AI workstation focused on astrophotography, loca
 | Web Companion | `fzastro_ai/web_companion/` | Local browser companion server and static interface for LAN/iPad/mobile workflows. |
 | Developer Workbench | `fzastro_ai/dev_agent/`, `fzastro_ai/ui/dev_workbench_dialog.py` | Project scanning, context building, planning, compile/pytest checks, failure analysis, patch snapshot helpers. |
 | FZAstro Imaging / N.I.N.A. bundle | `fzastro_ai/nina/`, `fzastro_ai/ui/nina_control_dialog.py`, `fzastro_ai/actions/nina_actions.py`, `fzastro_ai/resources/nina_templates/`, `bundled_apps/FZAstroImaging/` | Side-by-side imaging-app launcher, quiet bundle build, local settings, update feed check, safe update package download, and review-only Advanced Sequencer plan export. |
-| Build/release | `scripts/build_exe.ps1`, `scripts/clean_build.ps1`, `scripts/deploy.ps1`, `scripts/validate_release.ps1` | Repeatable Windows EXE build and validation workflow. |
+| Build/release | `DEPLOY.bat`, `scripts/build_exe.ps1`, `scripts/clean_build.ps1`, `scripts/deploy.ps1`, `scripts/validate_release.ps1` | Root deploy launcher plus repeatable Windows EXE build, validation, Git commit/tag, and optional push workflow. |
 
 ## Runtime storage
 
@@ -41,17 +41,16 @@ Important runtime files include:
 
 Set `FZASTRO_APP_DIR` to override the runtime data folder for testing or portable runs.
 
-## Version 2.1 imaging production result
+## Version 2.3 imaging production result
 
 - Root documentation reduced to `README.md`; release validation lives under `docs/`.
 - Detailed docs consolidated under `docs/`.
-- Overlay bundle integrated into the main package where useful.
-- Generated Python bytecode, backup files, and patch leftovers removed from the source package.
+- Root folder keeps one easy deploy launcher, `DEPLOY.bat`; workflow scripts live under `scripts/`.
+- Deploy can run validation and then create the local release commit/tag with `-GitRelease`; `-GitPush` pushes the branch and tag.
+- Tracked installer/runtime leftovers were removed from the source root.
+- Generated Python bytecode, backup files, local virtual environments, and patch leftovers are omitted from the clean source package.
 - Developer Workbench is now a first-class app area rather than a separate overlay bundle.
-
-
-## Version 2.1 imaging production result
-
+- Main astronomy tools open as tabs in the main workspace through the Apps launcher.
 - Adds safe predefined `/nina-plan` and `/imaging-plan` commands for review-first imaging plans.
 - Uses SITE, IMAGING, SEEING, and TARGETS context to choose practical targets and windows.
 - Writes plans under `Documents\FZAstroAI\Imaging Plans\<plan_id>`.
