@@ -54,6 +54,24 @@ def test_migrated_fzastro_web_readme_is_not_stale_chess_doc():
     assert "assets/pieces" not in content
 
 
+def test_readme_embeds_release_screenshots():
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    screenshot_names = [
+        "fzastro-chat-workspace.png",
+        "fzastro-seeing-planner.png",
+        "fzastro-lookup-m31.png",
+        "fzastro-targets-planner.png",
+        "fzastro-sun-now.png",
+        "fzastro-nina-control.png",
+    ]
+
+    assert "## Screenshots" in readme
+    for name in screenshot_names:
+        relative_path = f"docs/screenshots/{name}"
+        assert relative_path in readme
+        assert (PROJECT_ROOT / relative_path).exists(), relative_path
+
+
 def test_black_is_part_of_release_workflow():
     requirements = (
         (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8").lower()

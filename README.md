@@ -5,6 +5,41 @@ FZAstro AI is a Windows PySide6 desktop AI workstation for astrophotography, loc
 Release identity: **FZAstro AI v2.3.0 (Imaging Production)**.
 GitHub repository: https://github.com/Ghostaka1978/FZAstroAI
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/fzastro-chat-workspace.png" alt="FZAstro AI chat workspace with Apps launcher">
+      <br><sub>Chat workspace with the Apps launcher and compact release chrome.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/fzastro-seeing-planner.png" alt="SEEING Astro Night Planner">
+      <br><sub>SEEING Astro Night Planner with hourly night rows, cloud, Moon, seeing, and transparency.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/fzastro-lookup-m31.png" alt="LOOKUP M31 sky preview and distance details">
+      <br><sub>LOOKUP tab with M31 distance details and sky preview.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/fzastro-targets-planner.png" alt="TARGETS planner with sky preview and capture controls">
+      <br><sub>TARGETS planner with ranked objects, large sky preview, and capture handoff controls.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/fzastro-sun-now.png" alt="SUN NOW solar image viewer">
+      <br><sub>SUN NOW tab with NASA/SDO solar imagery and metadata.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/fzastro-nina-control.png" alt="FZAstro Imaging Control N.I.N.A. session cockpit">
+      <br><sub>FZAstro Imaging Control for review-first N.I.N.A. session handoff.</sub>
+    </td>
+  </tr>
+</table>
+
 ## Major production areas
 
 - **Tabbed workspace** - Chat, LOOKUP, SEEING, SUN NOW, N.I.N.A., TARGETS, Help/About, and system panels open as main-window tabs with a shared style.
