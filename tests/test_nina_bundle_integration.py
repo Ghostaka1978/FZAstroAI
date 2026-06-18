@@ -81,15 +81,20 @@ def test_nina_bridge_supports_github_latest_release_payload(monkeypatch):
     assert info.release_notes == "Release body"
 
 
-def test_fzastro_app_has_nina_top_bar_integration(project_root: Path):
+def test_fzastro_app_has_nina_workspace_apps_integration(project_root: Path):
     app_text = (project_root / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
     actions_text = (project_root / "fzastro_ai" / "actions" / "__init__.py").read_text(
         encoding="utf-8-sig"
     )
+    workspace_text = (
+        project_root / "fzastro_ai" / "ui" / "workspace_tabs.py"
+    ).read_text(encoding="utf-8-sig")
 
     assert "NinaActionsMixin" in actions_text
-    assert 'self.nina_control_button = QPushButton("N.I.N.A.")' in app_text
-    assert "cockpitNinaGroup" in app_text
+    assert '"N.I.N.A."' in workspace_text
+    assert '"open_nina_control"' in workspace_text
+    assert "FZAstro Imaging / N.I.N.A. workflow" in workspace_text
+    assert "Top-bar IMG / N.I.N.A. shortcut removed" in app_text
     assert "self.maybe_auto_check_nina_updates()" in app_text
 
 
