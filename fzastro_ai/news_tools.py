@@ -123,10 +123,49 @@ def fetch_daily_news_section(
         soup = BeautifulSoup(response_text, "xml")
         items = []
 
+        def clean_external_url(value):
+            clean = str(value or "").strip()
+            if clean.lower().startswith(("http://", "https://")):
+                return clean
+            return ""
+
+        def find_item_image_url(item_node, description_node):
+            for child in item_node.find_all(True):
+                tag_name = str(getattr(child, "name", "") or "").casefold()
+                if tag_name.split(":")[-1] not in {"thumbnail", "content", "image"}:
+                    continue
+
+                image_url = clean_external_url(child.get("url") or child.get("src"))
+                media_type = str(child.get("type") or "").casefold()
+                media_kind = str(child.get("medium") or "").casefold()
+
+                if image_url and (
+                    "image" in media_type
+                    or media_kind == "image"
+                    or tag_name.endswith(("thumbnail", "image"))
+                ):
+                    return image_url
+
+            enclosure = item_node.find("enclosure")
+            if enclosure:
+                media_type = str(enclosure.get("type") or "").casefold()
+                image_url = clean_external_url(enclosure.get("url"))
+                if image_url and media_type.startswith("image/"):
+                    return image_url
+
+            if description_node and description_node.text:
+                description_html = BeautifulSoup(description_node.text, "html.parser")
+                image = description_html.find("img")
+                if image:
+                    return clean_external_url(image.get("src"))
+
+            return ""
+
         for item in soup.find_all("item")[: int(max_items)]:
             title = item.find("title")
             description = item.find("description")
             link = item.find("link")
+            published = item.find("pubDate")
 
             if not title or not title.text.strip():
                 continue
@@ -146,12 +185,19 @@ def fetch_daily_news_section(
                 )
                 summary = re.sub(r"\s+", " ", summary).strip()[:400]
 
+            published_at = ""
+
+            if published and published.text:
+                published_at = re.sub(r"\s+", " ", published.text.strip())[:120]
+
             items.append(
                 {
                     "title": title_text,
                     "source_name": source_name,
                     "source_url": source_url,
                     "summary": summary,
+                    "published_at": published_at,
+                    "image_url": find_item_image_url(item, description),
                 }
             )
 
@@ -209,6 +255,16 @@ def format_daily_news_context_from_sections(section_results):
                 entry += f"\nSourceID: {source_id}"
                 entry += f"\nSourceName: {html.escape(source_name)}"
                 entry += f"\nSourceURL: {html.escape(source_url, quote=True)}"
+
+            published_at = str(item.get("published_at") or "").strip()
+
+            if published_at:
+                entry += f"\nPublished: {html.escape(published_at)}"
+
+            image_url = str(item.get("image_url") or "").strip()
+
+            if image_url:
+                entry += f"\nImageURL: {html.escape(image_url, quote=True)}"
 
             summary = str(item.get("summary") or "").strip()
 
@@ -326,18 +382,23 @@ def parse_news_sources(web_context):
     sources = {}
     current_title = ""
     current_summary = ""
+    current_published_at = ""
+    current_image_url = ""
     source_id = ""
     source_name = ""
     source_url = ""
 
     def commit_source():
-        nonlocal current_title, current_summary, source_id, source_name, source_url
+        nonlocal current_title, current_summary, current_published_at, current_image_url
+        nonlocal source_id, source_name, source_url
 
         clean_id = html.unescape(str(source_id or "").strip())
         clean_name = html.unescape(str(source_name or "").strip())
         clean_url = html.unescape(str(source_url or "").strip())
         clean_title = html.unescape(str(current_title or "").strip())
         clean_summary = html.unescape(str(current_summary or "").strip())
+        clean_published_at = html.unescape(str(current_published_at or "").strip())
+        clean_image_url = html.unescape(str(current_image_url or "").strip())
 
         if clean_name and clean_url:
             key = clean_id or clean_name
@@ -357,10 +418,14 @@ def parse_news_sources(web_context):
                 "url": clean_url,
                 "title": clean_title,
                 "summary": clean_summary,
+                "published_at": clean_published_at,
+                "image_url": clean_image_url,
             }
 
         current_title = ""
         current_summary = ""
+        current_published_at = ""
+        current_image_url = ""
         source_id = ""
         source_name = ""
         source_url = ""
@@ -388,6 +453,14 @@ def parse_news_sources(web_context):
 
         if clean.startswith("SourceURL:"):
             source_url = clean.replace("SourceURL:", "", 1).strip()
+            continue
+
+        if clean.startswith("Published:"):
+            current_published_at = clean.replace("Published:", "", 1).strip()
+            continue
+
+        if clean.startswith("ImageURL:"):
+            current_image_url = clean.replace("ImageURL:", "", 1).strip()
             continue
 
         if clean.startswith("Summary:"):

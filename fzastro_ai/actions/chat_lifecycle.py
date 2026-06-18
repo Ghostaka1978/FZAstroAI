@@ -3,43 +3,28 @@
 Extracted from app.py during Phase 2K without behavior changes.
 """
 
+from dataclasses import replace
 import time
 import uuid
 
 from PySide6.QtWidgets import QMessageBox
 
+from ..assistant_text import normalize_assistant_link_markup
 from ..config import KNOWLEDGE_MAX_CONTEXT_CHARS
 from ..file_tools import has_image_attachments
+from ..llm import (
+    estimate_token_count,
+    find_installed_vision_model,
+    get_ollama_model_capabilities,
+)
 from ..logging_utils import log_debug, log_exception
 from ..memory_store import make_fenced_code
 from ..persona_routing import is_assistant_persona_status_query
-from ..routing.chat_route import decide_chat_route
-from ..routing.tool_router import detect_deterministic_tool_plan
+from ..routing.chat_route import collect_chat_route_facts, decide_chat_route_from_facts
 from ..routing.source_tags import (
     infer_response_source_tags,
     normalize_response_source_tags,
 )
-
-
-def estimate_token_count(text):
-    # Imported lazily to avoid an app -> actions -> app import cycle at startup.
-    from ..app import estimate_token_count as _estimate_token_count
-
-    return _estimate_token_count(text)
-
-
-def get_ollama_model_capabilities(model_name):
-    # Imported lazily to avoid an app -> actions -> app import cycle at startup.
-    from ..app import get_ollama_model_capabilities as _get_ollama_model_capabilities
-
-    return _get_ollama_model_capabilities(model_name)
-
-
-def find_installed_vision_model(exclude_model=None):
-    # Imported lazily to avoid an app -> actions -> app import cycle at startup.
-    from ..app import find_installed_vision_model as _find_installed_vision_model
-
-    return _find_installed_vision_model(exclude_model=exclude_model)
 
 
 class ChatLifecycleMixin:
@@ -209,6 +194,47 @@ class ChatLifecycleMixin:
             self.start_web_search_request(plan.query or text, request)
             return True
 
+        if plan.action == "weather_today":
+            if web_mode == "Off":
+                return False
+
+            request = {
+                "text": text,
+                "display_text": display_text,
+                "files": files,
+                "force_search": False,
+                "include_document_knowledge": False,
+                "model_override": model_override,
+                "worker_mode": "weather",
+            }
+
+            self.stats_label.setText("Fetching current weather...")
+            self.start_web_search_request(plan.query or text, request)
+            return True
+
+        if plan.action in {"stock_quote", "stock_compare", "market_pulse"}:
+            if web_mode == "Off":
+                return False
+
+            worker_mode_by_action = {
+                "stock_quote": "stock_quote",
+                "stock_compare": "stock_compare",
+                "market_pulse": "market_pulse",
+            }
+            request = {
+                "text": text,
+                "display_text": display_text,
+                "files": files,
+                "force_search": False,
+                "include_document_knowledge": False,
+                "model_override": model_override,
+                "worker_mode": worker_mode_by_action[plan.action],
+            }
+
+            self.stats_label.setText("Fetching market data...")
+            self.start_web_search_request(plan.query or text, request)
+            return True
+
         return False
 
     def send_message(self, daily_brief=False, force_web_search=False):
@@ -365,46 +391,28 @@ class ChatLifecycleMixin:
 
         web_mode = self.web_box.currentText()
 
-        tool_plan = detect_deterministic_tool_plan(
+        route_facts = collect_chat_route_facts(
             text,
             files=files,
             knowledge_library=getattr(self, "knowledge_library", None),
-            web_enabled=web_mode != "Off",
+            web_mode=web_mode,
             force_web_search=False,
+            recent_context=self.build_recent_conversation_context(),
+            log_exception_func=log_exception,
         )
-        local_document_direct = self.is_local_document_direct_request(text, files)
-        external_information_request = self.explicitly_requests_external_information(
-            text
-        )
-        recent_image_followup = bool(not files and self.references_recent_image(text))
         latest_image_available = bool(
-            self.latest_assistant_image_files() if recent_image_followup else []
+            self.latest_assistant_image_files()
+            if route_facts.recent_image_followup
+            else []
         )
-        attachment_needs_web = True
-
-        if files and web_mode != "Always":
-            try:
-                attachment_needs_web = bool(
-                    external_information_request
-                    or self.has_explicit_http_url(text)
-                    or self.is_deterministic_url_tool_request(text)
-                )
-            except Exception as error:
-                log_exception(
-                    "FZAstroAI.send_message attached-file web preflight", error
-                )
-                attachment_needs_web = False
-
-        route = decide_chat_route(
-            deterministic_tool_plan=tool_plan,
+        route_facts = replace(
+            route_facts,
+            latest_assistant_image_available=latest_image_available,
+        )
+        route = decide_chat_route_from_facts(
+            route_facts,
             web_mode=web_mode,
             files=files,
-            local_document_direct=local_document_direct,
-            web_image_request=self.is_web_image_request(text),
-            external_information_request=external_information_request,
-            recent_image_followup=recent_image_followup,
-            latest_assistant_image_available=latest_image_available,
-            attachment_needs_web=attachment_needs_web,
         )
 
         if route.action == "deterministic_tool" and self.execute_tool_plan(
@@ -427,6 +435,20 @@ class ChatLifecycleMixin:
                 include_document_knowledge=route.include_document_knowledge,
                 model_override=model_override,
             )
+            return
+
+        if route.action == "forced_web_search":
+            request = {
+                "text": text,
+                "display_text": display_text,
+                "files": files,
+                "force_search": True,
+                "include_document_knowledge": False,
+                "model_override": model_override,
+            }
+
+            self.stats_label.setText("Preparing web search without model routing...")
+            self.start_web_search_request(self.build_web_query(text), request)
             return
 
         # Local document-library actions must win before the generic image
@@ -565,7 +587,7 @@ class ChatLifecycleMixin:
             else:
                 self.global_thought_box.setMarkdown("")
 
-        stopped_text = final_answer.strip()
+        stopped_text = normalize_assistant_link_markup(final_answer).strip()
 
         if stopped_text:
             stopped_text += "\n\n[Stopped by user]"
@@ -648,6 +670,8 @@ class ChatLifecycleMixin:
             thoughts = ""
             final_answer = response_text
 
+        final_answer = normalize_assistant_link_markup(final_answer)
+
         if thoughts:
             self._last_thoughts_text = thoughts
             self.show_latest_thoughts(thoughts)
@@ -693,6 +717,7 @@ class ChatLifecycleMixin:
 
         self.save_current_chat()
 
+        should_follow_chat = self.chat_scroll_is_near_bottom()
         stream_widget = self.current_stream_widget
         self.current_stream_widget = None
 
@@ -706,6 +731,8 @@ class ChatLifecycleMixin:
                 self.chat_container.updateGeometry()
             except RuntimeError:
                 pass
+
+        self.queue_chat_scroll_to_bottom(should_follow_chat, settle=True)
 
         chars = len(final_answer)
         approx_tokens = estimate_token_count(final_answer)

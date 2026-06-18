@@ -1102,11 +1102,16 @@ class TargetsDialog(QDialog):
         self.status_label.setText(
             f"Sent {pick.get('name') or 'target'} to FZASTRO IMAGING"
         )
-        opener()
+        nina_dialog = opener()
+        focus_nina_tab = getattr(parent, "focus_workspace_tab", None)
+        if callable(focus_nina_tab):
+            focus_nina_tab("nina.control")
+        if hasattr(nina_dialog, "load_selected_target"):
+            QTimer.singleShot(0, nina_dialog.load_selected_target)
         self.progress_bar.setValue(100)
-        # The target selection step is complete. Close TARGETS so the user lands
-        # in Imaging Control for final framing/capture review and confirmation.
-        QTimer.singleShot(180, self.accept)
+        self.status_label.setText(
+            f"Sent {pick.get('name') or 'target'} to FZASTRO IMAGING - N.I.N.A. tab focused"
+        )
 
     def _load_parent_imaging_into_targets_controls(self):
         parent = self._app_parent()

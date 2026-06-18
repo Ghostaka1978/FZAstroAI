@@ -1,4 +1,4 @@
-# FZAstro AI v2.3.0 Project Overview
+# FZAstro AI v2.3.1 Project Overview
 
 FZAstro AI is a Windows desktop AI workstation focused on astrophotography, local LLM work, project-aware coding assistance, document research, web research, local Python execution, and astronomy planning.
 

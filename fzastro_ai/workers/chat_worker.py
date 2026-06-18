@@ -1,10 +1,15 @@
-import re
 import time
-from collections import Counter
 
 from PySide6.QtCore import QThread, Signal
 
 from ..config import RUNTIME_CHAT_TIMEOUT_SECONDS, RUNTIME_VISION_CHAT_TIMEOUT_SECONDS
+from ..llm import (
+    build_chat_request_params,
+    extract_delta_reasoning,
+    extract_delta_text,
+    is_expected_stream_close_error,
+    looks_like_repetition_loop,
+)
 from ..logging_utils import log_debug, log_exception, log_warning
 from ..runtime import (
     format_runtime_model_unavailable_message,
@@ -65,49 +70,12 @@ class ChatWorker(QThread):
 
     @staticmethod
     def _is_expected_stream_close_error(error):
-        """Return True for errors commonly caused by closing a live stream.
+        """Compatibility wrapper for expected stream-close markers.
 
-        On Windows/httpx, closing an OpenAI-compatible streaming response from
-        another thread can surface as ``httpx.ReadError: [WinError 10038]`` while
-        the iterator is blocked reading the next chunk. That is an expected
-        cancellation/disconnect path, not a worker crash.
+        The shared parser owns the actual marker list, including winerror 10038
+        and not a socket, so cancellation handling stays consistent.
         """
-        message = f"{type(error).__module__}.{type(error).__name__}: {error}".casefold()
-        expected_markers = (
-            "winerror 10038",
-            "not a socket",
-            "responseclosed",
-            "streamclosed",
-            "closedresourceerror",
-            "operation aborted",
-        )
-        return any(marker in message for marker in expected_markers)
-
-    @staticmethod
-    def _looks_like_repetition_loop(text):
-        tail = str(text or "")[-5000:].casefold()
-        tokens = re.findall(r"[^\W_]+", tail, flags=re.UNICODE)
-
-        if len(tokens) < 70:
-            return False
-
-        counts = Counter(tokens)
-        most_common_count = counts.most_common(1)[0][1]
-
-        if most_common_count >= 20 and most_common_count / len(tokens) >= 0.20:
-            return True
-
-        if len(tokens) >= 120 and len(counts) / len(tokens) < 0.25:
-            return True
-
-        trigrams = Counter(
-            tuple(tokens[index : index + 3]) for index in range(len(tokens) - 2)
-        )
-
-        if trigrams and trigrams.most_common(1)[0][1] >= 8:
-            return True
-
-        return False
+        return is_expected_stream_close_error(error)
 
     def run(self):
         response_text = ""
@@ -132,29 +100,18 @@ class ChatWorker(QThread):
                 f"model={self.model}, vision={self.vision_request}, messages={len(self.messages)}",
             )
 
-            request_params = {
-                "model": self.model,
-                "messages": self.messages,
-                "temperature": (0.12 if self.vision_request else 0.3),
-                "top_p": (0.90 if self.vision_request else 0.95),
-                "presence_penalty": (0.0 if self.vision_request else 0.2),
-                "stream": True,
-            }
-
-            if is_ollama_base_url(self.base_url):
-                request_params["extra_body"] = {
-                    "think": self.think_enabled,
-                    "top_k": 20,
-                    "options": {
-                        # Daily-news generation is large and citation-heavy. A
-                        # finite output budget plus a small repetition penalty
-                        # prevents pathological loops while preserving enough
-                        # room for the complete briefing.
-                        "num_predict": self.num_predict,
-                        "repeat_penalty": (1.16 if self.vision_request else 1.08),
-                        "repeat_last_n": (256 if self.vision_request else 64),
-                    },
-                }
+            # Daily-news/document generation may override the output budget while
+            # preserving the normal chat profile. Vision uses its own calmer
+            # sampling and stronger repeat penalty.
+            request_params = build_chat_request_params(
+                model=self.model,
+                messages=self.messages,
+                profile="vision" if self.vision_request else "chat",
+                base_url=self.base_url,
+                stream=True,
+                think_enabled=self.think_enabled,
+                num_predict=self.num_predict,
+            )
 
             request_timeout = (
                 min(RUNTIME_CHAT_TIMEOUT_SECONDS, RUNTIME_VISION_CHAT_TIMEOUT_SECONDS)
@@ -187,68 +144,14 @@ class ChatWorker(QThread):
                     self.stopped_response.emit(build_combined_response())
                     return
 
-                if not chunk.choices:
-                    continue
-
-                choice = chunk.choices[0]
-                delta = choice.delta
-
-                try:
-                    delta_data = delta.model_dump()
-                except Exception as exc:
-                    log_exception("ChatWorker.run delta serialization", exc)
-                    delta_data = {}
-
-                content = getattr(delta, "content", None)
-
-                if content is None and isinstance(delta_data, dict):
-                    content = delta_data.get("content")
-
-                reasoning = (
-                    getattr(delta, "thinking", None)
-                    or getattr(delta, "reasoning", None)
-                    or getattr(delta, "reasoning_content", None)
-                )
-
-                if not reasoning and isinstance(delta_data, dict):
-                    reasoning = (
-                        delta_data.get("thinking")
-                        or delta_data.get("reasoning")
-                        or delta_data.get("reasoning_content")
-                    )
-
-                delta_extra = getattr(delta, "model_extra", None)
-
-                if not reasoning and isinstance(delta_extra, dict):
-                    reasoning = (
-                        delta_extra.get("thinking")
-                        or delta_extra.get("reasoning")
-                        or delta_extra.get("reasoning_content")
-                    )
-
-                choice_extra = getattr(choice, "model_extra", None)
-
-                if not reasoning and isinstance(choice_extra, dict):
-                    reasoning = (
-                        choice_extra.get("thinking")
-                        or choice_extra.get("reasoning")
-                        or choice_extra.get("reasoning_content")
-                    )
-
-                chunk_extra = getattr(chunk, "model_extra", None)
-
-                if not reasoning and isinstance(chunk_extra, dict):
-                    reasoning = (
-                        chunk_extra.get("thinking")
-                        or chunk_extra.get("reasoning")
-                        or chunk_extra.get("reasoning_content")
-                    )
+                reasoning = extract_delta_reasoning(chunk)
+                content = extract_delta_text(chunk)
 
                 if reasoning:
-                    thinking_text += str(reasoning)
+                    thinking_text += reasoning
 
                 if content:
-                    response_text += str(content)
+                    response_text += content
 
                     # The repetition-loop breaker is intentionally limited to
                     # vision/image-analysis requests. Long news briefs naturally
@@ -257,7 +160,7 @@ class ChatWorker(QThread):
                     # generic token-count heuristic even when the answer is
                     # valid. For normal text/news generation, rely on the
                     # finite num_predict budget and repeat_penalty instead.
-                    if self.vision_request and self._looks_like_repetition_loop(
+                    if self.vision_request and looks_like_repetition_loop(
                         response_text
                     ):
                         try:

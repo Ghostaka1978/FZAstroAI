@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -12,7 +14,7 @@ configure_astropy_runtime()
 from astropy import units as u
 from astropy.coordinates import EarthLocation
 
-from .target_catalog import catalog_stats, load_catalog_rows
+from .target_catalog import catalog_stats, default_catalog_db_path, load_catalog_rows
 
 
 def _safe_float(value: Any, default: float) -> float:
@@ -42,7 +44,117 @@ def _pick_to_dict(pick: Any) -> dict[str, Any]:
     return data
 
 
+def _catalog_cache_token() -> tuple[str, int, int]:
+    path = default_catalog_db_path()
+    try:
+        stat = path.stat()
+    except OSError:
+        return (str(path), 0, 0)
+    return (str(path), int(stat.st_mtime_ns), int(stat.st_size))
+
+
+def _target_plan_cache_key(
+    location: dict[str, Any],
+    *,
+    date_iso: str | None,
+    limit: int,
+    min_alt: float,
+    step_min: int,
+    catalog_source: str,
+    object_type: str,
+    min_size_arcmin: float,
+    max_mag: float | None,
+) -> tuple[Any, ...]:
+    return (
+        round(_safe_float(location.get("lat"), 50.2459), 6),
+        round(_safe_float(location.get("lon"), 8.4923), 6),
+        round(_safe_float(location.get("elev"), 660.0), 1),
+        str(location.get("tz") or "UTC").strip() or "UTC",
+        str(date_iso or "").strip(),
+        max(1, _safe_int(limit, 20)),
+        round(_safe_float(min_alt, 45.0), 3),
+        max(1, _safe_int(step_min, 3)),
+        str(catalog_source or "auto").strip() or "auto",
+        str(object_type or "All").strip() or "All",
+        round(_safe_float(min_size_arcmin, 0.0), 3),
+        None if max_mag is None else round(_safe_float(max_mag, 0.0), 3),
+        _catalog_cache_token(),
+    )
+
+
+@lru_cache(maxsize=32)
+def _plan_targets_cached(key: tuple[Any, ...]) -> dict[str, Any]:
+    (
+        lat,
+        lon,
+        elev,
+        tz_name,
+        date_key,
+        limit,
+        min_alt,
+        step_min,
+        catalog_source,
+        object_type,
+        min_size_arcmin,
+        max_mag,
+        _catalog_token,
+    ) = key
+    return _plan_targets_uncached(
+        {"lat": lat, "lon": lon, "elev": elev, "tz": tz_name},
+        date_iso=date_key or None,
+        limit=limit,
+        min_alt=min_alt,
+        step_min=step_min,
+        catalog_source=catalog_source,
+        object_type=object_type,
+        min_size_arcmin=min_size_arcmin,
+        max_mag=max_mag,
+    )
+
+
 def plan_targets(
+    location: dict[str, Any],
+    *,
+    date_iso: str | None = None,
+    limit: int = 20,
+    min_alt: float = 45.0,
+    step_min: int = 3,
+    catalog_source: str = "auto",
+    object_type: str = "All",
+    min_size_arcmin: float = 0.0,
+    max_mag: float | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Plan the best astrophotography targets for one astronomical night."""
+    if should_stop is not None:
+        return _plan_targets_uncached(
+            location,
+            date_iso=date_iso,
+            limit=limit,
+            min_alt=min_alt,
+            step_min=step_min,
+            catalog_source=catalog_source,
+            object_type=object_type,
+            min_size_arcmin=min_size_arcmin,
+            max_mag=max_mag,
+            should_stop=should_stop,
+        )
+
+    key = _target_plan_cache_key(
+        location,
+        date_iso=date_iso,
+        limit=limit,
+        min_alt=min_alt,
+        step_min=step_min,
+        catalog_source=catalog_source,
+        object_type=object_type,
+        min_size_arcmin=min_size_arcmin,
+        max_mag=max_mag,
+    )
+    return deepcopy(_plan_targets_cached(key))
+
+
+def _plan_targets_uncached(
     location: dict[str, Any],
     *,
     date_iso: str | None = None,

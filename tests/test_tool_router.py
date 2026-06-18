@@ -21,6 +21,9 @@ class DummyKnowledgeLibrary:
 
 def test_tool_manifest_contains_core_capabilities():
     assert "web.read_page" in TOOL_CAPABILITY_BY_ID
+    assert "weather.today" in TOOL_CAPABILITY_BY_ID
+    assert "market.compare" in TOOL_CAPABILITY_BY_ID
+    assert "market.pulse" in TOOL_CAPABILITY_BY_ID
     assert "documents.show_page_image" in TOOL_CAPABILITY_BY_ID
     assert "python.run_explicit" in TOOL_CAPABILITY_BY_ID
     prompt = build_tool_capability_prompt()
@@ -56,6 +59,75 @@ def test_detects_latest_version_as_web_search_when_web_enabled():
     assert plan.tool_id == "web.search"
 
 
+def test_detects_weather_as_direct_weather_tool():
+    plan = detect_deterministic_tool_plan(
+        "How is the weather today in Berlin?",
+        web_enabled=True,
+    )
+
+    assert plan is not None
+    assert plan.action == "weather_today"
+    assert plan.tool_id == "weather.today"
+    assert plan.query == "Berlin"
+
+
+def test_detects_weather_location_followup_from_recent_context():
+    plan = detect_deterministic_tool_plan(
+        "Athens",
+        web_enabled=True,
+        recent_context="AI: Please share your city for the weather forecast.",
+    )
+
+    assert plan is not None
+    assert plan.action == "weather_today"
+    assert plan.query == "Athens"
+
+
+def test_weather_words_in_url_or_code_requests_do_not_trigger_weather_tool():
+    plan = detect_deterministic_tool_plan(
+        "Explain what this link is: "
+        "https://api.open-meteo.com/v1/forecast?latitude=50.1&longitude=8.6",
+        web_enabled=True,
+    )
+
+    assert plan is not None
+    assert plan.action == "web_read_page"
+
+    plan = detect_deterministic_tool_plan(
+        "Show me a Python example that prints a weather summary",
+        web_enabled=True,
+    )
+
+    assert plan is None
+
+
+def test_detects_market_compare_quote_and_pulse_tools():
+    plan = detect_deterministic_tool_plan(
+        "Compare CRM and DBX stocks in a clean table",
+        web_enabled=True,
+    )
+
+    assert plan is not None
+    assert plan.action == "stock_compare"
+    assert plan.tool_id == "market.compare"
+    assert plan.query == "CRM DBX"
+
+    plan = detect_deterministic_tool_plan("CRM stock price", web_enabled=True)
+
+    assert plan is not None
+    assert plan.action == "stock_quote"
+    assert plan.query == "CRM"
+
+    plan = detect_deterministic_tool_plan(
+        "Give me oil, gold, S&P 500, Nasdaq, DAX and Nikkei in one market summary",
+        web_enabled=True,
+    )
+
+    assert plan is not None
+    assert plan.action == "market_pulse"
+    assert plan.tool_id == "market.pulse"
+
+
 def test_detects_document_page_image_but_not_inventory_dump():
     plan = detect_deterministic_tool_plan(
         "What books do we have?",
@@ -78,6 +150,10 @@ def test_detects_document_search_and_brief():
     assert plan.action == "documents_search"
 
     plan = detect_deterministic_tool_plan("Brief this astronomy book")
+    assert plan is not None
+    assert plan.action == "documents_brief"
+
+    plan = detect_deterministic_tool_plan("What about the second book?")
     assert plan is not None
     assert plan.action == "documents_brief"
 

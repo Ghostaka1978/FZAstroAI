@@ -1,6 +1,6 @@
 # FZAstro AI Astro Tools Suite
 
-The Astro Tools Suite is the main astronomy and astrophotography workflow area in FZAstro AI v2.3.0. Open it from the main workspace **Apps** menu or the Astro controls. Tools open as tabs in the main app so LOOKUP, SEEING, TARGETS, SUN NOW, N.I.N.A., and chat can stay available together.
+The Astro Tools Suite is the main astronomy and astrophotography workflow area in FZAstro AI v2.3.1. Open it from the main workspace **Apps** menu or the Astro controls. Tools open as tabs in the main app so LOOKUP, SEEING, TARGETS, SUN NOW, N.I.N.A., and chat can stay available together.
 
 ## Suite overview
 

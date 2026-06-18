@@ -54,8 +54,9 @@ from ..benchmarks import (
 )
 from ..config import APP_DIR, DEFAULT_MODEL_NAME, RUNTIME_CHAT_TIMEOUT_SECONDS
 from ..json_store import atomic_write_json
+from ..llm import build_chat_request_params, extract_delta_text
 from ..logging_utils import log_exception, log_warning
-from ..runtime import is_ollama_base_url, make_runtime_client
+from ..runtime import make_runtime_client
 from ..workers.model_discovery_worker import ModelDiscoveryWorker
 from .window_utils import apply_window_defaults
 
@@ -292,27 +293,7 @@ class LlmBenchmarkWorker(QThread):
 
     @staticmethod
     def _chunk_content(chunk) -> str:
-        if not getattr(chunk, "choices", None):
-            return ""
-
-        choice = chunk.choices[0]
-        delta = getattr(choice, "delta", None)
-        content = getattr(delta, "content", None)
-
-        if content is not None:
-            return str(content)
-
-        try:
-            delta_data = delta.model_dump() if delta is not None else {}
-        except Exception:
-            delta_data = {}
-
-        if isinstance(delta_data, dict):
-            content = delta_data.get("content")
-            if content is not None:
-                return str(content)
-
-        return ""
+        return extract_delta_text(chunk)
 
     def _request_params(self, prompt: str, max_tokens: int):
         messages = []
@@ -320,28 +301,15 @@ class LlmBenchmarkWorker(QThread):
             messages.append({"role": "system", "content": self.system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        params = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": self.temperature,
-            "stream": True,
-        }
-
-        if is_ollama_base_url(self.base_url):
-            params["extra_body"] = {
-                "think": False,
-                "options": {
-                    "num_predict": max_tokens,
-                    "temperature": self.temperature,
-                    "repeat_penalty": 1.05,
-                },
-            }
-        else:
-            # OpenAI-compatible cloud providers usually accept max_tokens here.
-            # Local Ollama is handled through extra_body/options above.
-            params["max_tokens"] = max_tokens
-
-        return params
+        return build_chat_request_params(
+            model=self.model,
+            messages=messages,
+            profile="benchmark",
+            base_url=self.base_url,
+            stream=True,
+            temperature=self.temperature,
+            num_predict=max_tokens,
+        )
 
     def run(self):
         if not self.model:

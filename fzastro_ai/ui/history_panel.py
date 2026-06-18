@@ -369,6 +369,10 @@ def history_message_to_text(self, content, news_sources=None):
         source_summary = re.sub(
             r"\s+", " ", str(source_value.get("summary") or "")
         ).strip()
+        source_published_at = re.sub(
+            r"\s+", " ", str(source_value.get("published_at") or "")
+        ).strip()
+        source_image_url = str(source_value.get("image_url") or "").strip()
         source_name = str(source_value.get("name") or "Source").strip()
         source_url = str(source_value.get("url") or "").strip()
 
@@ -384,8 +388,14 @@ def history_message_to_text(self, content, news_sources=None):
 
         article_text += f" Source: {source_name}"
 
+        if source_published_at:
+            article_text += f" Published: {source_published_at}"
+
         if source_url:
             article_text += f" URL: {source_url}"
+
+        if source_image_url:
+            article_text += f" Image: {source_image_url}"
 
         complete_source_records.append(f"- {article_text}")
 

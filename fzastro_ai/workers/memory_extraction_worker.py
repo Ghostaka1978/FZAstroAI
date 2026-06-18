@@ -6,6 +6,7 @@ from PySide6.QtCore import QThread, Signal
 
 from ..config import MEMORY_EXTRACTION_CHUNK_CHARS, MEMORY_EXTRACTION_CHUNK_OVERLAP
 from ..config import RUNTIME_MEMORY_TIMEOUT_SECONDS
+from ..llm import build_chat_request_params, extract_delta_text
 from ..logging_utils import log_exception
 from ..memory_store import (
     extract_history_code_entries,
@@ -15,7 +16,6 @@ from ..memory_store import (
     remove_deterministic_news_sections,
 )
 from ..runtime import (
-    is_ollama_base_url,
     make_runtime_client,
     normalize_runtime_api_key,
     normalize_runtime_base_url,
@@ -181,9 +181,9 @@ class MemoryExtractionWorker(QThread):
             self.progress_updated.emit(chunk_index, total_chunks)
 
             try:
-                request_params = {
-                    "model": self.model,
-                    "messages": [
+                request_params = build_chat_request_params(
+                    model=self.model,
+                    messages=[
                         {"role": "system", "content": system_message},
                         {
                             "role": "user",
@@ -195,15 +195,10 @@ class MemoryExtractionWorker(QThread):
                             ),
                         },
                     ],
-                    "temperature": 0.1,
-                    "stream": True,
-                }
-
-                if is_ollama_base_url(self.base_url):
-                    request_params["extra_body"] = {
-                        "think": False,
-                        "options": {"num_ctx": 32768},
-                    }
+                    profile="memory_extract",
+                    base_url=self.base_url,
+                    stream=True,
+                )
 
                 self.stream = memory_client.chat.completions.create(**request_params)
 
@@ -220,14 +215,10 @@ class MemoryExtractionWorker(QThread):
                         self.stopped.emit()
                         return
 
-                    if not event.choices:
-                        continue
-
-                    delta = event.choices[0].delta
-                    content = getattr(delta, "content", None)
+                    content = extract_delta_text(event)
 
                     if content:
-                        result_parts.append(str(content))
+                        result_parts.append(content)
 
                 try:
                     if self.stream:

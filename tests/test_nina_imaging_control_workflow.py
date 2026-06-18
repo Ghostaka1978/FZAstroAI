@@ -7,6 +7,7 @@ from fzastro_ai.nina import nina_bridge
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONTROL_SOURCE = PROJECT_ROOT / "fzastro_ai" / "ui" / "nina_control_dialog.py"
+TARGETS_SOURCE = PROJECT_ROOT / "fzastro_ai" / "ui" / "targets_dialog.py"
 BRIDGE_SOURCE = PROJECT_ROOT / "fzastro_ai" / "nina" / "nina_bridge.py"
 
 
@@ -27,6 +28,18 @@ def test_imaging_control_main_workflow_is_numbered_operations_cockpit():
     assert 'QPushButton("2 · PREPARE TARGET")' not in text
     assert "LOAD VIA API ONLY" in text
     assert "TOOLS / DIAGNOSTICS" in text
+
+
+def test_targets_handoff_keeps_targets_tab_and_returns_to_nina_tab():
+    control_text = CONTROL_SOURCE.read_text(encoding="utf-8")
+    targets_text = TARGETS_SOURCE.read_text(encoding="utf-8")
+
+    assert 'getattr(self, "_workspace_host", None)' in control_text
+    assert "parent = self.parentWidget()" in control_text
+    assert "main_window.open_astro_targets_dialog()" in control_text
+    assert 'focus_nina_tab("nina.control")' in targets_text
+    assert "nina_dialog = opener()" in targets_text
+    assert "QTimer.singleShot(180, self.accept)" not in targets_text
 
 
 def test_confirm_load_handles_missing_stale_draft_file():

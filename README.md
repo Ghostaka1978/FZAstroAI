@@ -1,8 +1,8 @@
-# FZAstro AI v2.3.0 - Imaging Production
+# FZAstro AI v2.3.1 - Imaging Production
 
 FZAstro AI is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document knowledge, persistent local memory, Python execution, web/news/market tools, hardware telemetry, LLM benchmarking, Developer Workbench coding assistance, Web Companion, and integrated astronomy planning.
 
-Release identity: **FZAstro AI v2.3.0 (Imaging Production)**.
+Release identity: **FZAstro AI v2.3.1 (Imaging Production)**.
 GitHub repository: https://github.com/Ghostaka1978/FZAstroAI
 
 ## Screenshots
@@ -88,7 +88,7 @@ py -3.11 -m venv .venv
 .\DEPLOY.bat
 ```
 
-`DEPLOY.bat` is the root-folder deploy button. It runs `scripts/deploy.ps1 -RunValidation -GitRelease`, so a successful deploy also creates the local release commit and annotated tag from `VERSION.txt` (`v2.3.0` for this release). Add `-GitPush` when you want the branch and tag pushed:
+`DEPLOY.bat` is the root-folder deploy button. It runs `scripts/deploy.ps1 -RunValidation -GitRelease`, so a successful deploy also creates the local release commit and annotated tag from `VERSION.txt` (`v2.3.1` for this release). Add `-GitPush` when you want the branch and tag pushed:
 
 ```powershell
 .\DEPLOY.bat -GitPush

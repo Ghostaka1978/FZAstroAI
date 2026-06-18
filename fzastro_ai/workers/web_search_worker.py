@@ -1,7 +1,12 @@
 from PySide6.QtCore import QThread, Signal
 
 from ..logging_utils import log_exception
-from ..market_sources import perform_stock_quote
+from ..market_sources import (
+    perform_global_market_pulse,
+    perform_stock_compare,
+    perform_stock_quote,
+)
+from ..weather_tools import perform_weather_today
 from ..web_tools import (
     perform_rendered_page_extraction,
     perform_web_image_search,
@@ -48,6 +53,15 @@ class WebSearchWorker(QThread):
 
             elif self.mode == "stock_quote":
                 result = perform_stock_quote(self.query)
+
+            elif self.mode == "stock_compare":
+                result = perform_stock_compare(self.query)
+
+            elif self.mode == "market_pulse":
+                result = perform_global_market_pulse()
+
+            elif self.mode == "weather":
+                result = perform_weather_today(self.query)
 
             elif self.mode == "rendered_page":
                 result = perform_rendered_page_extraction(self.query)

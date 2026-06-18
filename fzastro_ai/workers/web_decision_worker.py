@@ -4,10 +4,10 @@ from ..tool_manifest import build_tool_capability_prompt
 from PySide6.QtCore import QThread, Signal
 
 from ..config import RUNTIME_DECISION_TIMEOUT_SECONDS
+from ..llm import build_chat_request_params
 from ..logging_utils import log_exception, log_warning
 from ..runtime import (
     format_runtime_model_unavailable_message,
-    is_ollama_base_url,
     is_runtime_connection_error,
     is_runtime_model_not_found_error,
     make_runtime_client,
@@ -31,7 +31,9 @@ def parse_web_decision(raw_text):
     return plan.action, plan.query
 
 
-class WebDecisionWorker(QThread):
+class ToolDecisionWorker(QThread):
+    """Model-based fallback router used only after deterministic routing declines."""
+
     decision_ready = Signal(str, str)
     error_received = Signal(str)
     stopped = Signal()
@@ -153,22 +155,17 @@ class WebDecisionWorker(QThread):
             decision_client = make_runtime_client(
                 self.base_url, self.api_key, timeout=RUNTIME_DECISION_TIMEOUT_SECONDS
             )
-            request_params = {
-                "model": self.model,
-                "messages": [
+            request_params = build_chat_request_params(
+                model=self.model,
+                messages=[
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": decision_input},
                 ],
-                "temperature": 0,
-                "response_format": response_format,
-                "stream": False,
-            }
-
-            if is_ollama_base_url(self.base_url):
-                request_params["extra_body"] = {
-                    "think": False,
-                    "options": {"num_ctx": 4096},
-                }
+                profile="router",
+                base_url=self.base_url,
+                stream=False,
+                response_format=response_format,
+            )
 
             try:
                 response = decision_client.chat.completions.create(**request_params)
@@ -230,3 +227,7 @@ class WebDecisionWorker(QThread):
                 self.stopped.emit()
             else:
                 self.error_received.emit(user_error)
+
+
+# Backward-compatible name retained for older imports and tests.
+WebDecisionWorker = ToolDecisionWorker

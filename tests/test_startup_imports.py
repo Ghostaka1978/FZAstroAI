@@ -23,6 +23,8 @@ def test_worker_exports_match_current_module_layout():
     assert (
         "from .memory_extraction_worker import MemoryExtractionWorker" in workers_init
     )
+    assert "ToolDecisionWorker" in workers_init
+    assert "WebDecisionWorker" in workers_init
     assert "class MemoryExtractionWorker" in memory_worker
 
 

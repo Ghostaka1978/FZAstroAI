@@ -36,6 +36,46 @@ def test_chat_renderer_separates_plain_text_from_markdown_display():
     assert ".chat-copy table" in text
 
 
+def test_chat_surface_keeps_natural_top_flow_and_uses_sticky_autoscroll():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+    layout_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "main_layout.py").read_text(
+        encoding="utf-8-sig"
+    )
+    news_actions_text = (
+        PROJECT_ROOT / "fzastro_ai" / "actions" / "web_news_actions.py"
+    ).read_text(encoding="utf-8-sig")
+    chat_lifecycle_text = (
+        PROJECT_ROOT / "fzastro_ai" / "actions" / "chat_lifecycle.py"
+    ).read_text(encoding="utf-8-sig")
+
+    assert "def chat_scroll_is_near_bottom" in app_text
+    assert "def queue_chat_scroll_to_bottom" in app_text
+    assert "def release_chat_container_height_limit" in app_text
+    assert "def sync_chat_container_height" in app_text
+    assert "self.release_chat_container_height_limit()" in app_text
+    assert "content_bottom += margins.bottom()" in app_text
+    assert (
+        "target_height = max(self.chat_scroll.viewport().height(), content_bottom)"
+        in app_text
+    )
+    assert "self.chat_container.setMaximumHeight(target_height)" in app_text
+    assert "self.chat_scroll.ensureVisible(0, content_bottom, 0, 0)" in app_text
+    assert "target_value = max(" in app_text
+    assert "self.sync_chat_container_height()" in app_text
+    assert 'if animate and hasattr(self, "queue_chat_scroll_to_bottom"):' in app_text
+    assert "self.queue_chat_scroll_to_bottom(True, settle=True)" in app_text
+    assert "self.sync_chat_container_height()" in layout_text
+    assert "should_follow_chat = self.chat_scroll_is_near_bottom()" in app_text
+    assert "self.queue_chat_scroll_to_bottom(should_follow_chat)" in app_text
+    assert "for delay in (40, 120, 240, 400):" in app_text
+    assert "self.chat_layout.setAlignment(Qt.AlignTop)" in layout_text
+    assert "self.chat_layout.setAlignment(Qt.AlignVCenter)" not in layout_text
+    assert "self.chat_layout.setAlignment(Qt.AlignBottom)" not in layout_text
+    assert "should_follow_chat = True" in news_actions_text
+    assert "self.queue_chat_scroll_to_bottom(should_follow_chat" in news_actions_text
+    assert "self.queue_chat_scroll_to_bottom(should_follow_chat" in chat_lifecycle_text
+
+
 def test_seeing_cloud_labels_are_explicitly_forecast_model_values():
     text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "seeing_dialog.py").read_text(
         encoding="utf-8-sig"
@@ -139,7 +179,12 @@ def test_workspace_apps_button_opens_key_tabbed_tools():
 
     assert "_run_workspace_app" in workspace_text
     assert "QMenu(self)" in workspace_text
+    assert "QWidgetAction(menu)" in workspace_text
+    assert 'label.setObjectName("skillMenuSectionTitle")' in workspace_text
+    assert "f\"-- {str(title or '').upper()} --\"" in workspace_text
     assert "QPushButton#workspaceAppsButton" in styles_text
+    assert "QMenu QLabel#skillMenuSectionTitle" in styles_text
+    assert "border-left: 3px solid #f2cc60;" in styles_text
     assert "min-height: 26px;" in styles_text
     assert "QPushButton#workspaceAppsButton::menu-indicator" in styles_text
     assert "QToolButton#workspaceTabCloseButton" in styles_text

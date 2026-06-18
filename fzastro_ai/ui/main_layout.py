@@ -140,6 +140,8 @@ class MainLayoutMixin:
         self.help_button.setEnabled(True)
         self.diagnostics_button.setEnabled(True)
         self.news_button.setEnabled(True)
+        if hasattr(self, "composer_markets_button"):
+            self.composer_markets_button.setEnabled(True)
         self.crm_stock_button.setEnabled(True)
         self.dbx_stock_button.setEnabled(True)
         self.crude_oil_button.setEnabled(True)
@@ -213,6 +215,8 @@ class MainLayoutMixin:
         if not hasattr(self, "chat_layout"):
             return
 
+        self.chat_layout.setAlignment(Qt.AlignTop)
+
         current = getattr(self, "empty_state_widget", None)
 
         if current is not None:
@@ -282,6 +286,7 @@ class MainLayoutMixin:
         widget = getattr(self, "empty_state_widget", None)
 
         if widget is None:
+            self.chat_layout.setAlignment(Qt.AlignTop)
             return
 
         try:
@@ -291,6 +296,7 @@ class MainLayoutMixin:
             pass
 
         self.empty_state_widget = None
+        self.chat_layout.setAlignment(Qt.AlignTop)
 
     def refresh_chat_layout(self, scroll_to_bottom=False):
         """Recalculate restored message heights after Qt finishes layout."""
@@ -319,6 +325,9 @@ class MainLayoutMixin:
             self.chat_scroll.viewport().updateGeometry()
             self.chat_scroll.viewport().update()
             self.chat_scroll.updateGeometry()
+
+            if hasattr(self, "sync_chat_container_height"):
+                self.sync_chat_container_height()
 
             if scroll_to_bottom:
                 self.force_scroll_to_bottom()

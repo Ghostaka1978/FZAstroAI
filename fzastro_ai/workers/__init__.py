@@ -9,7 +9,11 @@ from .python_execution_worker import (
     PythonExecutionWorker,
     resolve_python_execution_interpreter,
 )
-from .web_decision_worker import WebDecisionWorker, parse_web_decision
+from .web_decision_worker import (
+    ToolDecisionWorker,
+    WebDecisionWorker,
+    parse_web_decision,
+)
 from .web_search_worker import WebSearchWorker
 from .astro_worker import AstroWorker
 from .sun_now_worker import SunNowWorker
@@ -27,6 +31,7 @@ __all__ = [
     "ModelDiscoveryWorker",
     "OllamaRestartWorker",
     "PythonExecutionWorker",
+    "ToolDecisionWorker",
     "WebDecisionWorker",
     "WebSearchWorker",
     "AstroWorker",

@@ -134,6 +134,34 @@ def parse_stock_quote_payload(text):
     return payload
 
 
+def _format_market_pulse_markdown(payload):
+    return "[MARKET_PULSE]\n" + json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":")
+    )
+
+
+def parse_market_pulse_payload(text):
+    clean_text = str(text or "").strip()
+
+    if not clean_text.startswith("[MARKET_PULSE]"):
+        return None
+
+    json_text = clean_text[len("[MARKET_PULSE]") :].strip()
+
+    if not json_text:
+        return None
+
+    try:
+        payload = json.loads(json_text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    return payload
+
+
 SOURCE_TAG_LABELS = {
     "llm": "LLM",
     "web_search": "Web",
@@ -271,6 +299,9 @@ def infer_response_source_tags(
             tags.append(tag)
 
     if parse_stock_quote_payload(raw_text) is not None:
+        add("market_data")
+
+    if parse_market_pulse_payload(raw_text) is not None:
         add("market_data")
 
     if web_articles:
@@ -446,6 +477,42 @@ def stock_quote_plain_text(payload):
     ]
 
     return "\n".join(lines)
+
+
+def market_pulse_plain_text(payload):
+    if not isinstance(payload, dict):
+        return ""
+
+    lines = [
+        str(payload.get("title") or "Global Market Pulse"),
+        f"Retrieved: {payload.get('retrieved_at') or 'Unavailable'}",
+        f"Source: {payload.get('source_name') or 'Market data'}",
+    ]
+
+    for group in payload.get("groups") or []:
+        group_name = str(group.get("name") or "Market group").strip()
+        if group_name:
+            lines.extend(["", group_name])
+
+        for row in group.get("rows") or []:
+            label = str(row.get("label") or row.get("ticker") or "Indicator").strip()
+            ticker = str(row.get("ticker") or "").strip()
+            last = str(row.get("last") or "n/a").strip()
+            change = str(row.get("change_text") or "n/a").strip()
+            status = str(row.get("status") or "Unavailable").strip()
+            symbol_text = f" ({ticker})" if ticker else ""
+            lines.append(f"- {label}{symbol_text}: {last}; {change}; {status}")
+
+    unavailable = payload.get("unavailable") or []
+    if unavailable:
+        lines.extend(["", "Unavailable feeds"])
+        lines.extend(f"- {item}" for item in unavailable)
+
+    disclaimer = str(payload.get("disclaimer") or "").strip()
+    if disclaimer:
+        lines.extend(["", disclaimer])
+
+    return "\n".join(lines).strip()
 
 
 def _fetch_yahoo_stock_quote(ticker):
@@ -645,3 +712,305 @@ def perform_stock_quote(ticker):
         "The direct quote service did not return usable data.\n\n"
         f"{details}"
     )
+
+
+def _extract_supported_market_tickers(text):
+    raw_text = str(text or "")
+    lowered = raw_text.casefold()
+    tickers = []
+    aliases = {
+        "salesforce": "CRM",
+        "dropbox": "DBX",
+        "oil": "CL=F",
+        "crude": "CL=F",
+        "crude oil": "CL=F",
+        "gold": "GC=F",
+    }
+
+    for ticker in ("CRM", "DBX", "CL=F", "GC=F"):
+        if re.search(
+            rf"(?<![A-Z0-9=^.\-]){re.escape(ticker)}(?![A-Z0-9=^.\-])",
+            raw_text,
+            flags=re.IGNORECASE,
+        ):
+            tickers.append(ticker)
+
+    for alias, ticker in aliases.items():
+        if re.search(rf"\b{re.escape(alias)}\b", lowered) and ticker not in tickers:
+            tickers.append(ticker)
+
+    return tickers
+
+
+def _format_compare_price(payload):
+    price = _stock_number((payload or {}).get("price"))
+    currency = str((payload or {}).get("currency") or "USD").strip().upper()
+
+    if price is None:
+        return "n/a"
+
+    if currency == "USD":
+        return f"${price:,.2f}"
+
+    return f"{price:,.2f} {currency}" if currency else f"{price:,.2f}"
+
+
+def _format_compare_change(payload):
+    change = _stock_number((payload or {}).get("change"))
+    percentage = _stock_number((payload or {}).get("percentage_change"))
+    currency = str((payload or {}).get("currency") or "USD").strip().upper()
+
+    if change is None and percentage is None:
+        return "n/a"
+
+    change_text = "n/a" if change is None else f"{change:+,.2f} {currency}"
+    pct_text = "n/a" if percentage is None else f"{percentage:+.2f}%"
+    return f"{change_text} / {pct_text}"
+
+
+def perform_stock_compare(ticker_text):
+    """Fetch tracked market quotes and return a direct Markdown comparison."""
+
+    tickers = _extract_supported_market_tickers(ticker_text)
+
+    if not tickers:
+        return (
+            "[MARKET_COMPARE]\n"
+            "## Stock comparison unavailable\n\n"
+            "No supported tracked market symbols were found in the request."
+        )
+
+    retrieved_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    rows = []
+    errors = []
+
+    for ticker in tickers[:6]:
+        quote_text = perform_stock_quote(ticker)
+        payload = parse_stock_quote_payload(quote_text)
+
+        if not payload:
+            clean_error = re.sub(r"\s+", " ", str(quote_text or "")).strip()
+            errors.append(f"{ticker}: {clean_error[:180]}")
+            rows.append(
+                {
+                    "company": ticker,
+                    "ticker": ticker,
+                    "last": "n/a",
+                    "change": "n/a",
+                    "status": "Unavailable",
+                    "exchange": "Unavailable",
+                    "source": "",
+                }
+            )
+            continue
+
+        source_name = str(payload.get("source_name") or "Source").strip()
+        source_url = str(payload.get("source_url") or "").strip()
+        source = f"[{source_name}]({source_url})" if source_url else source_name
+        rows.append(
+            {
+                "company": str(payload.get("company_name") or ticker).strip(),
+                "ticker": str(payload.get("ticker") or ticker).strip(),
+                "last": _format_compare_price(payload),
+                "change": _format_compare_change(payload),
+                "status": str(payload.get("market_status") or "Unavailable").strip(),
+                "exchange": str(payload.get("exchange") or "Unavailable").strip(),
+                "source": source,
+            }
+        )
+
+    lines = [
+        "[MARKET_COMPARE]",
+        "## Stock Comparison",
+        "",
+        f"Retrieved: {retrieved_at}",
+        "",
+        "| Company | Ticker | Last | Change | Status | Exchange | Source |",
+        "| --- | --- | ---: | ---: | --- | --- | --- |",
+    ]
+
+    for row in rows:
+        lines.append(
+            "| {company} | {ticker} | {last} | {change} | {status} | {exchange} | {source} |".format(
+                **row
+            )
+        )
+
+    if errors:
+        lines.extend(["", "Some quote providers did not return complete data:"])
+        lines.extend(f"- {error}" for error in errors[:4])
+
+    lines.extend(
+        [
+            "",
+            "Market data can be delayed depending on the exchange and Yahoo Finance availability.",
+        ]
+    )
+    return "\n".join(lines).strip()
+
+
+GLOBAL_MARKET_PULSE_GROUPS = (
+    (
+        "US indices",
+        (
+            ("S&P 500", "^GSPC"),
+            ("Nasdaq Composite", "^IXIC"),
+            ("Dow Jones", "^DJI"),
+            ("Russell 2000", "^RUT"),
+        ),
+    ),
+    (
+        "Europe",
+        (
+            ("FTSE 100", "^FTSE"),
+            ("DAX", "^GDAXI"),
+            ("CAC 40", "^FCHI"),
+            ("Euro Stoxx 50", "^STOXX50E"),
+        ),
+    ),
+    (
+        "Asia",
+        (
+            ("Nikkei 225", "^N225"),
+            ("Hang Seng", "^HSI"),
+            ("Shanghai Composite", "000001.SS"),
+        ),
+    ),
+    (
+        "Volatility, rates, FX",
+        (
+            ("VIX", "^VIX"),
+            ("US 10Y yield index", "^TNX"),
+            ("US Dollar Index", "DX-Y.NYB"),
+            ("EUR/USD", "EURUSD=X"),
+        ),
+    ),
+    (
+        "Commodities",
+        (
+            ("WTI crude oil", "CL=F"),
+            ("Gold futures", "GC=F"),
+        ),
+    ),
+    (
+        "Tracked stocks",
+        (
+            ("Salesforce", "CRM"),
+            ("Dropbox", "DBX"),
+        ),
+    ),
+)
+
+
+def _format_market_pulse_value(payload):
+    price = _stock_number((payload or {}).get("price"))
+    currency = str((payload or {}).get("currency") or "").strip().upper()
+
+    if price is None:
+        return "n/a"
+
+    if currency == "USD":
+        return f"{price:,.2f}"
+
+    return f"{price:,.2f} {currency}" if currency else f"{price:,.2f}"
+
+
+def _format_market_pulse_change(payload):
+    change = _stock_number((payload or {}).get("change"))
+    percentage_change = _stock_number((payload or {}).get("percentage_change"))
+
+    if change is None and percentage_change is None:
+        return "n/a"
+
+    change_text = "n/a" if change is None else f"{change:+,.2f}"
+    percentage_text = (
+        "n/a" if percentage_change is None else f"{percentage_change:+.2f}%"
+    )
+    return f"{change_text} / {percentage_text}"
+
+
+def _market_pulse_direction(payload):
+    percentage_change = _stock_number((payload or {}).get("percentage_change"))
+    change = _stock_number((payload or {}).get("change"))
+    value = percentage_change if percentage_change is not None else change
+
+    if value is None:
+        return "flat"
+    if value > 0:
+        return "up"
+    if value < 0:
+        return "down"
+    return "flat"
+
+
+def perform_global_market_pulse():
+    """Fetch a compact global market pulse across indices, assets, and watchlist."""
+
+    retrieved_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    groups = []
+    errors = []
+    summary = {"up": 0, "down": 0, "flat": 0, "unavailable": 0}
+
+    for group_name, symbols in GLOBAL_MARKET_PULSE_GROUPS:
+        rows = []
+
+        for label, ticker in symbols:
+            try:
+                quote_payload = parse_stock_quote_payload(
+                    _fetch_yahoo_stock_quote(ticker)
+                )
+            except Exception as error:
+                log_exception("perform_global_market_pulse", error)
+                quote_payload = None
+                clean_error = re.sub(r"\s+", " ", str(error)).strip()
+                errors.append(f"{label} ({ticker}): {clean_error[:180]}")
+
+            if not quote_payload:
+                rows.append(
+                    {
+                        "label": label,
+                        "ticker": ticker,
+                        "last": "n/a",
+                        "change_text": "n/a",
+                        "status": "Unavailable",
+                        "direction": "unavailable",
+                    }
+                )
+                summary["unavailable"] += 1
+                continue
+
+            direction = _market_pulse_direction(quote_payload)
+            summary[direction] += 1
+            rows.append(
+                {
+                    "label": label,
+                    "ticker": ticker,
+                    "last": _format_market_pulse_value(quote_payload),
+                    "change_text": _format_market_pulse_change(quote_payload),
+                    "price": _stock_number(quote_payload.get("price")),
+                    "change": _stock_number(quote_payload.get("change")),
+                    "percentage_change": _stock_number(
+                        quote_payload.get("percentage_change")
+                    ),
+                    "currency": str(quote_payload.get("currency") or "").strip(),
+                    "status": str(
+                        quote_payload.get("market_status") or "Unavailable"
+                    ).strip(),
+                    "direction": direction,
+                    "source_url": str(quote_payload.get("source_url") or "").strip(),
+                }
+            )
+
+        groups.append({"name": group_name, "rows": rows})
+
+    payload = {
+        "title": "Global Market Pulse",
+        "retrieved_at": retrieved_at,
+        "source_name": "Yahoo Finance structured chart endpoint",
+        "source_url": "https://finance.yahoo.com/markets/",
+        "summary": summary,
+        "groups": groups,
+        "unavailable": errors[:8],
+        "disclaimer": "Market data can be delayed depending on the exchange and Yahoo Finance availability.",
+    }
+    return _format_market_pulse_markdown(payload)

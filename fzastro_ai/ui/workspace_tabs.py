@@ -6,12 +6,15 @@ from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
     QMenu,
     QPushButton,
     QSizePolicy,
     QTabBar,
     QTabWidget,
     QToolButton,
+    QWidgetAction,
     QVBoxLayout,
     QWidget,
 )
@@ -174,8 +177,12 @@ class WorkspaceTabsMixin:
         return menu
 
     def _add_workspace_menu_section(self, menu: QMenu, title: str):
-        action = QAction(str(title or "").upper(), self)
-        action.setEnabled(False)
+        label = QLabel(f"-- {str(title or '').upper()} --")
+        label.setObjectName("skillMenuSectionTitle")
+        label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(label)
         menu.addAction(action)
 
     def _add_workspace_app_action(
@@ -353,7 +360,15 @@ class WorkspaceTabsMixin:
                 tab_widget
             )
         )
-        tabs.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, button)
+
+        close_slot = QWidget()
+        close_slot.setObjectName("workspaceTabCloseSlot")
+        close_slot.setFixedSize(24, 18)
+        close_layout = QHBoxLayout(close_slot)
+        close_layout.setContentsMargins(0, 0, 8, 0)
+        close_layout.setSpacing(0)
+        close_layout.addWidget(button, 0, Qt.AlignmentFlag.AlignVCenter)
+        tabs.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, close_slot)
 
     def _create_workspace_tab_page(self, widget: QWidget) -> QWidget:
         page = QWidget()

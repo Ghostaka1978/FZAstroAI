@@ -205,9 +205,168 @@
     .msg-body h1 { font-size: 1.35rem; }
     .msg-body h2 { font-size: 1.05rem; color: #d9ebff; }
     .msg-body ul { margin: 0.45rem 0 0.9rem 1.2rem; padding: 0; }
+    .msg-body ol { margin: 0.45rem 0 0.9rem 1.4rem; padding: 0; }
     .msg-body li { margin: 0.28rem 0; }
     .msg-body p { margin: 0.45rem 0; }
-    .msg-body pre, .msg-body code { white-space: pre-wrap; }
+    .msg-body pre {
+      margin: 0.68rem 0;
+      padding: 0.78rem 0.9rem;
+      overflow-x: auto;
+      border: 1px solid rgba(120, 188, 255, 0.2);
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.28);
+    }
+    .msg-body code {
+      padding: 0.08rem 0.28rem;
+      border-radius: 7px;
+      background: rgba(120, 188, 255, 0.1);
+      white-space: pre-wrap;
+    }
+    .msg-body pre code { padding: 0; background: transparent; }
+    .table-wrap {
+      margin: 0.78rem 0;
+      overflow-x: auto;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+    }
+    .msg-body table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 34rem;
+      background: rgba(255, 255, 255, 0.035);
+    }
+    .msg-body th, .msg-body td {
+      padding: 0.58rem 0.7rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      text-align: left;
+      vertical-align: top;
+    }
+    .msg-body th {
+      color: #f5f9ff;
+      background: rgba(255, 255, 255, 0.055);
+      font-weight: 760;
+    }
+    .msg-body tr:last-child td { border-bottom: 0; }
+
+    .astro-dashboard {
+      display: grid;
+      gap: 1rem;
+      min-width: min(100%, 42rem);
+    }
+    .astro-hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: flex-start;
+      padding-bottom: 0.25rem;
+      border-bottom: 1px solid rgba(120, 188, 255, 0.16);
+    }
+    .astro-kicker {
+      color: var(--warn);
+      font-size: 0.72rem;
+      font-weight: 850;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+    .astro-hero h1 {
+      margin: 0.12rem 0;
+      font-size: 1.35rem;
+      line-height: 1.15;
+    }
+    .astro-hero p,
+    .astro-site,
+    .astro-note {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin: 0.2rem 0 0;
+    }
+    .astro-site {
+      text-align: right;
+      white-space: nowrap;
+    }
+    .astro-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(8.8rem, 1fr));
+      gap: 0.6rem;
+    }
+    .astro-card {
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.045);
+      padding: 0.66rem 0.72rem;
+      min-height: 4.15rem;
+    }
+    .astro-card.good { border-color: rgba(120, 219, 145, 0.45); background: rgba(120, 219, 145, 0.09); }
+    .astro-card.ok { border-color: rgba(120, 188, 255, 0.34); }
+    .astro-card.warn { border-color: rgba(247, 212, 124, 0.42); background: rgba(247, 212, 124, 0.08); }
+    .astro-card.bad { border-color: rgba(255, 140, 140, 0.42); background: rgba(255, 140, 140, 0.08); }
+    .astro-card-label {
+      color: var(--muted);
+      font-size: 0.68rem;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .astro-card-value {
+      color: var(--text);
+      font-size: 1rem;
+      font-weight: 850;
+      margin-top: 0.18rem;
+    }
+    .astro-card-detail {
+      color: #b7c8da;
+      font-size: 0.76rem;
+      margin-top: 0.16rem;
+    }
+    .astro-grid.two {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.8rem;
+    }
+    .astro-dashboard section h2 {
+      margin: 0 0 0.45rem;
+      color: #f5f9ff;
+      font-size: 0.92rem;
+      letter-spacing: 0.02em;
+    }
+    .astro-dashboard section h3 {
+      margin: 0.12rem 0 0.5rem;
+      color: var(--accent);
+      font-size: 1rem;
+    }
+    .astro-table-wrap {
+      overflow-x: auto;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.12);
+    }
+    .astro-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 48rem;
+    }
+    .astro-table.compact {
+      min-width: 18rem;
+    }
+    .astro-table th,
+    .astro-table td {
+      padding: 0.52rem 0.62rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.78rem;
+    }
+    .astro-table th {
+      color: #dbeeff;
+      background: rgba(255, 255, 255, 0.055);
+      font-weight: 820;
+      white-space: nowrap;
+    }
+    .astro-table tr:last-child td { border-bottom: 0; }
+    .astro-table .empty {
+      color: var(--muted);
+      text-align: center;
+    }
 
     .image-strip { display: grid; gap: 0.7rem; padding: 0 0.95rem 0.95rem; }
     .image-strip img {
@@ -522,6 +681,9 @@
       .lookup-combo { min-width: 16rem; }
       .tool-ribbon button.tool { min-width: 8rem; }
       .row, .two { display: grid; grid-template-columns: 1fr; }
+      .astro-hero { display: grid; }
+      .astro-site { text-align: left; white-space: normal; }
+      .astro-grid.two { grid-template-columns: 1fr; }
       .msg { max-width: 100%; }
     }
   </style>
@@ -532,7 +694,7 @@
       <div class="logo">✦</div>
       <div>
         <h1>FZAstro AI</h1>
-        <div class="subtitle">Web Companion · local AI, astro tools, daily news</div>
+        <div class="subtitle">Web Companion · local AI, tools, news, weather, markets</div>
       </div>
     </div>
     <div class="top-actions">
@@ -549,7 +711,7 @@
       <div class="chat-head">
         <div>
           <div class="chat-title">Main Chat</div>
-          <div class="chat-subtitle">Run news, LOOKUP, SEEING, TARGETS, and normal chat from this main workspace.</div>
+          <div class="chat-subtitle">Run news, weather, markets, LOOKUP, SEEING, TARGETS, and normal chat from this main workspace.</div>
         </div>
         <button class="secondary" id="clearBtn" style="width:auto;">Clear</button>
       </div>
@@ -560,6 +722,8 @@
           <button class="tool" id="lookupBtn">🔭 LOOKUP</button>
         </div>
         <button class="tool" id="dailyNewsBtn">📰 Daily News</button>
+        <button class="tool" id="weatherBtn">Weather</button>
+        <button class="tool" id="marketsBtn">$ Markets</button>
         <button class="tool" id="seeingBtn">🌙 SEEING</button>
         <button class="tool" id="targetsBtn">🎯 TARGETS</button>
         <button class="tool" id="sitePlannerBtn">🗺 Site Planner</button>
@@ -787,6 +951,21 @@
       return { div, body };
     }
 
+    function appendImagesToMessage(div, images, title = 'FZAstro image result') {
+      if (!div || !images || !images.length) return;
+      const strip = document.createElement('div');
+      strip.className = 'image-strip';
+      for (const src of images) {
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.src = src;
+        img.alt = title;
+        img.addEventListener('load', scrollChatToBottom, { once: true });
+        strip.appendChild(img);
+      }
+      div.appendChild(strip);
+    }
+
     function addMessage(role, text, options = {}) {
       const { body, div } = messageShell(role, options.title || '');
       if (options.html) {
@@ -796,17 +975,7 @@
         body.textContent = text || '';
       }
       if (options.images && options.images.length) {
-        const strip = document.createElement('div');
-        strip.className = 'image-strip';
-        for (const src of options.images) {
-          const img = document.createElement('img');
-          img.loading = 'lazy';
-          img.src = src;
-          img.alt = options.title || 'FZAstro image result';
-          img.addEventListener('load', scrollChatToBottom, { once: true });
-          strip.appendChild(img);
-        }
-        div.appendChild(strip);
+        appendImagesToMessage(div, options.images, options.title || 'FZAstro image result');
       }
       scrollChatToBottom();
       return body;
@@ -832,32 +1001,138 @@
     function markdownToHtml(markdown, sources = {}) {
       const lines = String(markdown || '').split(/\r?\n/);
       let html = '';
-      let inList = false;
-      const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
-      const inline = (text) => escapeHtml(text).replace(/\[(NEWS_\d{4,})\]/g, (m, id) => {
-        const source = sources[id];
-        if (source && source.url) {
-          const label = sourceDisplayName(source, id);
-          const tooltip = [label, source.title || ''].filter(Boolean).join(' · ');
-          return `<a class="news-source" href="${escapeAttr(source.url)}" title="${escapeAttr(tooltip)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
-        }
-        return '<span class="news-source">Source</span>';
-      });
+      let index = 0;
+      let listType = null;
 
-      for (const raw of lines) {
+      const closeList = () => {
+        if (listType) {
+          html += `</${listType}>`;
+          listType = null;
+        }
+      };
+
+      const inline = (text) => {
+        let value = escapeHtml(text);
+
+        value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_match, label, url) => (
+          `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${label}</a>`
+        ));
+
+        value = value.replace(/\[(NEWS_\d{4,})\]/g, (_match, id) => {
+          const source = sources[id];
+          if (source && source.url) {
+            const label = sourceDisplayName(source, id);
+            const tooltip = [label, source.title || ''].filter(Boolean).join(' · ');
+            return `<a class="news-source" href="${escapeAttr(source.url)}" title="${escapeAttr(tooltip)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
+          }
+          return '<span class="news-source">Source</span>';
+        });
+
+        value = value.replace(/`([^`]+)`/g, '<code>$1</code>');
+        value = value.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        return value;
+      };
+
+      const isTableSeparator = (line) => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+      const isTableRow = (line) => /\|/.test(line) && !isTableSeparator(line);
+      const splitTableRow = (line) => {
+        let clean = String(line || '').trim();
+        if (clean.startsWith('|')) clean = clean.slice(1);
+        if (clean.endsWith('|')) clean = clean.slice(0, -1);
+        return clean.split('|').map(cell => cell.trim());
+      };
+
+      const renderTable = () => {
+        const headers = splitTableRow(lines[index]);
+        index += 2;
+        const rows = [];
+        while (index < lines.length && isTableRow(lines[index].trim())) {
+          rows.push(splitTableRow(lines[index]));
+          index += 1;
+        }
+
+        let table = '<div class="table-wrap"><table><thead><tr>';
+        table += headers.map(cell => `<th>${inline(cell)}</th>`).join('');
+        table += '</tr></thead><tbody>';
+        for (const row of rows) {
+          table += '<tr>';
+          for (let column = 0; column < headers.length; column += 1) {
+            table += `<td>${inline(row[column] || '')}</td>`;
+          }
+          table += '</tr>';
+        }
+        table += '</tbody></table></div>';
+        html += table;
+      };
+
+      const paragraphLines = [];
+      const flushParagraph = () => {
+        if (!paragraphLines.length) return;
+        closeList();
+        html += `<p>${inline(paragraphLines.join(' '))}</p>`;
+        paragraphLines.length = 0;
+      };
+
+      while (index < lines.length) {
+        const raw = lines[index];
         const line = raw.trim();
-        if (!line) { closeList(); continue; }
-        if (line.startsWith('# ')) { closeList(); html += `<h1>${inline(line.slice(2))}</h1>`; continue; }
-        if (line.startsWith('## ')) { closeList(); html += `<h2>${inline(line.slice(3))}</h2>`; continue; }
-        if (line.startsWith('### ')) { closeList(); html += `<h3>${inline(line.slice(4))}</h3>`; continue; }
-        if (line.startsWith('- ')) {
-          if (!inList) { html += '<ul>'; inList = true; }
-          html += `<li>${inline(line.slice(2))}</li>`;
+
+        if (!line) {
+          flushParagraph();
+          closeList();
+          index += 1;
           continue;
         }
-        closeList();
-        html += `<p>${inline(line)}</p>`;
+
+        if (line.startsWith('```') || line.startsWith('~~~')) {
+          flushParagraph();
+          closeList();
+          const fence = line.slice(0, 3);
+          const codeLines = [];
+          index += 1;
+          while (index < lines.length && !lines[index].trim().startsWith(fence)) {
+            codeLines.push(lines[index]);
+            index += 1;
+          }
+          if (index < lines.length) index += 1;
+          html += `<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`;
+          continue;
+        }
+
+        if (line.startsWith('# ')) { flushParagraph(); closeList(); html += `<h1>${inline(line.slice(2))}</h1>`; index += 1; continue; }
+        if (line.startsWith('## ')) { flushParagraph(); closeList(); html += `<h2>${inline(line.slice(3))}</h2>`; index += 1; continue; }
+        if (line.startsWith('### ')) { flushParagraph(); closeList(); html += `<h3>${inline(line.slice(4))}</h3>`; index += 1; continue; }
+
+        if (index + 1 < lines.length && isTableRow(line) && isTableSeparator(lines[index + 1].trim())) {
+          flushParagraph();
+          closeList();
+          renderTable();
+          continue;
+        }
+
+        const bullet = line.match(/^[-*]\s+(.+)$/);
+        if (bullet) {
+          flushParagraph();
+          if (listType !== 'ul') { closeList(); html += '<ul>'; listType = 'ul'; }
+          html += `<li>${inline(bullet[1])}</li>`;
+          index += 1;
+          continue;
+        }
+
+        const numbered = line.match(/^\d+\.\s+(.+)$/);
+        if (numbered) {
+          flushParagraph();
+          if (listType !== 'ol') { closeList(); html += '<ol>'; listType = 'ol'; }
+          html += `<li>${inline(numbered[1])}</li>`;
+          index += 1;
+          continue;
+        }
+
+        paragraphLines.push(line);
+        index += 1;
       }
+
+      flushParagraph();
       closeList();
       return html || '<p>No content returned.</p>';
     }
@@ -954,6 +1229,7 @@
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let streamedText = '';
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -967,13 +1243,25 @@
             if (!dataLine) continue;
             const data = JSON.parse(dataLine);
             if (event === 'token') {
-              assistant.textContent += data.text || '';
+              streamedText += data.text || '';
+              assistant.textContent = streamedText;
               scrollChatToBottom();
             } else if (event === 'error') {
               assistant.textContent += `\n\n[Error] ${data.message}`;
               setStatus([`<span class="bad">${escapeHtml(data.message)}</span>`]);
             } else if (event === 'done') {
-              setStatus([`Done`, `Model: ${escapeHtml(data.model)}`, `Reasoning hidden: ${data.reasoning_chars || 0} chars`]);
+              const finalText = data.text || streamedText;
+              assistant.classList.add('html');
+              assistant.innerHTML = looksLikeHtml(finalText) ? finalText : markdownToHtml(finalText);
+              const images = fileUrls(data.images || []);
+              if (images.length) {
+                appendImagesToMessage(assistant.parentElement, images, data.tool || data.model || 'FZAstro result');
+              }
+              setStatus([
+                `Done`,
+                data.direct ? `Tool: ${escapeHtml(data.tool || 'app')}` : `Model: ${escapeHtml(data.model)}`,
+                `Reasoning hidden: ${data.reasoning_chars || 0} chars`
+              ]);
             } else if (event === 'status') {
               setStatus([escapeHtml(data.message || 'Starting')]);
             }
@@ -1129,17 +1417,7 @@
         pending.classList.add('html');
         pending.innerHTML = looksLikeHtml(data.text) ? data.text : markdownToHtml(data.text || JSON.stringify(data, null, 2));
         if (images.length) {
-          const strip = document.createElement('div');
-          strip.className = 'image-strip';
-          for (const src of images) {
-            const img = document.createElement('img');
-            img.loading = 'lazy';
-            img.src = src;
-            img.alt = title;
-            img.addEventListener('load', scrollChatToBottom, { once: true });
-            strip.appendChild(img);
-          }
-          pending.parentElement.appendChild(strip);
+          appendImagesToMessage(pending.parentElement, images, title);
         }
         setStatus([`${escapeHtml(title)} done`]);
         scrollChatToBottom();
@@ -1164,6 +1442,23 @@
       }
     }
 
+    async function sendQuickPrompt(text) {
+      if (sendBtn.disabled) return;
+      promptEl.value = text;
+      await sendChat();
+    }
+
+    async function runWeatherToday() {
+      const site = await ensureTimezone();
+      const lat = Number(site.lat).toFixed(6);
+      const lon = Number(site.lon).toFixed(6);
+      await sendQuickPrompt(`weather today for ${lat}, ${lon}`);
+    }
+
+    async function runMarketPulse() {
+      await sendQuickPrompt('global market pulse');
+    }
+
     document.getElementById('refreshModelsBtn').addEventListener('click', refreshModels);
     document.getElementById('checkStatusBtn').addEventListener('click', checkStatus);
     document.getElementById('clearBtn').addEventListener('click', () => { messagesEl.innerHTML = ''; });
@@ -1173,6 +1468,8 @@
     });
 
     document.getElementById('dailyNewsBtn').addEventListener('click', () => runDailyNews(false));
+    document.getElementById('weatherBtn').addEventListener('click', runWeatherToday);
+    document.getElementById('marketsBtn').addEventListener('click', runMarketPulse);
     document.getElementById('lookupBtn').addEventListener('click', () => runAstro('/api/astro/lookup', {
       query: document.getElementById('lookupQuery').value.trim() || 'M31',
       with_image: true,
@@ -1219,7 +1516,7 @@
       if (event.key === 'Escape' && siteModal.classList.contains('open')) closeSitePlanner();
     });
 
-    addMessage('system', 'Use the top toolbar for LOOKUP, Daily News, SEEING, TARGETS, and Site Planner. The chat transcript scrolls independently; Site Planner uses a map and auto-resolves timezone.');
+    addMessage('system', 'Use the top toolbar for LOOKUP, Daily News, Weather, Markets, SEEING, TARGETS, and Site Planner. Chat prompts can also trigger the same app tools directly.');
     updateSiteSummary();
     checkStatus();
     refreshModels();

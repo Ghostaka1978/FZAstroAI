@@ -284,12 +284,15 @@ _MANUAL_SKILL_ALIASES = {
     "debug code": "skill.python.debug_code",
     "create tests": "skill.python.create_tests",
     "create commit message": "skill.python.commit_message",
-    "crm price": "markets.crm",
-    "salesforce price": "markets.crm",
-    "dropbox price": "markets.dbx",
-    "dbx price": "markets.dbx",
-    "oil price": "markets.oil",
-    "gold price": "markets.gold",
+    "markets": "markets.global_pulse",
+    "market pulse": "markets.global_pulse",
+    "global market pulse": "markets.global_pulse",
+    "crm price": "markets.global_pulse",
+    "salesforce price": "markets.global_pulse",
+    "dropbox price": "markets.global_pulse",
+    "dbx price": "markets.global_pulse",
+    "oil price": "markets.global_pulse",
+    "gold price": "markets.global_pulse",
 }
 
 

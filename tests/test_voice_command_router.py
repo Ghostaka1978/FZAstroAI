@@ -55,6 +55,13 @@ def test_voice_command_routes_registry_generated_skill_phrase():
     assert result.action_id == "model.benchmark"
 
 
+def test_voice_command_routes_market_aliases_to_global_pulse():
+    result = resolve_voice_command("oil price")
+    assert result.kind == "skill"
+    assert result.action_id == "markets.global_pulse"
+    assert result.auto_execute is True
+
+
 def test_voice_command_routes_voice_help_method():
     result = resolve_voice_command("what can I say")
     assert result.kind == "method"

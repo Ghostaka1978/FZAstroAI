@@ -1,10 +1,12 @@
 import html
 import os
 import re
+import threading
 import tempfile
 import uuid
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
+from urllib.request import Request, urlopen
 
 import markdown
 from pygments import highlight
@@ -39,16 +41,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..assistant_text import normalize_assistant_link_markup
 from ..composer_tools import empty_fenced_code_block, fenced_code_block
 from ..chat_blocks import (
     ChatMessage,
     CitationBlock,
     CodeBlock,
     ContentBlock,
+    DailyNewsBriefBlock,
     FileAttachmentBlock,
     ImageBlock,
     NewsBlock,
     NewsHeaderBlock,
+    MarketPulseBlock,
     SourceHeaderBlock,
     StockQuoteBlock,
     TableBlock,
@@ -62,6 +67,8 @@ from ..chat_blocks import (
 from ..logging_utils import log_exception
 from ..market_sources import (
     _stock_number,
+    market_pulse_plain_text,
+    parse_market_pulse_payload,
     parse_stock_quote_payload,
     stock_quote_plain_text,
 )
@@ -85,7 +92,9 @@ CHAT_BLOCK_RENDERERS = {
     TableBlock: "_render_table_content_block",
     ToolResultBlock: "_render_tool_result_block",
     CitationBlock: "_render_citation_block",
+    DailyNewsBriefBlock: "_render_daily_news_brief_block",
     StockQuoteBlock: "_render_stock_quote_block",
+    MarketPulseBlock: "_render_market_pulse_block",
 }
 
 
@@ -710,6 +719,204 @@ def normalize_news_brief_markdown(text):
     return clean_text.strip()
 
 
+NEWS_CITATION_GROUP_RE = re.compile(
+    r"[\[(]\s*((?:NEWS_\d{4,}\s*,?\s*)+)\s*[\])]", re.IGNORECASE
+)
+
+
+def _plain_label_text(value, fallback=""):
+    clean = html.unescape(str(value or "")).strip()
+    clean = re.sub(r"\s+", " ", clean)
+    return clean or fallback
+
+
+def _clean_news_story_headline(text, source_name=""):
+    clean = _plain_label_text(text)
+    publisher = _plain_label_text(source_name)
+    clean = re.sub(r"^\s*(?:[-*â€¢]|\d{1,3}[.)])\s+", "", clean)
+    clean = NEWS_CITATION_GROUP_RE.sub("", clean)
+    clean = re.sub(r"\s+", " ", clean).strip(" \t\r\n-:;")
+
+    if publisher and clean.casefold().endswith((" - " + publisher).casefold()):
+        clean = clean[: -len(" - " + publisher)].rstrip(" \t\r\n-:;")
+    elif " - " in clean:
+        possible_headline, possible_publisher = clean.rsplit(" - ", 1)
+        if possible_publisher and len(possible_publisher.strip()) <= 80:
+            clean = possible_headline.strip(" \t\r\n-:;")
+
+    return clean
+
+
+def _news_source_record(source_id, source_value):
+    clean_id = _plain_label_text(source_id)
+
+    if isinstance(source_value, dict):
+        return {
+            "id": clean_id,
+            "publisher": _plain_label_text(source_value.get("name"), "Source"),
+            "url": _plain_label_text(source_value.get("url")),
+            "source_title": _plain_label_text(source_value.get("title")),
+            "summary": _plain_label_text(source_value.get("summary")),
+            "published_at": _plain_label_text(source_value.get("published_at")),
+            "image_url": _plain_label_text(source_value.get("image_url")),
+        }
+
+    return {
+        "id": clean_id,
+        "publisher": clean_id or "Source",
+        "url": _plain_label_text(source_value),
+        "source_title": "",
+        "summary": "",
+        "published_at": "",
+        "image_url": "",
+    }
+
+
+def build_daily_news_brief_payload(text, news_sources):
+    """Parse the deterministic Daily News markdown into UI-ready sections."""
+    normalized_text = normalize_news_brief_markdown(text)
+    source_lookup = {
+        str(source_id or "")
+        .strip()
+        .upper(): _news_source_record(source_id, source_value)
+        for source_id, source_value in (news_sources or {}).items()
+        if str(source_id or "").strip()
+    }
+    sections = []
+    current_section = None
+
+    def ensure_section(name):
+        nonlocal current_section
+        clean_name = _plain_label_text(name, "Top Stories")
+        current_section = {"name": clean_name, "stories": []}
+        sections.append(current_section)
+        return current_section
+
+    for raw_line in normalized_text.splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        if line.startswith("#"):
+            heading = re.sub(r"^#+\s*", "", line).strip()
+
+            if heading and heading.casefold() != "daily news brief":
+                ensure_section(heading)
+            continue
+
+        bullet_match = re.match(r"^(?:[-*â€¢]|\d{1,3}[.)])\s+(.+)$", line)
+
+        if not bullet_match:
+            continue
+
+        bullet_text = bullet_match.group(1).strip()
+        source_ids = [
+            match.upper()
+            for group in NEWS_CITATION_GROUP_RE.findall(bullet_text)
+            for match in re.findall(r"NEWS_\d{4,}", group, flags=re.IGNORECASE)
+        ]
+        headline = _clean_news_story_headline(bullet_text)
+
+        if not current_section:
+            ensure_section("Top Stories")
+
+        primary_source = None
+
+        for source_id in source_ids:
+            primary_source = source_lookup.get(source_id)
+
+            if primary_source:
+                break
+
+        if primary_source is None and source_ids:
+            primary_source = {"id": source_ids[0], "publisher": source_ids[0]}
+        elif primary_source is None:
+            primary_source = {}
+
+        source_title = _clean_news_story_headline(
+            primary_source.get("source_title"), primary_source.get("publisher")
+        )
+        display_headline = headline or source_title
+
+        if not display_headline:
+            continue
+
+        story = {
+            "headline": display_headline,
+            "section": current_section["name"],
+            "source_ids": source_ids,
+            "primary_source_id": primary_source.get("id") or "",
+            "publisher": primary_source.get("publisher") or "Source",
+            "url": primary_source.get("url") or "",
+            "source_title": source_title,
+            "summary": primary_source.get("summary") or "",
+            "published_at": primary_source.get("published_at") or "",
+            "image_url": primary_source.get("image_url") or "",
+        }
+        current_section["stories"].append(story)
+
+    sections = [section for section in sections if section.get("stories")]
+
+    if not sections and source_lookup:
+        fallback_stories = []
+
+        for source in list(source_lookup.values())[:12]:
+            headline = _clean_news_story_headline(
+                source.get("source_title"), source.get("publisher")
+            )
+
+            if not headline:
+                continue
+
+            fallback_stories.append(
+                {
+                    "headline": headline,
+                    "section": "Sources",
+                    "source_ids": [source.get("id")],
+                    "primary_source_id": source.get("id") or "",
+                    "publisher": source.get("publisher") or "Source",
+                    "url": source.get("url") or "",
+                    "source_title": headline,
+                    "summary": source.get("summary") or "",
+                    "published_at": source.get("published_at") or "",
+                    "image_url": source.get("image_url") or "",
+                }
+            )
+
+        if fallback_stories:
+            sections = [{"name": "Sources", "stories": fallback_stories}]
+
+    if not sections:
+        return {}
+
+    lead_story = None
+
+    for section in sections:
+        for story in section.get("stories") or []:
+            if story.get("summary") or story.get("image_url"):
+                lead_story = story
+                break
+
+        if lead_story:
+            break
+
+    if lead_story is None:
+        lead_story = sections[0]["stories"][0]
+
+    stories = [story for section in sections for story in section.get("stories") or []]
+    image_count = sum(1 for story in stories if story.get("image_url"))
+
+    return {
+        "title": "Daily News Brief",
+        "sections": sections,
+        "lead_story": lead_story,
+        "story_count": len(stories),
+        "source_count": len(news_sources or {}),
+        "image_count": image_count,
+    }
+
+
 def render_text_block(text, news_mode=False, user_mode=False, plain_mode=False):
     text = str(text or "")
     inventory_mode = is_document_inventory_response(text)
@@ -721,6 +928,7 @@ def render_text_block(text, news_mode=False, user_mode=False, plain_mode=False):
     elif news_mode:
         text = normalize_news_brief_markdown(text)
     elif not user_mode and not inventory_mode and not browser_tool_mode:
+        text = normalize_assistant_link_markup(text)
         text = normalize_compacted_markdown(text)
 
     if not plain_mode:
@@ -1666,6 +1874,707 @@ class StockQuoteCard(QFrame):
         content_layout.addWidget(retrieved_label)
 
 
+class MarketPulseCard(QFrame):
+    COLORS = {
+        "up": ("#2ea043", "#0f2a1a", "#52c878", "UP"),
+        "down": ("#f85149", "#351416", "#ff7b72", "DOWN"),
+        "flat": ("#8b949e", "#161b22", "#30363d", "FLAT"),
+        "unavailable": ("#8b949e", "#161b22", "#30363d", "N/A"),
+    }
+
+    def __init__(self, payload):
+        super().__init__()
+        self.payload = dict(payload or {})
+        self.setObjectName("marketPulseCard")
+        self.setStyleSheet(
+            """
+            QFrame#marketPulseCard {
+                background: #0d1117;
+                border: 1px solid #30363d;
+                border-radius: 12px;
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+                color: #e6edf3;
+                font-family: "Segoe UI Variable", "Segoe UI";
+            }
+            QLabel#marketPulseBadge {
+                background: #332600;
+                color: #f2cc60;
+                border: 1px solid #806000;
+                border-radius: 7px;
+                padding: 4px 8px;
+                font-size: 10px;
+                font-weight: 850;
+            }
+            QLabel#marketPulseTitle {
+                color: #f0f6fc;
+                font-size: 22px;
+                font-weight: 800;
+            }
+            QLabel#marketPulseMeta,
+            QLabel#marketPulseFootnote {
+                color: #8b949e;
+                font-size: 11px;
+            }
+            QFrame#marketPulseGroup {
+                background: #11161d;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+            }
+            QLabel#marketPulseGroupTitle {
+                color: #f2cc60;
+                font-size: 12px;
+                font-weight: 850;
+                letter-spacing: 0.5px;
+            }
+            QLabel#marketPulseHeader {
+                color: #8b949e;
+                font-size: 10px;
+                font-weight: 800;
+            }
+            QLabel#marketPulseName {
+                color: #f0f6fc;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QLabel#marketPulseTicker {
+                color: #79c0ff;
+                font-size: 10px;
+                font-family: "Cascadia Code", Consolas, monospace;
+            }
+            QLabel#marketPulseValue {
+                color: #f0f6fc;
+                font-size: 12px;
+                font-weight: 750;
+            }
+            QLabel#marketPulseStatus {
+                color: #c9d1d9;
+                font-size: 11px;
+            }
+            """
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(10)
+
+        badge = QLabel("MARKET")
+        badge.setObjectName("marketPulseBadge")
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(2)
+
+        title = QLabel(str(self.payload.get("title") or "Global Market Pulse"))
+        title.setObjectName("marketPulseTitle")
+
+        retrieved = str(self.payload.get("retrieved_at") or "Unavailable").strip()
+        source_name = str(self.payload.get("source_name") or "Market data").strip()
+        meta = QLabel(f"Retrieved {retrieved} - {source_name}")
+        meta.setObjectName("marketPulseMeta")
+        meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        title_box.addWidget(title)
+        title_box.addWidget(meta)
+
+        header.addWidget(badge, 0, Qt.AlignTop)
+        header.addLayout(title_box, 1)
+        layout.addLayout(header)
+
+        summary_row = QHBoxLayout()
+        summary_row.setContentsMargins(0, 0, 0, 0)
+        summary_row.setSpacing(7)
+        summary = self.payload.get("summary") or {}
+        for key, label in (
+            ("up", "Up"),
+            ("down", "Down"),
+            ("flat", "Flat"),
+            ("unavailable", "N/A"),
+        ):
+            value = int(summary.get(key) or 0)
+            summary_row.addWidget(self._chip(f"{label} {value}", key))
+        summary_row.addStretch(1)
+        layout.addLayout(summary_row)
+
+        groups = [group for group in (self.payload.get("groups") or []) if group]
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+        for index, group in enumerate(groups):
+            grid.addWidget(self._group_card(group), index // 2, index % 2)
+        if groups:
+            layout.addLayout(grid)
+
+        unavailable = self.payload.get("unavailable") or []
+        if unavailable:
+            unavailable_label = QLabel(
+                "Unavailable: " + "; ".join(str(item) for item in unavailable[:4])
+            )
+            unavailable_label.setObjectName("marketPulseFootnote")
+            unavailable_label.setWordWrap(True)
+            unavailable_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            layout.addWidget(unavailable_label)
+
+        disclaimer = str(self.payload.get("disclaimer") or "").strip()
+        if disclaimer:
+            footnote = QLabel(disclaimer)
+            footnote.setObjectName("marketPulseFootnote")
+            footnote.setWordWrap(True)
+            footnote.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            layout.addWidget(footnote)
+
+    def _chip(self, text, direction):
+        color, background, border, _label = self.COLORS.get(
+            str(direction or "flat"), self.COLORS["flat"]
+        )
+        chip = QLabel(str(text or ""))
+        chip.setAlignment(Qt.AlignCenter)
+        chip.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        chip.setStyleSheet(
+            f"""
+            background: {background};
+            color: {color};
+            border: 1px solid {border};
+            border-radius: 7px;
+            padding: 4px 8px;
+            font-size: 10px;
+            font-weight: 850;
+            """
+        )
+        return chip
+
+    def _group_card(self, group):
+        card = QFrame()
+        card.setObjectName("marketPulseGroup")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(11, 10, 11, 10)
+        layout.setSpacing(8)
+
+        title = QLabel(str(group.get("name") or "Market group").upper())
+        title.setObjectName("marketPulseGroupTitle")
+        layout.addWidget(title)
+
+        table = QGridLayout()
+        table.setContentsMargins(0, 0, 0, 0)
+        table.setHorizontalSpacing(12)
+        table.setVerticalSpacing(6)
+        headers = ("Indicator", "Last", "Move", "Status")
+        for col, header in enumerate(headers):
+            label = QLabel(header)
+            label.setObjectName("marketPulseHeader")
+            table.addWidget(label, 0, col)
+
+        for row_index, row in enumerate(group.get("rows") or [], start=1):
+            name_box = QVBoxLayout()
+            name_box.setContentsMargins(0, 0, 0, 0)
+            name_box.setSpacing(1)
+
+            name = QLabel(str(row.get("label") or "Indicator"))
+            name.setObjectName("marketPulseName")
+            name.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+            ticker = QLabel(str(row.get("ticker") or ""))
+            ticker.setObjectName("marketPulseTicker")
+            ticker.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+            name_box.addWidget(name)
+            name_box.addWidget(ticker)
+            table.addLayout(name_box, row_index, 0)
+
+            last = QLabel(str(row.get("last") or "n/a"))
+            last.setObjectName("marketPulseValue")
+            last.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            last.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            table.addWidget(last, row_index, 1)
+
+            direction = str(row.get("direction") or "flat").strip().lower()
+            move_text = str(row.get("change_text") or "n/a")
+            table.addWidget(self._chip(move_text, direction), row_index, 2)
+
+            status = QLabel(str(row.get("status") or "Unavailable"))
+            status.setObjectName("marketPulseStatus")
+            status.setWordWrap(True)
+            status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            table.addWidget(status, row_index, 3)
+
+        table.setColumnStretch(0, 2)
+        table.setColumnStretch(1, 1)
+        table.setColumnStretch(2, 1)
+        table.setColumnStretch(3, 1)
+        layout.addLayout(table)
+        return card
+
+
+class RemoteNewsImage(QLabel):
+    image_loaded = Signal(bytes)
+    image_failed = Signal()
+
+    def __init__(self, image_url):
+        super().__init__()
+        self.image_url = str(image_url or "").strip()
+        self.setObjectName("dailyNewsImage")
+        self.setAlignment(Qt.AlignCenter)
+        self.setFixedSize(152, 92)
+        self.setWordWrap(True)
+        self.setText("IMAGE")
+        self.setToolTip("Open image")
+        self.setCursor(Qt.PointingHandCursor)
+        self.image_loaded.connect(self._apply_image)
+        self.image_failed.connect(self._show_image_link)
+        QTimer.singleShot(120, self._start_loading)
+
+    def _start_loading(self):
+        if not self.image_url.lower().startswith(("http://", "https://")):
+            self._show_image_link()
+            return
+
+        worker = threading.Thread(target=self._download_image, daemon=True)
+        worker.start()
+
+    def _download_image(self):
+        try:
+            request = Request(
+                self.image_url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/149.0.0.0 Safari/537.36"
+                    )
+                },
+            )
+
+            with urlopen(request, timeout=3.0) as response:
+                content_type = str(response.headers.get("Content-Type") or "").lower()
+                data = response.read(900_000)
+
+            if data and (
+                "image/" in content_type
+                or data.startswith((b"\x89PNG", b"\xff\xd8\xff", b"GIF8"))
+            ):
+                self.image_loaded.emit(data)
+                return
+        except Exception:
+            pass
+
+        self.image_failed.emit()
+
+    def _apply_image(self, data):
+        pixmap = QPixmap()
+
+        if not pixmap.loadFromData(data):
+            self._show_image_link()
+            return
+
+        scaled = pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.setPixmap(scaled)
+
+    def _show_image_link(self):
+        self.setText("IMAGE\nLINK")
+
+    def mousePressEvent(self, event):
+        if self.image_url.lower().startswith(("http://", "https://")):
+            QDesktopServices.openUrl(QUrl(self.image_url))
+        super().mousePressEvent(event)
+
+
+class DailyNewsBriefCard(QFrame):
+    def __init__(self, payload):
+        super().__init__()
+        self.payload = dict(payload or {})
+        self.expanded = False
+        self.lead_summary_label = None
+        self.more_button = None
+        self.setObjectName("dailyNewsBriefCard")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.setStyleSheet(
+            """
+            QFrame#dailyNewsBriefCard {
+                background: #0d1117;
+                border: 1px solid #30363d;
+                border-radius: 12px;
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+                color: #e6edf3;
+                font-family: "Segoe UI Variable", "Segoe UI";
+            }
+            QLabel#dailyNewsBadge {
+                background: #0b2a44;
+                color: #79c0ff;
+                border: 1px solid #1f6feb;
+                border-radius: 7px;
+                padding: 4px 8px;
+                font-size: 10px;
+                font-weight: 850;
+            }
+            QLabel#dailyNewsTitle {
+                color: #f0f6fc;
+                font-size: 22px;
+                font-weight: 850;
+            }
+            QLabel#dailyNewsMeta,
+            QLabel#dailyNewsStoryMeta,
+            QLabel#dailyNewsSummary {
+                color: #8b949e;
+                font-size: 11px;
+            }
+            QFrame#dailyNewsLead {
+                background: #11161d;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+            }
+            QLabel#dailyNewsLeadKicker {
+                color: #f2cc60;
+                font-size: 10px;
+                font-weight: 850;
+                letter-spacing: 0.6px;
+            }
+            QLabel#dailyNewsLeadTitle {
+                color: #f0f6fc;
+                font-size: 16px;
+                font-weight: 850;
+            }
+            QLabel#dailyNewsImage {
+                background: #161b22;
+                color: #79c0ff;
+                border: 1px solid #30363d;
+                border-radius: 8px;
+                font-size: 10px;
+                font-weight: 850;
+            }
+            QLabel#dailyNewsSectionTitle {
+                color: #f2cc60;
+                font-size: 12px;
+                font-weight: 850;
+                letter-spacing: 0.5px;
+            }
+            QFrame#dailyNewsSection {
+                background: #11161d;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+            }
+            QFrame#dailyNewsStoryRow {
+                background: transparent;
+                border-bottom: 1px solid #21262d;
+                border-radius: 0px;
+            }
+            QLabel#dailyNewsStoryHeadline {
+                color: #f0f6fc;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QLabel#dailyNewsLink {
+                color: #79c0ff;
+                font-size: 11px;
+                font-weight: 750;
+            }
+            QPushButton#dailyNewsMoreButton {
+                background: #161b22;
+                color: #c9d1d9;
+                border: 1px solid #30363d;
+                border-radius: 7px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 750;
+            }
+            QPushButton#dailyNewsMoreButton:hover {
+                background: #21262d;
+                color: #f0f6fc;
+                border-color: #58a6ff;
+            }
+            """
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(10)
+
+        badge = QLabel("NEWS")
+        badge.setObjectName("dailyNewsBadge")
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        title_box = QVBoxLayout()
+        title_box.setContentsMargins(0, 0, 0, 0)
+        title_box.setSpacing(2)
+
+        title = QLabel(str(self.payload.get("title") or "Daily News Brief"))
+        title.setObjectName("dailyNewsTitle")
+
+        story_count = int(self.payload.get("story_count") or 0)
+        source_count = int(self.payload.get("source_count") or 0)
+        image_count = int(self.payload.get("image_count") or 0)
+        meta_bits = [f"{story_count} stories", f"{source_count} source records"]
+        if image_count:
+            meta_bits.append(f"{image_count} image links")
+        meta = QLabel(" - ".join(meta_bits))
+        meta.setObjectName("dailyNewsMeta")
+        meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        title_box.addWidget(title)
+        title_box.addWidget(meta)
+        header.addWidget(badge, 0, Qt.AlignTop)
+        header.addLayout(title_box, 1)
+        layout.addLayout(header)
+
+        lead_story = self.payload.get("lead_story") or {}
+        if lead_story:
+            layout.addWidget(self._lead_story_card(lead_story))
+
+        sections = [
+            section for section in self.payload.get("sections") or [] if section
+        ]
+        if sections:
+            grid = QGridLayout()
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setHorizontalSpacing(10)
+            grid.setVerticalSpacing(10)
+
+            for index, section in enumerate(sections):
+                grid.addWidget(self._section_card(section), index // 2, index % 2)
+
+            layout.addLayout(grid)
+
+    def _lead_story_card(self, story):
+        card = QFrame()
+        card.setObjectName("dailyNewsLead")
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+
+        image_url = str(story.get("image_url") or "").strip()
+        if image_url:
+            layout.addWidget(RemoteNewsImage(image_url), 0, Qt.AlignTop)
+
+        text_box = QVBoxLayout()
+        text_box.setContentsMargins(0, 0, 0, 0)
+        text_box.setSpacing(7)
+
+        kicker = QLabel(str(story.get("section") or "Top Story").upper())
+        kicker.setObjectName("dailyNewsLeadKicker")
+
+        headline = QLabel(str(story.get("headline") or "News story"))
+        headline.setObjectName("dailyNewsLeadTitle")
+        headline.setWordWrap(True)
+        headline.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        meta_text = self._story_meta_text(story)
+        meta = QLabel(meta_text)
+        meta.setObjectName("dailyNewsStoryMeta")
+        meta.setWordWrap(True)
+        meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        self.lead_summary_label = QLabel()
+        self.lead_summary_label.setObjectName("dailyNewsSummary")
+        self.lead_summary_label.setWordWrap(True)
+        self.lead_summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+
+        text_box.addWidget(kicker)
+        text_box.addWidget(headline)
+        text_box.addWidget(meta)
+
+        summary_text = str(story.get("summary") or story.get("source_title") or "")
+        if summary_text:
+            text_box.addWidget(self.lead_summary_label)
+
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(10)
+
+        article_link = self._link_label("Open article", story.get("url"))
+        if article_link:
+            action_row.addWidget(article_link)
+
+        image_link = self._link_label("Open image", image_url)
+        if image_link:
+            action_row.addWidget(image_link)
+
+        if summary_text and len(summary_text) > 260:
+            self.more_button = QPushButton("More")
+            self.more_button.setObjectName("dailyNewsMoreButton")
+            self.more_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            self.more_button.clicked.connect(self.toggle_lead_summary)
+            action_row.addWidget(self.more_button)
+
+        action_row.addStretch(1)
+        text_box.addLayout(action_row)
+        layout.addLayout(text_box, 1)
+        self.render_lead_summary(story)
+        return card
+
+    def render_lead_summary(self, story):
+        if self.lead_summary_label is None:
+            return
+
+        summary = _plain_label_text(story.get("summary") or story.get("source_title"))
+        if not summary:
+            self.lead_summary_label.hide()
+            return
+
+        self.lead_summary_label.show()
+        if self.expanded or len(summary) <= 260:
+            self.lead_summary_label.setText(summary)
+            if self.more_button is not None:
+                self.more_button.setText("Less")
+        else:
+            self.lead_summary_label.setText(summary[:260].rstrip() + " ...")
+            if self.more_button is not None:
+                self.more_button.setText("More")
+
+    def sync_parent_chat_layout(self):
+        sync_callback = getattr(self.window(), "sync_chat_container_height", None)
+
+        if callable(sync_callback):
+            QTimer.singleShot(0, sync_callback)
+
+    def toggle_lead_summary(self):
+        self.expanded = not self.expanded
+        self.render_lead_summary(self.payload.get("lead_story") or {})
+        self.adjustSize()
+        self.updateGeometry()
+        self.sync_parent_chat_layout()
+
+    def _section_card(self, section):
+        card = QFrame()
+        card.setObjectName("dailyNewsSection")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(11, 10, 11, 8)
+        layout.setSpacing(7)
+        layout.setAlignment(Qt.AlignTop)
+
+        title = QLabel(str(section.get("name") or "News").upper())
+        title.setObjectName("dailyNewsSectionTitle")
+        layout.addWidget(title, 0, Qt.AlignTop)
+
+        for story in section.get("stories") or []:
+            layout.addWidget(self._story_row(story), 0, Qt.AlignTop)
+
+        return card
+
+    def _story_row(self, story):
+        row = QFrame()
+        row.setObjectName("dailyNewsStoryRow")
+        layout = QGridLayout(row)
+        layout.setContentsMargins(0, 0, 0, 7)
+        layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(3)
+
+        headline = QLabel(str(story.get("headline") or "News story"))
+        headline.setObjectName("dailyNewsStoryHeadline")
+        headline.setWordWrap(True)
+        headline.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(headline, 0, 0)
+
+        action_widget = QWidget()
+        action_widget.setStyleSheet("background: transparent; border: none;")
+        action_layout = QHBoxLayout(action_widget)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(6)
+
+        details_text = _plain_label_text(story.get("summary"))
+        details_label = None
+        details_button = None
+
+        if details_text:
+            preview_limit = 190
+            preview_text = details_text
+
+            if len(details_text) > preview_limit:
+                preview_text = details_text[:preview_limit].rstrip() + " ..."
+
+            details_label = QLabel()
+            details_label.setObjectName("dailyNewsSummary")
+            details_label.setWordWrap(True)
+            details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            layout.addWidget(details_label, 2, 0, 1, 2)
+
+            details_state = {"expanded": False}
+
+            def render_details():
+                expanded = bool(details_state["expanded"])
+                details_label.setVisible(True)
+                details_label.setText(details_text if expanded else preview_text)
+
+                if details_button is not None:
+                    details_button.setText("Less" if expanded else "More")
+
+            def toggle_details():
+                details_state["expanded"] = not bool(details_state["expanded"])
+                render_details()
+                row.adjustSize()
+                row.updateGeometry()
+                self.adjustSize()
+                self.updateGeometry()
+                self.sync_parent_chat_layout()
+
+            if preview_text != details_text:
+                details_button = QPushButton("More")
+                details_button.setObjectName("dailyNewsMoreButton")
+                details_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+                details_button.clicked.connect(toggle_details)
+                action_layout.addWidget(details_button)
+
+            render_details()
+
+        link = self._link_label("Open", story.get("url"))
+        if link:
+            action_layout.addWidget(link)
+
+        if action_layout.count():
+            layout.addWidget(action_widget, 0, 1, Qt.AlignTop | Qt.AlignRight)
+
+        meta = QLabel(self._story_meta_text(story))
+        meta.setObjectName("dailyNewsStoryMeta")
+        meta.setWordWrap(True)
+        meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(meta, 1, 0, 1, 2)
+
+        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(1, 0)
+        return row
+
+    def _story_meta_text(self, story):
+        bits = [
+            str(story.get("publisher") or "").strip(),
+            str(story.get("published_at") or "").strip(),
+        ]
+        return " - ".join(bit for bit in bits if bit) or "Source"
+
+    def _link_label(self, label_text, url):
+        clean_url = str(url or "").strip()
+        if not clean_url.lower().startswith(("http://", "https://")):
+            return None
+
+        safe_url = html.escape(clean_url, quote=True)
+        safe_label = html.escape(str(label_text or "Open").strip() or "Open")
+        label = QLabel(
+            f'<a href="{safe_url}" style="color:#79c0ff; text-decoration:none;">'
+            f"{safe_label}</a>"
+        )
+        label.setObjectName("dailyNewsLink")
+        label.setOpenExternalLinks(True)
+        label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        return label
+
+
 class WebArticleCard(QWidget):
     def __init__(self, article):
         super().__init__()
@@ -2345,8 +3254,11 @@ class MessageWidget(QWidget):
         else:
             _thoughts, answer = self.split_thoughts(raw_text)
             quote_payload = parse_stock_quote_payload(answer)
+            pulse_payload = parse_market_pulse_payload(answer)
 
-            if quote_payload:
+            if pulse_payload:
+                copy_text = market_pulse_plain_text(pulse_payload)
+            elif quote_payload:
                 copy_text = stock_quote_plain_text(quote_payload)
             else:
                 copy_text = answer or raw_text
@@ -2437,7 +3349,9 @@ class MessageWidget(QWidget):
                     WebArticleBlock,
                     TableBlock,
                     ToolResultBlock,
+                    DailyNewsBriefBlock,
                     StockQuoteBlock,
+                    MarketPulseBlock,
                 ),
             )
             for block in block_items
@@ -2716,6 +3630,7 @@ class MessageWidget(QWidget):
         if self.is_news_message:
             display_answer = normalize_news_brief_markdown(display_answer)
         elif not self.is_user_message:
+            display_answer = normalize_assistant_link_markup(display_answer)
             display_answer = normalize_compacted_markdown(display_answer)
 
         # Streaming uses a fast QLabel in plain-text mode for performance, so
@@ -3079,6 +3994,11 @@ class MessageWidget(QWidget):
 
         return self._render_text_content_block(TextBlock("\n\n".join(parts)))
 
+    def _render_daily_news_brief_block(self, block):
+        card = DailyNewsBriefCard(block.payload)
+        self.response_layout.addWidget(card)
+        return card
+
     def _render_table_content_block(self, block):
         lines = []
 
@@ -3117,6 +4037,11 @@ class MessageWidget(QWidget):
 
     def _render_stock_quote_block(self, block):
         card = StockQuoteCard(block.payload)
+        self.response_layout.addWidget(card)
+        return card
+
+    def _render_market_pulse_block(self, block):
+        card = MarketPulseCard(block.payload)
         self.response_layout.addWidget(card)
         return card
 
@@ -3194,6 +4119,21 @@ class MessageWidget(QWidget):
             return
 
         content_blocks = self._build_static_content_blocks()
+        pulse_payload = parse_market_pulse_payload(answer)
+
+        if pulse_payload:
+            self._set_content_kind("market")
+            content_blocks.append(MarketPulseBlock(pulse_payload))
+            self._apply_content_width(answer, content_blocks)
+            self._render_content_blocks(content_blocks)
+
+            if self.response_time is not None:
+                self._ensure_reply_timer_footer()
+
+            self.adjustSize()
+            self.updateGeometry()
+            return
+
         quote_payload = parse_stock_quote_payload(answer)
 
         if quote_payload:
@@ -3209,6 +4149,21 @@ class MessageWidget(QWidget):
             self.updateGeometry()
             return
 
+        if self.is_news_message:
+            news_payload = build_daily_news_brief_payload(answer, self.news_sources)
+
+            if news_payload:
+                content_blocks.append(DailyNewsBriefBlock(news_payload))
+                self._apply_content_width(answer, content_blocks)
+                self._render_content_blocks(content_blocks)
+
+                if self.response_time is not None:
+                    self._ensure_reply_timer_footer()
+
+                self.adjustSize()
+                self.updateGeometry()
+                return
+
         has_local_image = any(
             str(file_path).lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
             and os.path.exists(file_path)
@@ -3219,6 +4174,7 @@ class MessageWidget(QWidget):
         if self.is_news_message:
             answer = normalize_news_brief_markdown(answer)
         elif not self.is_user_message:
+            answer = normalize_assistant_link_markup(answer)
             answer = normalize_compacted_markdown(answer)
 
         content_blocks.extend(self._build_answer_content_blocks(answer))

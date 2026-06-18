@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from ..logging_utils import log_exception
 
 
-HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI v2.3.0 Help
+HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI v2.3.1 Help
 
 This guide shows what FZAstro AI can do and which source/mode is usually used. Imaging Production v2.3 is the tabbed workspace release: chat stays clean, astronomy tools open as main-window tabs, the root folder has one deploy button, and release deploy can create the Git commit/tag automatically. Click the **FZ** square in the header to open the GitHub repository.
 
@@ -197,14 +197,14 @@ def open_help_cheat_sheet_dialog(parent):
     dialog = QDialog(parent)
     apply_window_defaults(dialog)
     dialog.setObjectName("helpDialog")
-    dialog.setWindowTitle("FZAstro AI v2.3.0 Help")
+    dialog.setWindowTitle("FZAstro AI v2.3.1 Help")
     dialog.resize(900, 760)
 
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(18, 18, 18, 18)
     layout.setSpacing(12)
 
-    title = QLabel("FZAstro AI v2.3.0 Help")
+    title = QLabel("FZAstro AI v2.3.1 Help")
     title.setObjectName("helpDialogTitle")
 
     subtitle = QLabel(

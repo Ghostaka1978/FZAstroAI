@@ -1353,13 +1353,16 @@ def get_main_stylesheet():
             }
 
             QMenu QLabel#skillMenuSectionTitle {
-                color: #ffcc66;
-                background: #111820;
-                border: 1px solid #3b4652;
-                border-radius: 6px;
+                color: #f2cc60;
+                background: #0d1117;
+                border: 1px solid #30363d;
+                border-left: 3px solid #f2cc60;
+                border-radius: 5px;
                 font-size: 10px;
                 font-weight: 900;
                 letter-spacing: 1.0px;
+                padding: 4px 8px 4px 7px;
+                margin: 3px 2px 2px 2px;
             }
 
             QToolTip {
@@ -1873,6 +1876,19 @@ def get_main_stylesheet():
                 background: #21262d;
             }
 
+            QMenu QLabel#skillMenuSectionTitle {
+                color: #f2cc60;
+                background: #0d1117;
+                border: 1px solid #30363d;
+                border-left: 3px solid #f2cc60;
+                border-radius: 5px;
+                font-size: 10px;
+                font-weight: 900;
+                letter-spacing: 1.0px;
+                padding: 4px 8px 4px 7px;
+                margin: 3px 2px 2px 2px;
+            }
+
             QScrollBar::handle:vertical,
             QScrollBar::handle:horizontal {
                 background: #30363d;
@@ -2024,7 +2040,7 @@ def get_main_stylesheet():
                 min-height: 16px;
                 max-height: 16px;
                 padding: 0px;
-                margin: 0px 5px 0px 1px;
+                margin: 0px;
             }
 
             QPushButton#workspaceTabCloseButton:hover,

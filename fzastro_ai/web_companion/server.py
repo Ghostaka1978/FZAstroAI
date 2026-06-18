@@ -5,8 +5,11 @@ import base64
 import sys
 
 import json
+import html
 import os
+import re
 import time
+import tempfile
 from datetime import datetime
 from dataclasses import asdict
 from pathlib import Path
@@ -28,11 +31,17 @@ from ..config import (
     DEFAULT_MODEL_NAME,
     RUNTIME_CHAT_TIMEOUT_SECONDS,
 )
+from ..llm import (
+    build_chat_request_params,
+    extract_delta_reasoning,
+    extract_delta_text,
+)
+from ..assistant_text import normalize_assistant_link_markup
 from ..logging_utils import log_exception, log_warning
+from ..routing.tool_router import detect_deterministic_tool_plan
 from ..runtime import (
     format_runtime_model_unavailable_message,
     is_local_ollama_base_url,
-    is_ollama_base_url,
     is_ollama_server_available,
     is_runtime_connection_error,
     is_runtime_model_not_found_error,
@@ -797,55 +806,437 @@ def _messages_from_request(payload: ChatRequest) -> list[dict[str, str]]:
     return [{"role": "user", "content": clean_prompt}]
 
 
-def _reasoning_from_delta(delta: Any, delta_data: dict[str, Any]) -> str:
-    reasoning = (
-        getattr(delta, "thinking", None)
-        or getattr(delta, "reasoning", None)
-        or getattr(delta, "reasoning_content", None)
-    )
-
-    if not reasoning:
-        reasoning = (
-            delta_data.get("thinking")
-            or delta_data.get("reasoning")
-            or delta_data.get("reasoning_content")
-        )
-
-    delta_extra = getattr(delta, "model_extra", None)
-
-    if not reasoning and isinstance(delta_extra, dict):
-        reasoning = (
-            delta_extra.get("thinking")
-            or delta_extra.get("reasoning")
-            or delta_extra.get("reasoning_content")
-        )
-
-    return str(reasoning or "")
-
-
 def _chat_request_params(payload: ChatRequest, *, stream: bool) -> dict[str, Any]:
     base_url = normalize_runtime_base_url(payload.base_url)
-    request_params: dict[str, Any] = {
-        "model": str(payload.model or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME,
-        "messages": _messages_from_request(payload),
-        "temperature": float(payload.temperature),
-        "top_p": float(payload.top_p),
-        "presence_penalty": 0.2,
-        "stream": bool(stream),
+    return build_chat_request_params(
+        model=str(payload.model or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME,
+        messages=_messages_from_request(payload),
+        profile="chat",
+        base_url=base_url,
+        stream=stream,
+        temperature=float(payload.temperature),
+        top_p=float(payload.top_p),
+        think_enabled=bool(payload.think_enabled),
+        num_predict=int(payload.num_predict),
+    )
+
+
+def _last_user_text(payload: ChatRequest) -> str:
+    if payload.messages:
+        for message in reversed(payload.messages):
+            data = _model_to_dict(message)
+            if str(data.get("role") or "").casefold() == "user":
+                return str(data.get("content") or "").strip()
+
+    return str(payload.prompt or "").strip()
+
+
+def _strip_direct_marker(text: Any) -> str:
+    return re.sub(r"^\s*\[[A-Z_ ]+\]\s*\n?", "", str(text or ""), count=1).strip()
+
+
+def _table_cell(value: Any) -> str:
+    return (
+        re.sub(r"\s+", " ", str(value if value is not None else "n/a"))
+        .replace("|", "\\|")
+        .strip()
+    )
+
+
+def _markdown_link(label: Any, url: Any) -> str:
+    clean_url = str(url or "").strip()
+    clean_label = re.sub(r"\s+", " ", str(label or "Open link")).strip()
+
+    if not clean_url:
+        return clean_label
+
+    if re.match(r"https?://", clean_label, flags=re.IGNORECASE):
+        clean_label = "Open page"
+
+    clean_label = clean_label.replace("[", "\\[").replace("]", "\\]")
+    return f"[{clean_label}]({clean_url.replace(')', '%29')})"
+
+
+def _format_direct_price(value: Any, currency: Any = "") -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+
+    clean_currency = str(currency or "").strip().upper()
+    suffix = f" {clean_currency}" if clean_currency and clean_currency != "USD" else ""
+    return f"{number:,.2f}{suffix}"
+
+
+def _format_direct_change(change: Any, percentage: Any, currency: Any = "") -> str:
+    parts: list[str] = []
+    clean_currency = str(currency or "").strip().upper()
+
+    try:
+        change_value = float(change)
+        suffix = f" {clean_currency}" if clean_currency else ""
+        parts.append(f"{change_value:+,.2f}{suffix}")
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        percentage_value = float(percentage)
+        parts.append(f"{percentage_value:+.2f}%")
+    except (TypeError, ValueError):
+        pass
+
+    return " / ".join(parts) if parts else "n/a"
+
+
+def _format_stock_quote_web_markdown(payload: dict[str, Any]) -> str:
+    ticker = str(payload.get("ticker") or "Quote").strip().upper()
+    company = str(payload.get("company_name") or ticker).strip()
+    currency = str(payload.get("currency") or "").strip().upper()
+    source = _markdown_link(
+        payload.get("source_name") or "Market source", payload.get("source_url")
+    )
+
+    rows = [
+        ("Last", _format_direct_price(payload.get("price"), currency)),
+        (
+            "Change",
+            _format_direct_change(
+                payload.get("change"), payload.get("percentage_change"), currency
+            ),
+        ),
+        ("Status", payload.get("market_status") or "Unavailable"),
+        ("Exchange", payload.get("exchange") or "Unavailable"),
+        ("Quote time", payload.get("quote_timestamp") or "Unavailable"),
+        ("Source", source),
+    ]
+
+    lines = [
+        f"# {company} ({ticker})",
+        "",
+        f"Retrieved: {payload.get('retrieved_at') or 'Unavailable'}",
+        "",
+        "| Field | Value |",
+        "| --- | --- |",
+    ]
+    lines.extend(
+        f"| {_table_cell(label)} | {_table_cell(value)} |" for label, value in rows
+    )
+    lines.extend(
+        [
+            "",
+            "Market data can be delayed depending on the exchange and provider availability.",
+        ]
+    )
+    return "\n".join(lines).strip()
+
+
+def _format_market_pulse_web_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        f"# {payload.get('title') or 'Global Market Pulse'}",
+        "",
+        f"Retrieved: {payload.get('retrieved_at') or 'Unavailable'}",
+        f"Source: {_markdown_link(payload.get('source_name') or 'Market source', payload.get('source_url'))}",
+    ]
+
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+
+    if summary:
+        lines.extend(
+            [
+                "",
+                (
+                    "Snapshot: "
+                    f"{summary.get('up', 0)} up, "
+                    f"{summary.get('down', 0)} down, "
+                    f"{summary.get('flat', 0)} flat, "
+                    f"{summary.get('unavailable', 0)} unavailable."
+                ),
+            ]
+        )
+
+    for group in payload.get("groups") or []:
+        group_name = str(group.get("name") or "Markets").strip()
+        lines.extend(
+            [
+                "",
+                f"## {group_name}",
+                "",
+                "| Indicator | Symbol | Last | Change / % | Status |",
+                "| --- | --- | ---: | ---: | --- |",
+            ]
+        )
+        for row in group.get("rows") or []:
+            label = row.get("label") or row.get("ticker") or "Indicator"
+            symbol = row.get("ticker") or ""
+            last = row.get("last") or "n/a"
+            change_text = row.get("change_text") or "n/a"
+            status_text = row.get("status") or "Unavailable"
+            lines.append(
+                "| "
+                + " | ".join(
+                    _table_cell(value)
+                    for value in (label, symbol, last, change_text, status_text)
+                )
+                + " |"
+            )
+
+    unavailable = payload.get("unavailable") or []
+    if unavailable:
+        lines.extend(["", "## Unavailable Feeds"])
+        lines.extend(f"- {_table_cell(item)}" for item in unavailable[:8])
+
+    disclaimer = str(payload.get("disclaimer") or "").strip()
+    if disclaimer:
+        lines.extend(["", disclaimer])
+
+    return "\n".join(lines).strip()
+
+
+def _format_web_articles_markdown(raw_text: str, query: str) -> str:
+    raw = str(raw_text or "")
+
+    if not raw.startswith("[WEB ARTICLES]"):
+        return _strip_direct_marker(raw)
+
+    blocks = [block.strip() for block in raw.split("---ARTICLE---") if block.strip()]
+    articles = []
+
+    for block in blocks:
+        block = block.replace("[WEB ARTICLES]", "", 1).strip()
+        title_match = re.search(r"(?im)^Title:\s*(.+)$", block)
+        url_match = re.search(r"(?im)^URL:\s*(https?://\S+)", block)
+        content_match = re.search(r"(?is)^Content:\s*(.+)$", block, flags=re.MULTILINE)
+        title = title_match.group(1).strip() if title_match else "Search result"
+        url = url_match.group(1).strip() if url_match else ""
+        content = re.sub(
+            r"\s+",
+            " ",
+            content_match.group(1).strip() if content_match else "",
+        )
+        if title or url or content:
+            articles.append({"title": title, "url": url, "content": content})
+
+    if not articles:
+        return "No recent web results found."
+
+    lines = [
+        "# Web Results",
+        "",
+        f"Query: {query}",
+        "",
+    ]
+
+    for index, article in enumerate(articles[:10], start=1):
+        link = _markdown_link(article["title"], article["url"])
+        lines.append(f"{index}. {link}")
+        if article["content"]:
+            lines.append(f"   {article['content'][:420]}")
+
+    return "\n".join(lines).strip()
+
+
+def _section_after_marker(raw_text: str, marker: str) -> str:
+    pattern = rf"(?ms)^\[{re.escape(marker)}\]\s*\n(.*?)(?=^\[[A-Z ]+\]\s*$|\Z)"
+    match = re.search(pattern, str(raw_text or ""))
+    return match.group(1).strip() if match else ""
+
+
+def _prefixed_value(raw_text: str, name: str) -> str:
+    match = re.search(rf"(?im)^{re.escape(name)}:\s*(.+)$", str(raw_text or ""))
+    return match.group(1).strip() if match else ""
+
+
+def _short_preview(text: str, limit: int = 2600) -> str:
+    clean = re.sub(r"\n{3,}", "\n\n", str(text or "").strip())
+    if len(clean) <= limit:
+        return clean
+    return clean[:limit].rstrip() + "\n\n..."
+
+
+def _extract_direct_image_files(raw_text: str) -> list[str]:
+    files = []
+    for match in re.finditer(r"(?im)^ImageFile:\s*(.+)$", str(raw_text or "")):
+        path = match.group(1).strip()
+        if path:
+            files.append(path)
+    return files
+
+
+def _format_rendered_page_web_markdown(raw_text: str) -> str:
+    raw = str(raw_text or "")
+
+    if not raw.startswith("[RENDERED PAGE]"):
+        return _strip_direct_marker(raw)
+
+    title = _prefixed_value(raw, "Title") or "Rendered Page"
+    final_url = _prefixed_value(raw, "FinalURL") or _prefixed_value(raw, "RequestedURL")
+    status_code = _prefixed_value(raw, "StatusCode") or "n/a"
+    visible_count = _prefixed_value(raw, "VisibleTextCharacters") or "0"
+    link_count = _prefixed_value(raw, "LinkCount") or "0"
+    table_count = _prefixed_value(raw, "TableCount") or "0"
+    image_count = _prefixed_value(raw, "ImageCount") or "0"
+    visible_text = _section_after_marker(raw, "VISIBLE TEXT")
+    links = _section_after_marker(raw, "LINKS")
+    tables = _section_after_marker(raw, "TABLES")
+    images = _section_after_marker(raw, "IMAGES")
+
+    lines = [
+        f"# {title}",
+        "",
+        f"Source: {_markdown_link(final_url or 'Open page', final_url)}",
+        (
+            f"Status: {status_code}; text {visible_count} chars; "
+            f"{link_count} links; {table_count} tables; {image_count} images."
+        ),
+    ]
+
+    if visible_text:
+        lines.extend(
+            ["", "## Extracted Text Preview", "", _short_preview(visible_text)]
+        )
+
+    if links:
+        lines.extend(["", "## Links", "", "\n".join(links.splitlines()[:14])])
+
+    if tables:
+        lines.extend(["", "## Tables", "", "\n".join(tables.splitlines()[:18])])
+
+    if images:
+        lines.extend(["", "## Images", "", "\n".join(images.splitlines()[:12])])
+
+    return "\n".join(lines).strip()
+
+
+def _format_screenshot_web_markdown(raw_text: str) -> str:
+    raw = str(raw_text or "")
+
+    if not raw.startswith("[WEB SCREENSHOT]"):
+        return _strip_direct_marker(raw)
+
+    title = _prefixed_value(raw, "Title") or "Website Screenshot"
+    page_url = _prefixed_value(raw, "PageURL")
+    capture_mode = _prefixed_value(raw, "CaptureMode") or "Viewport"
+    dimensions = _prefixed_value(raw, "Dimensions") or "n/a"
+
+    return "\n".join(
+        [
+            f"# {title}",
+            "",
+            f"Source: {_markdown_link(page_url or 'Open page', page_url)}",
+            f"Capture: {capture_mode}; dimensions {dimensions}.",
+        ]
+    ).strip()
+
+
+def _web_chat_direct_tool_response(payload: ChatRequest) -> dict[str, Any] | None:
+    user_text = _last_user_text(payload)
+
+    if not user_text:
+        return None
+
+    plan = detect_deterministic_tool_plan(
+        user_text,
+        web_enabled=True,
+        recent_context="",
+    )
+
+    if plan is None:
+        return None
+
+    if plan.action in {
+        "answer",
+        "documents_direct",
+        "documents_search",
+        "documents_brief",
+        "python_run",
+    }:
+        return None
+
+    tool_label = plan.tool_id
+    images: list[str] = []
+
+    try:
+        if plan.action == "weather_today":
+            from ..weather_tools import perform_weather_today
+
+            raw_text = perform_weather_today(plan.query or user_text)
+            output_text = _strip_direct_marker(raw_text)
+            tool_label = "weather.today"
+
+        elif plan.action == "stock_quote":
+            from ..market_sources import parse_stock_quote_payload, perform_stock_quote
+
+            raw_text = perform_stock_quote(plan.query or user_text)
+            quote_payload = parse_stock_quote_payload(raw_text)
+            output_text = (
+                _format_stock_quote_web_markdown(quote_payload)
+                if quote_payload
+                else _strip_direct_marker(raw_text)
+            )
+            tool_label = "market.quote"
+
+        elif plan.action == "stock_compare":
+            from ..market_sources import perform_stock_compare
+
+            raw_text = perform_stock_compare(plan.query or user_text)
+            output_text = _strip_direct_marker(raw_text)
+            tool_label = "market.compare"
+
+        elif plan.action == "market_pulse":
+            from ..market_sources import (
+                parse_market_pulse_payload,
+                perform_global_market_pulse,
+            )
+
+            raw_text = perform_global_market_pulse()
+            pulse_payload = parse_market_pulse_payload(raw_text)
+            output_text = (
+                _format_market_pulse_web_markdown(pulse_payload)
+                if pulse_payload
+                else _strip_direct_marker(raw_text)
+            )
+            tool_label = "market.pulse"
+
+        elif plan.action == "web_read_page":
+            from ..web_tools import perform_rendered_page_extraction
+
+            raw_text = perform_rendered_page_extraction(plan.query or user_text)
+            images = _extract_direct_image_files(raw_text)
+            output_text = _format_rendered_page_web_markdown(raw_text)
+            tool_label = "web.read_page"
+
+        elif plan.action == "web_screenshot_page":
+            from ..web_tools import perform_website_screenshot
+
+            raw_text = perform_website_screenshot(plan.query or user_text)
+            images = _extract_direct_image_files(raw_text)
+            output_text = _format_screenshot_web_markdown(raw_text)
+            tool_label = "web.screenshot_page"
+
+        elif plan.action == "web_search":
+            from ..web_tools import perform_web_search
+
+            query = plan.query or user_text
+            raw_text = perform_web_search(query)
+            output_text = _format_web_articles_markdown(raw_text, query)
+            tool_label = "web.search"
+
+        else:
+            return None
+
+    except Exception as exc:
+        log_exception("Web companion direct tool failed", exc)
+        output_text = f"{tool_label} failed: {exc}"
+
+    normalized_text = normalize_assistant_link_markup(output_text)
+    return {
+        "text": normalized_text,
+        "model": payload.model,
+        "direct": True,
+        "tool": tool_label,
+        "images": images,
+        "reasoning_chars": 0,
     }
-
-    if is_ollama_base_url(base_url):
-        request_params["extra_body"] = {
-            "think": bool(payload.think_enabled),
-            "top_k": 20,
-            "options": {
-                "num_predict": int(payload.num_predict),
-                "repeat_penalty": 1.08,
-                "repeat_last_n": 64,
-            },
-        }
-
-    return request_params
 
 
 def _runtime_client_for(payload: ChatRequest):
@@ -876,6 +1267,361 @@ def _serialize_astro_result(result: Any) -> dict[str, Any]:
     data["files"] = [str(path) for path in data.get("files") or []]
     data["metadata"] = data.get("metadata") or {}
     return data
+
+
+def _web_html(value: Any) -> str:
+    return html.escape(str(value if value not in (None, "") else "-"))
+
+
+def _web_int(value: Any, default: str = "-") -> str:
+    try:
+        return str(int(round(float(value))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _web_float(value: Any, digits: int = 1, suffix: str = "") -> str:
+    try:
+        return f"{float(value):.{digits}f}{suffix}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _web_minutes(value: Any) -> str:
+    try:
+        minutes = int(round(float(value)))
+    except (TypeError, ValueError):
+        return "-"
+
+    hours, mins = divmod(max(0, minutes), 60)
+    if hours and mins:
+        return f"{hours}h {mins}m"
+    if hours:
+        return f"{hours}h"
+    return f"{mins}m"
+
+
+def _web_local_time(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "-"
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return parsed.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return raw[:16].replace("T", " ")
+
+
+def _web_score_class(value: Any) -> str:
+    try:
+        score = int(float(value))
+    except (TypeError, ValueError):
+        return "neutral"
+
+    if score >= 80:
+        return "good"
+    if score >= 60:
+        return "ok"
+    if score >= 40:
+        return "warn"
+    return "bad"
+
+
+def _web_metric_card(
+    label: str, value: Any, detail: Any = "", css_class: str = ""
+) -> str:
+    class_attr = f" astro-card {css_class}".strip()
+    detail_html = (
+        f'<div class="astro-card-detail">{_web_html(detail)}</div>' if detail else ""
+    )
+    return (
+        f'<div class="{class_attr}">'
+        f'<div class="astro-card-label">{_web_html(label)}</div>'
+        f'<div class="astro-card-value">{_web_html(value)}</div>'
+        f"{detail_html}</div>"
+    )
+
+
+def _web_table(
+    headers: list[str], rows: list[list[Any]], *, compact: bool = False
+) -> str:
+    table_class = "astro-table compact" if compact else "astro-table"
+    header_html = "".join(f"<th>{_web_html(header)}</th>" for header in headers)
+    body_html = "".join(
+        "<tr>" + "".join(f"<td>{_web_html(cell)}</td>" for cell in row) + "</tr>"
+        for row in rows
+    )
+    if not body_html:
+        body_html = f'<tr><td colspan="{len(headers)}" class="empty">No rows returned.</td></tr>'
+    return (
+        f'<div class="astro-table-wrap"><table class="{table_class}">'
+        f"<thead><tr>{header_html}</tr></thead><tbody>{body_html}</tbody></table></div>"
+    )
+
+
+def _web_dict_rows(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [dict(row) for row in value if isinstance(row, dict)]
+
+
+def _web_json_safe(value: Any) -> Any:
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except Exception:
+        return {}
+
+
+def _format_web_seeing_result(
+    result: dict[str, Any], *, nights: int = 4
+) -> dict[str, Any]:
+    data = dict(result or {})
+    summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+    rows = _web_dict_rows(data.get("hourly_rows"))
+    if not rows:
+        rows = _web_dict_rows(data.get("rows"))
+    row_limit = max(12, min(96, int(nights or 4) * 24))
+    visible_rows = rows[:row_limit]
+    lat = _web_float(data.get("lat"), 4)
+    lon = _web_float(data.get("lon"), 4)
+    elev = _web_float(data.get("elev"), 0, " m")
+    timezone_name = data.get("tz") or "UTC"
+    source_url = str(data.get("source_url") or "").strip()
+    source_link = (
+        f'<a href="{html.escape(source_url, quote=True)}" target="_blank" rel="noopener">7Timer source</a>'
+        if source_url
+        else "7Timer source"
+    )
+    best_score = summary.get("best_score")
+    error_text = str(data.get("error") or "").strip()
+    success = bool(data.get("ok", True)) and not error_text
+    status_note = (
+        error_text or data.get("status_note") or data.get("weather_status_note") or ""
+    )
+    dark_periods = (
+        summary.get("dark_periods")
+        if isinstance(summary.get("dark_periods"), list)
+        else []
+    )
+    moon_periods = (
+        summary.get("moon_periods")
+        if isinstance(summary.get("moon_periods"), list)
+        else []
+    )
+
+    metric_html = "".join(
+        [
+            _web_metric_card(
+                "Best score",
+                _web_int(best_score),
+                summary.get("best_score_label") or "",
+                _web_score_class(best_score),
+            ),
+            _web_metric_card("Best window", summary.get("best_time") or "-"),
+            _web_metric_card(
+                "Cloud",
+                summary.get("best_cloud_compact") or summary.get("best_cloud") or "-",
+            ),
+            _web_metric_card("Dark", summary.get("best_dark") or "-"),
+            _web_metric_card("Moon", summary.get("best_moon") or "-"),
+            _web_metric_card("Seeing", summary.get("best_seeing") or "-"),
+            _web_metric_card("Transparency", summary.get("best_transparency") or "-"),
+        ]
+    )
+
+    period_rows = [[period] for period in dark_periods[:6]]
+    if not period_rows:
+        period_rows = [[summary.get("next_dark_period") or "No dark period returned."]]
+    moon_rows = [[period] for period in moon_periods[:6]]
+    if not moon_rows:
+        moon_rows = [[summary.get("moon_period_note") or "Moon periods unavailable."]]
+
+    forecast_rows = []
+    for row in visible_rows:
+        forecast_rows.append(
+            [
+                row.get("local_label") or _web_local_time(row.get("local_iso")),
+                f"{_web_int(row.get('score'))} {row.get('score_label') or ''}".strip(),
+                f"{row.get('cloud_mid_pct', '-')}% {row.get('cloud_text') or ''}".strip(),
+                row.get("astro_dark_text")
+                or ("Dark" if row.get("astro_dark") else "-"),
+                row.get("moon_text") or "-",
+                row.get("seeing_text") or "-",
+                row.get("transparency_text") or "-",
+                row.get("wind_speed_text") or "-",
+                f"{row.get('temp2m_c', '-')} C / {row.get('precip_text') or '-'}",
+            ]
+        )
+
+    html_text = f"""
+    <section class="astro-dashboard seeing-dashboard">
+      <header class="astro-hero">
+        <div>
+          <div class="astro-kicker">SEEING</div>
+          <h1>{_web_html("Astronomy Seeing Planner" if success else "Seeing Forecast Unavailable")}</h1>
+          <p>{_web_html(data.get("provider") or "7Timer ASTRO + Open-Meteo Cloud + Moon/Dark")}</p>
+        </div>
+        <div class="astro-site">{_web_html(lat)}, {_web_html(lon)} | {_web_html(elev)} | {_web_html(timezone_name)}</div>
+      </header>
+      <div class="astro-metrics">{metric_html}</div>
+      <div class="astro-note">{_web_html(status_note)} | {source_link}</div>
+      <div class="astro-grid two">
+        <section>
+          <h2>Astronomical Darkness</h2>
+          {_web_table(["Period"], period_rows, compact=True)}
+        </section>
+        <section>
+          <h2>Moon Up / Down</h2>
+          {_web_table(["Period"], moon_rows, compact=True)}
+        </section>
+      </div>
+      <section>
+        <h2>Forecast Rows</h2>
+        {_web_table(["Local time", "Score", "Cloud", "Dark", "Moon", "Seeing", "Transparency", "Wind", "Temp / precip"], forecast_rows)}
+      </section>
+    </section>
+    """
+    return {
+        "title": "SEEING",
+        "text": html_text,
+        "files": [],
+        "success": success,
+        "source": "7Timer ASTRO + Open-Meteo",
+        "metadata": _web_json_safe(data),
+    }
+
+
+def _format_target_size(pick: dict[str, Any]) -> str:
+    for key in ("size_src", "size", "size_deg"):
+        value = str(pick.get(key) or "").strip()
+        if value:
+            return value
+
+    width = pick.get("width_deg")
+    height = pick.get("height_deg")
+    if width and height:
+        return f"{_web_float(width, 2, ' deg')} x {_web_float(height, 2, ' deg')}"
+    if width:
+        return _web_float(width, 2, " deg")
+    return "-"
+
+
+def _format_web_targets_result(result: dict[str, Any]) -> dict[str, Any]:
+    data = dict(result or {})
+    picks = _web_dict_rows(data.get("picks"))
+    location = data.get("location") if isinstance(data.get("location"), dict) else {}
+    moon = data.get("moon") if isinstance(data.get("moon"), dict) else {}
+    filters = data.get("filters") if isinstance(data.get("filters"), dict) else {}
+    lat = _web_float(location.get("lat"), 4)
+    lon = _web_float(location.get("lon"), 4)
+    elev = _web_float(location.get("elev"), 0, " m")
+    timezone_name = location.get("tz") or "UTC"
+
+    if not data.get("ok", True):
+        html_text = f"""
+        <section class="astro-dashboard targets-dashboard">
+          <header class="astro-hero">
+            <div><div class="astro-kicker">TARGETS</div><h1>No Matching Targets</h1></div>
+          </header>
+          <div class="astro-note">{_web_html(data.get("error") or "No targets found.")}</div>
+        </section>
+        """
+        return {
+            "title": "TARGETS",
+            "text": html_text,
+            "files": [],
+            "success": False,
+            "source": "FZAstro TARGETS",
+            "metadata": _web_json_safe(data),
+        }
+
+    metric_html = "".join(
+        [
+            _web_metric_card("Targets", len(picks), "ranked picks"),
+            _web_metric_card(
+                "Dark window",
+                f"{_web_local_time(data.get('dark_start'))} -> {_web_local_time(data.get('dark_end'))}",
+                _web_minutes(data.get("duration_minutes")),
+            ),
+            _web_metric_card(
+                "Moon",
+                f"{moon.get('illumination_pct', '-')}%",
+                moon.get("phase") or "",
+            ),
+            _web_metric_card(
+                "Filters",
+                f"Min alt {_web_float(filters.get('min_alt'), 0, ' deg')}",
+                f"Limit {filters.get('limit', '-')} | catalog {filters.get('catalog_source', 'auto')}",
+            ),
+            _web_metric_card("Evaluated", data.get("evaluated", 0)),
+            _web_metric_card("Rejected", data.get("rejected", 0)),
+        ]
+    )
+
+    table_rows = []
+    for pick in picks:
+        table_rows.append(
+            [
+                pick.get("grade") or "-",
+                pick.get("name") or "-",
+                pick.get("type") or "-",
+                pick.get("const") or "-",
+                pick.get("mag") or "-",
+                _format_target_size(pick),
+                _web_float(pick.get("max_alt"), 1, " deg"),
+                _web_float(pick.get("airmass_min"), 2),
+                _web_minutes(pick.get("visible_minutes")),
+                _web_local_time(pick.get("best_time_local")),
+            ]
+        )
+
+    top_pick = picks[0] if picks else {}
+    top_html = ""
+    if top_pick:
+        top_rows = [
+            ["RA", top_pick.get("ra") or "-"],
+            ["Dec", top_pick.get("dec") or "-"],
+            [
+                "Altitude at reference",
+                _web_float(top_pick.get("alt_at_ref"), 1, " deg"),
+            ],
+            ["Edge guard", _web_minutes(top_pick.get("edge_distance_min"))],
+        ]
+        top_html = f"""
+        <section>
+          <h2>Top Pick Details</h2>
+          <h3>{_web_html(top_pick.get("name") or "Target")}</h3>
+          {_web_table(["Field", "Value"], top_rows, compact=True)}
+        </section>
+        """
+
+    html_text = f"""
+    <section class="astro-dashboard targets-dashboard">
+      <header class="astro-hero">
+        <div>
+          <div class="astro-kicker">TARGETS</div>
+          <h1>Best Astrophotography Targets</h1>
+          <p>{_web_html(data.get("date") or "Selected night")}</p>
+        </div>
+        <div class="astro-site">{_web_html(lat)}, {_web_html(lon)} | {_web_html(elev)} | {_web_html(timezone_name)}</div>
+      </header>
+      <div class="astro-metrics">{metric_html}</div>
+      <section>
+        <h2>Ranked Targets</h2>
+        {_web_table(["Grade", "Name", "Type", "Const", "Mag", "Size", "Max alt", "Airmass", "Visible", "Best time"], table_rows)}
+      </section>
+      {top_html}
+    </section>
+    """
+    return {
+        "title": "TARGETS",
+        "text": html_text,
+        "files": [],
+        "success": True,
+        "source": "FZAstro TARGETS",
+        "metadata": _web_json_safe(data),
+    }
 
 
 def _maybe_start_local_ollama(base_url: str) -> dict[str, Any]:
@@ -918,6 +1664,7 @@ def _allowed_asset_path(raw_path: str) -> Path:
     allowed_roots = [
         Path(APP_DIR).resolve(),
         Path(__file__).resolve().parents[2],
+        Path(tempfile.gettempdir()).resolve(),
     ]
 
     if not candidate.is_file():
@@ -999,7 +1746,15 @@ def _create_app_impl():
 
     @app.get("/", include_in_schema=False)
     async def index():
-        return HTMLResponse(content=_embedded_web_companion_index_html())
+        index_path = _web_index_path()
+
+        try:
+            return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log_warning(
+                "Web companion source index unavailable; using embedded copy", exc
+            )
+            return HTMLResponse(content=_embedded_web_companion_index_html())
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
@@ -1079,6 +1834,13 @@ def _create_app_impl():
 
     @app.post("/api/chat", dependencies=[Depends(require_token)])
     async def chat_endpoint(payload: ChatRequest):
+        direct_response = await run_in_threadpool(
+            _web_chat_direct_tool_response, payload
+        )
+
+        if direct_response is not None:
+            return direct_response
+
         clean_base_url = normalize_runtime_base_url(payload.base_url)
         _maybe_start_local_ollama(clean_base_url)
 
@@ -1089,7 +1851,10 @@ def _create_app_impl():
                 **_chat_request_params(payload, stream=False),
             )
             content = response.choices[0].message.content if response.choices else ""
-            return {"text": content or "", "model": payload.model}
+            return {
+                "text": normalize_assistant_link_markup(content or ""),
+                "model": payload.model,
+            }
         except Exception as exc:
             if is_runtime_model_not_found_error(exc):
                 raise HTTPException(
@@ -1114,6 +1879,17 @@ def _create_app_impl():
     @app.post("/api/chat/stream", dependencies=[Depends(require_token)])
     async def chat_stream_endpoint(payload: ChatRequest):
         def generate() -> Iterable[str]:
+            direct_response = _web_chat_direct_tool_response(payload)
+
+            if direct_response is not None:
+                yield _sse(
+                    "status",
+                    {"message": f"Using {direct_response.get('tool', 'app tool')}"},
+                )
+                yield _sse("token", {"text": direct_response.get("text", "")})
+                yield _sse("done", direct_response)
+                return
+
             clean_base_url = normalize_runtime_base_url(payload.base_url)
             start_info = _maybe_start_local_ollama(clean_base_url)
             yield _sse("status", {"message": start_info.get("message", "Starting")})
@@ -1128,20 +1904,8 @@ def _create_app_impl():
                 )
 
                 for chunk in stream:
-                    if not chunk.choices:
-                        continue
-
-                    delta = chunk.choices[0].delta
-
-                    try:
-                        delta_data = delta.model_dump()
-                    except Exception:
-                        delta_data = {}
-
-                    reasoning = _reasoning_from_delta(delta, delta_data)
-                    content = getattr(delta, "content", None) or delta_data.get(
-                        "content"
-                    )
+                    reasoning = extract_delta_reasoning(chunk)
+                    content = extract_delta_text(chunk)
 
                     if reasoning:
                         reasoning_text += reasoning
@@ -1149,13 +1913,13 @@ def _create_app_impl():
                             yield _sse("reasoning", {"text": reasoning})
 
                     if content:
-                        full_text += str(content)
-                        yield _sse("token", {"text": str(content)})
+                        full_text += content
+                        yield _sse("token", {"text": content})
 
                 yield _sse(
                     "done",
                     {
-                        "text": full_text,
+                        "text": normalize_assistant_link_markup(full_text),
                         "reasoning_chars": len(reasoning_text),
                         "model": payload.model,
                     },
@@ -1273,33 +2037,67 @@ def _create_app_impl():
 
     @app.post("/api/astro/seeing", dependencies=[Depends(require_token)])
     async def astro_seeing_endpoint(payload: SeeingRequest):
-        from ..astro_tools.engine import observing_forecast
+        from ..astro_tools.seeing_data import fetch_7timer_astro_forecast
 
-        result = await run_in_threadpool(
-            observing_forecast,
-            payload.lat,
-            payload.lon,
-            elev=payload.elev,
-            tz=payload.tz,
-            nights=payload.nights,
-        )
-        return _serialize_astro_result(result)
+        try:
+            result = await run_in_threadpool(
+                fetch_7timer_astro_forecast,
+                lat=payload.lat,
+                lon=payload.lon,
+                elev=payload.elev,
+                tz=payload.tz,
+                altitude_correction="auto",
+                provider="7timer_hybrid",
+            )
+        except Exception as exc:
+            log_exception("Web companion SEEING failed", exc)
+            result = {
+                "ok": False,
+                "provider": "7Timer ASTRO + Open-Meteo Cloud + Moon/Dark",
+                "lat": payload.lat,
+                "lon": payload.lon,
+                "elev": payload.elev,
+                "tz": payload.tz or "UTC",
+                "status_note": "SEEING forecast could not be loaded.",
+                "error": f"SEEING forecast failed: {exc}",
+                "summary": {},
+                "hourly_rows": [],
+            }
+        return _format_web_seeing_result(result, nights=payload.nights)
 
     @app.post("/api/astro/targets", dependencies=[Depends(require_token)])
     async def astro_targets_endpoint(payload: TargetsRequest):
-        from ..astro_tools.engine import best_targets
+        from ..astro_tools.target_planner import plan_targets
 
-        result = await run_in_threadpool(
-            best_targets,
-            payload.lat,
-            payload.lon,
-            elev=payload.elev,
-            date=payload.date,
-            limit=payload.limit,
-            min_alt=payload.min_alt,
-            tz=payload.tz,
-        )
-        return _serialize_astro_result(result)
+        location = {
+            "lat": payload.lat,
+            "lon": payload.lon,
+            "elev": payload.elev,
+            "tz": payload.tz or "UTC",
+        }
+        try:
+            result = await run_in_threadpool(
+                plan_targets,
+                location,
+                date_iso=payload.date,
+                limit=payload.limit,
+                min_alt=payload.min_alt,
+            )
+        except Exception as exc:
+            log_exception("Web companion TARGETS failed", exc)
+            result = {
+                "ok": False,
+                "error": f"TARGETS planner failed: {exc}",
+                "location": location,
+                "date": payload.date,
+                "filters": {
+                    "limit": payload.limit,
+                    "min_alt": payload.min_alt,
+                    "catalog_source": "auto",
+                },
+                "picks": [],
+            }
+        return _format_web_targets_result(result)
 
     return app
 

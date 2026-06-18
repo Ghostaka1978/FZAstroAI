@@ -34,7 +34,11 @@ def test_skill_registry_groups_actions_into_user_facing_skills():
     ]
 
     assert "astro.lookup" in SKILL_ACTION_BY_ID
-    assert "markets.gold" in SKILL_ACTION_BY_ID
+    assert "markets.global_pulse" in SKILL_ACTION_BY_ID
+    assert "markets.gold" not in SKILL_ACTION_BY_ID
+    assert "markets.oil" not in SKILL_ACTION_BY_ID
+    assert "markets.crm" not in SKILL_ACTION_BY_ID
+    assert "markets.dbx" not in SKILL_ACTION_BY_ID
     assert "model.benchmark" in SKILL_ACTION_BY_ID
     assert SKILL_ACTION_BY_ID["skill.python.run_input"].kind == "composer"
     assert (
@@ -48,8 +52,10 @@ def test_skill_actions_keep_existing_handlers_as_execution_layer():
     assert (
         SKILL_ACTION_BY_ID["astro.targets"].handler_name == "open_astro_targets_dialog"
     )
-    assert SKILL_ACTION_BY_ID["markets.oil"].handler_name == "retrieve_stock_price"
-    assert SKILL_ACTION_BY_ID["markets.oil"].handler_args == ("CL=F",)
+    assert (
+        SKILL_ACTION_BY_ID["markets.global_pulse"].handler_name
+        == "retrieve_global_market_pulse"
+    )
     assert (
         SKILL_ACTION_BY_ID["workspace.repository"].handler_name
         == "open_project_repository"
@@ -64,6 +70,13 @@ def test_skill_actions_group_by_section_in_display_order():
         "Run input as Python",
         "Run selected code",
     ]
+
+
+def test_markets_menu_starts_with_global_market_pulse():
+    grouped = skill_actions_by_section("markets")
+
+    assert list(grouped) == [""]
+    assert [action.label for action in grouped[""]] == ["GLOBAL MARKET PULSE"]
 
 
 def test_favorite_skill_actions_are_available_for_future_quick_access():
@@ -111,6 +124,9 @@ def test_main_window_uses_skill_registry_for_top_and_composer_menus():
     assert "build_skill_menu" in app_text
     assert "build_composer_skills_menu" in app_text
     assert "run_skill_action" in app_text
+    assert "def _add_menu_section_title" in app_text
+    assert "QWidgetAction(menu)" in app_text
+    assert 'label.setObjectName("skillMenuSectionTitle")' in app_text
     assert "main_layout.addWidget(astro_bar)" not in app_text
 
 
@@ -130,6 +146,19 @@ def test_new_chat_and_imported_documents_buttons_live_next_to_tools():
     )
     assert composer_snippet in app_text
     assert imported_before_clear_snippet in app_text
+    assert 'self.news_button = QPushButton("Daily News")' in app_text
+    assert 'self.composer_markets_button = QPushButton("$ Markets")' in app_text
+    assert "self.news_button.clicked.connect(self.daily_news)" in app_text
+    assert (
+        "self.composer_markets_button.clicked.connect(self.retrieve_global_market_pulse)"
+        in app_text
+    )
+    assert (
+        'self.composer_markets_button.setMenu(self.build_skill_menu("markets"))'
+        not in app_text
+    )
+    assert "composer_toolbar_layout.addWidget(self.news_button" in app_text
+    assert "self.composer_markets_button, 0, Qt.AlignVCenter" in app_text
     assert (
         '"New Chat", "newChatButton", "Start a new empty chat", width=68, height=24'
         in app_text
@@ -142,13 +171,17 @@ def test_new_chat_and_imported_documents_buttons_live_next_to_tools():
     assert "skills_group_layout.addWidget(self.new_chat_button" not in app_text
 
 
-def test_model_web_and_expandable_mode_share_top_bar():
+def test_model_and_expandable_mode_share_top_bar_with_web_in_config_sidebar():
     app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
 
     assert 'self.mode_menu_button = QPushButton("Mode ▾")' in app_text
     assert "self.mode_menu_button.setMenu(self.build_top_mode_menu())" in app_text
     assert "top_bar_layout.addWidget(runtime_group, 0)" in app_text
-    assert "top_bar_layout.addWidget(web_group, 0)" in app_text
+    assert "top_bar_layout.addWidget(web_group, 0)" not in app_text
+    assert "cockpitWebGroup" not in app_text
+    assert "web_quick_row.addWidget(self.web_box" in app_text
+    assert "web_quick_row.addWidget(self.web_companion_button" in app_text
+    assert "Web mode is in Web Companion below." in app_text
     assert "top_bar_layout.addWidget(mode_group, 0)" in app_text
     assert "self.model_box.setFixedWidth(185)" in app_text
     assert "self.model_box.view().setFixedWidth(185)" in app_text
@@ -169,7 +202,7 @@ def test_context_and_mode_are_in_skills_menu_labels():
     )
     assert '"knowledge": "Context"' in app_text
     assert '"model_lab": "Mode"' in app_text
-    assert 'if skill.skill_id == "astro":' in app_text
+    assert 'if skill.skill_id in {"astro", "markets"}:' in app_text
     assert "composer_layout.addWidget(self.skills_drawer)" not in app_text
     assert (
         "self.composer_actions_button.clicked.connect(self.toggle_skills_drawer)"

@@ -24,8 +24,6 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
-import requests
-
 from PySide6.QtCore import (
     QPoint,
     QPropertyAnimation,
@@ -79,6 +77,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from .composer_actions import (
@@ -162,6 +161,22 @@ from .runtime import (
     make_runtime_client,
     normalize_runtime_api_key,
     normalize_runtime_base_url,
+)
+from .llm import (
+    configure_model_catalog_runtime,
+    estimate_messages_context_tokens,
+    estimate_model_content_tokens,
+    estimate_token_count,
+    find_installed_vision_model,
+    format_token_budget_count,
+    get_available_models as _llm_get_available_models,
+    get_ollama_model_capabilities,
+    get_ollama_model_context_limit,
+    is_experimental_vision_model,
+    normalize_content_for_model,
+    ollama_model_name_has_reliable_vision_hint,
+    ollama_model_name_is_qwen_text_only,
+    parse_ollama_context_limit,
 )
 
 from .workers import (
@@ -398,404 +413,12 @@ def configure_runtime_client(base_url=None, api_key=None):
     client = make_runtime_client(
         base_url, api_key, timeout=RUNTIME_MODEL_LIST_TIMEOUT_SECONDS
     )
+    configure_model_catalog_runtime(base_url, api_key)
     return client
 
 
 def get_available_models(base_url=None, api_key=None):
-    try:
-        runtime_client = (
-            make_runtime_client(
-                base_url, api_key, timeout=RUNTIME_MODEL_LIST_TIMEOUT_SECONDS
-            )
-            if base_url is not None or api_key is not None
-            else client
-        )
-        response = runtime_client.models.list()
-        models = [str(model.id).strip() for model in response.data if model.id]
-        return models if models else [DEFAULT_MODEL_NAME]
-    except Exception as exc:
-        if is_runtime_connection_error(exc):
-            log_warning("get_available_models provider unavailable", exc)
-        else:
-            log_exception("get_available_models", exc)
-        return [DEFAULT_MODEL_NAME]
-
-
-_MODEL_CAPABILITY_CACHE = {}
-_MODEL_CONTEXT_LIMIT_CACHE = {}
-
-
-def estimate_token_count(text):
-    """Fast UI estimate for token budget display.
-
-    Ollama's OpenAI-compatible stream does not reliably return live prompt and
-    completion token counts for every local model, so the status bar uses the
-    same practical approximation already used elsewhere in the app: roughly four
-    characters per token. Treat this as a context-budget estimate, not an exact
-    tokenizer measurement.
-    """
-    clean_text = str(text or "")
-
-    if not clean_text:
-        return 0
-
-    return max(1, len(clean_text) // 4)
-
-
-def format_token_budget_count(value):
-    """Compact token count for the status bar."""
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return "?"
-
-    if number >= 1_000_000:
-        return f"{number / 1_000_000:.1f}m"
-
-    if number >= 10_000:
-        return f"{number / 1000:.1f}k"
-
-    if number >= 1000:
-        return f"{number / 1000:.2f}k"
-
-    return str(max(0, number))
-
-
-def estimate_model_content_tokens(content):
-    """Estimate prompt tokens for string or OpenAI content-array messages."""
-    if isinstance(content, list):
-        total = 0
-
-        for part in content:
-            if not isinstance(part, dict):
-                total += estimate_token_count(part)
-                continue
-
-            part_type = str(part.get("type") or "").strip().lower()
-
-            if part_type in {"text", "input_text"}:
-                total += estimate_token_count(part.get("text") or "")
-            elif part_type in {"image", "image_url", "input_image"}:
-                # Image-token cost differs by model and resolution. Use a small
-                # fixed reserve so the context bar warns users that visual
-                # requests are heavier without claiming exact tokenizer data.
-                total += 1024
-            else:
-                total += estimate_token_count(json.dumps(part, ensure_ascii=False))
-
-        return total
-
-    return estimate_token_count(content)
-
-
-def estimate_messages_context_tokens(messages):
-    """Estimate total input-context tokens for the request sent to the model."""
-    total = 0
-
-    for message in messages or []:
-        if not isinstance(message, dict):
-            total += estimate_token_count(message)
-            continue
-
-        # Small per-message overhead for role separators / chat template tokens.
-        total += 4
-        total += estimate_token_count(message.get("role") or "")
-        total += estimate_model_content_tokens(message.get("content") or "")
-
-    return max(0, int(total))
-
-
-def parse_ollama_context_limit(payload):
-    """Extract configured or advertised context length from /api/show payload."""
-    if not isinstance(payload, dict):
-        return None
-
-    # Prefer explicit Modelfile runtime setting because that is what the app will
-    # actually use when no per-request num_ctx override is sent.
-    for field_name in ("parameters", "modelfile"):
-        field_text = str(payload.get(field_name) or "")
-
-        for match in re.finditer(
-            r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(?P<value>\d{3,9})\s*$",
-            field_text,
-        ):
-            try:
-                value = int(match.group("value"))
-            except (TypeError, ValueError):
-                continue
-
-            if value > 0:
-                return value
-
-    candidates = []
-    model_info = payload.get("model_info") or {}
-
-    if isinstance(model_info, dict):
-        for key, value in model_info.items():
-            key_text = str(key or "").casefold()
-
-            if "context_length" not in key_text and "context length" not in key_text:
-                continue
-
-            try:
-                number = int(value)
-            except (TypeError, ValueError):
-                continue
-
-            if number > 0:
-                candidates.append(number)
-
-    return max(candidates) if candidates else None
-
-
-def get_ollama_model_context_limit(model_name, base_url=None):
-    """Return estimated context-window size for an Ollama model, if available."""
-    clean_model = str(model_name or "").strip()
-    clean_base_url = normalize_runtime_base_url(base_url)
-    cache_key = (clean_base_url, clean_model)
-
-    if not clean_model:
-        return None
-
-    if cache_key in _MODEL_CONTEXT_LIMIT_CACHE:
-        return _MODEL_CONTEXT_LIMIT_CACHE[cache_key]
-
-    if not is_ollama_base_url(clean_base_url):
-        _MODEL_CONTEXT_LIMIT_CACHE[cache_key] = None
-        return None
-
-    try:
-        ollama_root = clean_base_url.rstrip("/").rsplit("/v1", 1)[0].rstrip("/")
-        response = requests.post(
-            f"{ollama_root}/api/show",
-            json={"model": clean_model},
-            timeout=3,
-        )
-        response.raise_for_status()
-        context_limit = parse_ollama_context_limit(response.json())
-    except Exception as exc:
-        log_exception("get_ollama_model_context_limit line 4555", exc)
-        context_limit = None
-
-    _MODEL_CONTEXT_LIMIT_CACHE[cache_key] = context_limit
-    return context_limit
-
-
-def normalize_content_for_model(content, allow_images=True):
-    """Normalize OpenAI content arrays for the target Ollama model.
-
-    Text-only arrays are always flattened to a normal string. When the target
-    model has no vision capability, historical image parts are replaced by a
-    short placeholder so one old image cannot break every later text reply.
-    """
-    if not isinstance(content, list):
-        return content
-
-    text_parts = []
-    contains_image = False
-
-    for part in content:
-        if not isinstance(part, dict):
-            if allow_images:
-                return content
-            continue
-
-        part_type = str(part.get("type") or "").strip().lower()
-
-        if part_type in {"text", "input_text"}:
-            text_parts.append(str(part.get("text") or ""))
-            continue
-
-        if part_type in {"image", "image_url", "input_image"}:
-            contains_image = True
-            continue
-
-        if allow_images:
-            return content
-
-    if contains_image and allow_images:
-        return content
-
-    if contains_image:
-        text_parts.append(
-            "[An image was attached in this earlier message, but it is omitted "
-            "from this request because the selected model does not support vision.]"
-        )
-
-    return "\n".join(value for value in text_parts if value).strip()
-
-
-_QWEN_TEXT_ONLY_PREFIXES = (
-    "qwen:",
-    "qwen1",
-    "qwen2",
-    "qwen2.5",
-    "qwen3",
-)
-
-
-def ollama_model_name_has_reliable_vision_hint(model_name):
-    """Return True when the model name itself looks like a vision model.
-
-    Ollama /api/show capabilities are the primary source, but some model
-    wrappers can advertise vision too broadly.  For Qwen-family models, require
-    an explicit VL marker so a text model such as qwen3:32b/qwen3.6:35b is not
-    selected for image requests and left waiting forever before first token.
-    """
-
-    clean_name = str(model_name or "").strip().casefold()
-
-    if not clean_name:
-        return False
-
-    reliable_markers = (
-        "vision",
-        "-vl",
-        "_vl",
-        ":vl",
-        "vl:",
-        "qwen3vl",
-        "qwen2.5vl",
-        "qwen2vl",
-        "llava",
-        "bakllava",
-        "moondream",
-        "minicpm-v",
-        "minicpmv",
-        "minicpm-o",
-        "minicpmo",
-        "gemma3",
-        "gemma-3",
-        "gemma4",
-        "gemma-4",
-        "granite3.2-vision",
-        "granite-vision",
-    )
-    return any(marker in clean_name for marker in reliable_markers)
-
-
-def ollama_model_name_is_qwen_text_only(model_name):
-    """Return True for Qwen text-model names that should not inspect images."""
-
-    clean_name = str(model_name or "").strip().casefold()
-
-    if not clean_name:
-        return False
-
-    if "vl" in clean_name:
-        return False
-
-    return clean_name.startswith(_QWEN_TEXT_ONLY_PREFIXES)
-
-
-def get_ollama_model_capabilities(model_name):
-    """Return Ollama capabilities, or None when the local API is unavailable."""
-    clean_model = str(model_name or "").strip()
-
-    if not clean_model:
-        return None
-
-    if clean_model in _MODEL_CAPABILITY_CACHE:
-        return _MODEL_CAPABILITY_CACHE[clean_model]
-
-    try:
-        active_base_url = str(getattr(client, "base_url", BASE_URL)).rstrip("/")
-
-        if not is_ollama_base_url(active_base_url):
-            return None
-
-        ollama_root = active_base_url.rsplit("/v1", 1)[0].rstrip("/")
-        response = requests.post(
-            f"{ollama_root}/api/show",
-            json={"model": clean_model},
-            timeout=5,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        capabilities = payload.get("capabilities") or []
-
-        if isinstance(capabilities, str):
-            capabilities = [capabilities]
-
-        normalized = {
-            str(value).strip().lower() for value in capabilities if str(value).strip()
-        }
-
-        if "vision" in normalized and ollama_model_name_is_qwen_text_only(clean_model):
-            normalized = set(normalized)
-            normalized.discard("vision")
-            log_warning(
-                "get_ollama_model_capabilities ignored unreliable vision capability",
-                f"model={clean_model}",
-            )
-
-        _MODEL_CAPABILITY_CACHE[clean_model] = normalized
-        return normalized
-    except Exception as exc:
-        log_exception("get_ollama_model_capabilities line 4646", exc)
-        return None
-
-
-def find_installed_vision_model(exclude_model=None):
-    """Find an installed Ollama model that explicitly advertises vision."""
-    excluded = str(exclude_model or "").strip()
-    models = [
-        str(model).strip() for model in get_available_models() if str(model).strip()
-    ]
-
-    vision_name_hints = (
-        "vision",
-        "qwen3-vl",
-        "qwen2.5-vl",
-        "qwen2-vl",
-        "llava",
-        "bakllava",
-        "moondream",
-        "minicpm-v",
-        "gemma4",
-        "gemma-4",
-        "gemma3",
-    )
-    experimental_name_hints = (
-        "abliterated",
-        "uncensored",
-        "uncen",
-        "huihui",
-    )
-
-    models.sort(
-        key=lambda name: (
-            not any(hint in name.lower() for hint in vision_name_hints),
-            any(hint in name.lower() for hint in experimental_name_hints),
-            name.lower(),
-        )
-    )
-
-    for model_name in models:
-        if model_name == excluded:
-            continue
-
-        capabilities = get_ollama_model_capabilities(model_name)
-
-        if capabilities is not None and "vision" in capabilities:
-            if ollama_model_name_is_qwen_text_only(model_name):
-                log_warning(
-                    "find_installed_vision_model skipped Qwen text-only model",
-                    f"model={model_name}",
-                )
-                continue
-
-            return model_name
-
-    return None
-
-
-def is_experimental_vision_model(model_name):
-    clean_name = str(model_name or "").strip().lower()
-    return any(
-        marker in clean_name
-        for marker in ("abliterated", "uncensored", "uncen", "huihui")
-    )
+    return _llm_get_available_models(base_url=base_url, api_key=api_key)
 
 
 def make_microphone_icon(color="#e8ebef"):
@@ -992,10 +615,14 @@ class FZAstroAI(
         self.current_prompt_context_tokens = 0
         self.current_context_limit_tokens = None
         self.current_generation_budget_tokens = 0
+        self.current_context_trimmed_sections = []
+        self.current_context_budget_warnings = []
         self.pending_stream_text = ""
         self.current_prompt_context_tokens = 0
         self.current_context_limit_tokens = None
         self.current_generation_budget_tokens = 0
+        self.current_context_trimmed_sections = []
+        self.current_context_budget_warnings = []
         self.last_stream_render = 0
         self.last_rendered_stream_text = ""
         self.current_generation_model = ""
@@ -1232,6 +859,7 @@ class FZAstroAI(
         self.web_box.setFixedHeight(36)
         self.web_box.setFixedWidth(92)
         self.web_box.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.web_box.setToolTip("Controls when chat may use web search.")
 
         self.web_companion_button = QPushButton("WEB UI")
         self.web_companion_button.setObjectName("cockpitWebButton")
@@ -1269,7 +897,7 @@ class FZAstroAI(
 
         runtime_card, runtime_layout = self._create_settings_card(
             "Runtime",
-            "Configure the OpenAI-compatible API endpoint, API key, and model refresh. Active model and web mode are in the main toolbar.",
+            "Configure the OpenAI-compatible API endpoint, API key, and model refresh. Web mode is in Web Companion below.",
         )
 
         server_caption = QLabel("Server URL / API Base")
@@ -1291,6 +919,17 @@ class FZAstroAI(
             "Web Companion",
             "Start or open the browser control panel. The standalone manual web-only launch remains available.",
         )
+        web_quick_row = QHBoxLayout()
+        web_quick_row.setContentsMargins(0, 0, 0, 0)
+        web_quick_row.setSpacing(7)
+        web_mode_caption = QLabel("Chat web mode")
+        web_mode_caption.setObjectName("fieldCaption")
+        web_quick_row.addWidget(web_mode_caption)
+        web_quick_row.addStretch(1)
+        web_quick_row.addWidget(self.web_box, 0, Qt.AlignVCenter)
+        web_quick_row.addWidget(self.web_companion_button, 0, Qt.AlignVCenter)
+        web_layout.addLayout(web_quick_row)
+
         self.web_companion_status_label = QLabel("Web Companion is stopped.")
         self.web_companion_status_label.setObjectName("webArticleBody")
         self.web_companion_status_label.setWordWrap(True)
@@ -1484,13 +1123,6 @@ class FZAstroAI(
             self.quick_restart_ollama_button, 0, Qt.AlignVCenter
         )
 
-        web_group, web_group_layout = _create_cockpit_group(
-            "WEB", "cockpitWebGroup", title_width=42
-        )
-        web_group.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        web_group_layout.addWidget(self.web_box, 0, Qt.AlignVCenter)
-        web_group_layout.addWidget(self.web_companion_button, 0, Qt.AlignVCenter)
-
         self.mode_menu_button = QPushButton("Mode ▾")
         self.mode_menu_button.setObjectName("cockpitModeButton")
         self.mode_menu_button.setFixedSize(104, 36)
@@ -1525,7 +1157,6 @@ class FZAstroAI(
         top_bar_layout.addWidget(brand_mark)
         top_bar_layout.addWidget(title_box, 1)
         top_bar_layout.addWidget(runtime_group, 0)
-        top_bar_layout.addWidget(web_group, 0)
         top_bar_layout.addWidget(mode_group, 0)
         # Top-bar IMG / N.I.N.A. shortcut removed; open it from Apps -> N.I.N.A.
         top_bar_layout.addWidget(system_group, 0)
@@ -1688,14 +1319,6 @@ class FZAstroAI(
         self.workspace_context_label.setObjectName("workspaceContextLabel")
         self.workspace_context_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.workspace_context_label.hide()
-
-        model_quick_label = QLabel("MODEL")
-        model_quick_label.setObjectName("toolbarCaption")
-        model_quick_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-        web_quick_label = QLabel("WEB")
-        web_quick_label.setObjectName("toolbarCaption")
-        web_quick_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         compact_skill_labels = {
             "knowledge": "Context",
@@ -1993,6 +1616,13 @@ class FZAstroAI(
         self.composer_actions_button.setToolTip("Open the Skills menu.")
         self.composer_actions_button.setMenu(self.build_composer_skills_menu())
 
+        self.composer_markets_button = QPushButton("$ Markets")
+        self.composer_markets_button.setObjectName("composerToolButton")
+        self.composer_markets_button.setCursor(Qt.PointingHandCursor)
+        self.composer_markets_button.setToolTip("Retrieve the global market pulse.")
+        self.composer_markets_button.setAccessibleName("Retrieve global market pulse")
+        self.composer_markets_button.clicked.connect(self.retrieve_global_market_pulse)
+
         # Context and Mode are available inside the expandable Skills and top Mode menus.
 
         self.composer_clear_button = QPushButton("Clear")
@@ -2011,6 +1641,10 @@ class FZAstroAI(
         )
         composer_toolbar_layout.addWidget(
             self.composer_actions_button, 0, Qt.AlignVCenter
+        )
+        composer_toolbar_layout.addWidget(self.news_button, 0, Qt.AlignVCenter)
+        composer_toolbar_layout.addWidget(
+            self.composer_markets_button, 0, Qt.AlignVCenter
         )
         composer_toolbar_layout.addWidget(
             self.imported_documents_button, 0, Qt.AlignVCenter
@@ -3902,9 +3536,7 @@ class FZAstroAI(
                 menu.addSeparator()
 
             if section_name:
-                section_action = QAction(section_name, self)
-                section_action.setEnabled(False)
-                menu.addAction(section_action)
+                self._add_menu_section_title(menu, section_name)
 
             for action_spec in actions:
                 action = QAction(action_spec.label, self)
@@ -3916,13 +3548,20 @@ class FZAstroAI(
                 )
                 menu.addAction(action)
 
+    def _add_menu_section_title(self, menu: QMenu, title: str):
+        label = QLabel(f"-- {str(title or '').upper()} --")
+        label.setObjectName("skillMenuSectionTitle")
+        label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(label)
+        menu.addAction(action)
+
     def build_top_mode_menu(self):
         """Build the expandable top-bar Mode menu."""
         menu = QMenu(self)
 
-        calibration_header = QAction("Calibration profiles", self)
-        calibration_header.setEnabled(False)
-        menu.addAction(calibration_header)
+        self._add_menu_section_title(menu, "Calibration profiles")
 
         for profile_key, profile in (self.calibration_profiles or {}).items():
             action = QAction(f"{profile['icon']} {profile['name']}", self)
@@ -3970,8 +3609,8 @@ class FZAstroAI(
         }
 
         for skill in SKILLS:
-            if skill.skill_id == "astro":
-                # Astro has its own promoted composer menu, so do not duplicate it here.
+            if skill.skill_id in {"astro", "markets"}:
+                # Astro and Markets have their own promoted composer menus, so do not duplicate them here.
                 continue
 
             skill_label = compact_skill_labels.get(skill.skill_id, skill.label)
@@ -4998,6 +4637,8 @@ class FZAstroAI(
         self.new_chat_button.setEnabled(False)
         self.history_button.setEnabled(False)
         self.news_button.setEnabled(False)
+        if hasattr(self, "composer_markets_button"):
+            self.composer_markets_button.setEnabled(False)
         if hasattr(self, "import_documents_memory_button"):
             self.import_documents_memory_button.setEnabled(False)
         self.stats_label.setText("Stopping.")
@@ -5030,6 +4671,7 @@ class FZAstroAI(
         streaming=False,
     ):
         self.hide_empty_chat_state()
+        self.release_chat_container_height_limit()
 
         widget = MessageWidget(
             role,
@@ -5104,6 +4746,9 @@ class FZAstroAI(
                     pass
 
             QTimer.singleShot(0, start_message_appearance)
+
+        if animate and hasattr(self, "queue_chat_scroll_to_bottom"):
+            self.queue_chat_scroll_to_bottom(True, settle=True)
 
         return widget
 
@@ -5196,10 +4841,116 @@ class FZAstroAI(
         self.chat_container.updateGeometry()
         self.stats_label.setText("Message deleted")
 
+    def release_chat_container_height_limit(self):
+        try:
+            if not hasattr(self, "chat_container"):
+                return
+
+            self.chat_container.setMinimumHeight(0)
+            self.chat_container.setMaximumHeight(16777215)
+        except RuntimeError:
+            pass
+
+    def sync_chat_container_height(self):
+        """Trim scroll range to real content, ignoring wrapped-label phantom space."""
+        try:
+            if not hasattr(self, "chat_layout") or not hasattr(self, "chat_scroll"):
+                return 0
+
+            self.release_chat_container_height_limit()
+            self.chat_layout.invalidate()
+            self.chat_layout.activate()
+            self.chat_container.adjustSize()
+            self.chat_container.updateGeometry()
+
+            margins = self.chat_layout.contentsMargins()
+            content_bottom = margins.top()
+
+            for index in range(self.chat_layout.count()):
+                item = self.chat_layout.itemAt(index)
+                widget = item.widget()
+
+                if widget is not None:
+                    if widget.isHidden():
+                        continue
+
+                    geometry = widget.geometry()
+                    content_bottom = max(
+                        content_bottom, geometry.y() + geometry.height()
+                    )
+                    continue
+
+                geometry = item.geometry()
+                content_bottom = max(content_bottom, geometry.y() + geometry.height())
+
+            content_bottom += margins.bottom()
+            target_height = max(self.chat_scroll.viewport().height(), content_bottom)
+            current_width = max(
+                self.chat_container.width(), self.chat_scroll.viewport().width()
+            )
+
+            self.chat_container.setMinimumHeight(target_height)
+            self.chat_container.setMaximumHeight(target_height)
+
+            if self.chat_container.height() != target_height:
+                self.chat_container.resize(current_width, target_height)
+
+            self.chat_container.updateGeometry()
+            self.chat_scroll.updateGeometry()
+            return int(content_bottom)
+        except RuntimeError:
+            return 0
+
     def force_scroll_to_bottom(self):
-        self.chat_scroll.verticalScrollBar().setValue(
-            self.chat_scroll.verticalScrollBar().maximum()
-        )
+        content_bottom = self.sync_chat_container_height()
+        scroll_bar = self.chat_scroll.verticalScrollBar()
+
+        if content_bottom > 0:
+            self.chat_scroll.ensureVisible(0, content_bottom, 0, 0)
+            target_value = max(0, content_bottom - self.chat_scroll.viewport().height())
+            scroll_bar.setValue(min(target_value, scroll_bar.maximum()))
+            return
+
+        scroll_bar.setValue(scroll_bar.maximum())
+
+    def chat_scroll_is_near_bottom(self, threshold=120):
+        try:
+            content_bottom = self.sync_chat_container_height()
+            scroll_bar = self.chat_scroll.verticalScrollBar()
+
+            if content_bottom > 0:
+                target_value = max(
+                    0, content_bottom - self.chat_scroll.viewport().height()
+                )
+                return target_value <= 0 or (
+                    target_value - scroll_bar.value() <= int(threshold)
+                )
+
+            return scroll_bar.maximum() <= 0 or (
+                scroll_bar.maximum() - scroll_bar.value() <= int(threshold)
+            )
+        except RuntimeError:
+            return True
+
+    def queue_chat_scroll_to_bottom(self, should_follow=True, settle=False):
+        if not should_follow:
+            return
+
+        def follow_bottom():
+            try:
+                if settle and hasattr(self, "refresh_chat_layout"):
+                    self.refresh_chat_layout(scroll_to_bottom=True)
+                else:
+                    self.force_scroll_to_bottom()
+            except RuntimeError:
+                pass
+
+        follow_bottom()
+        QTimer.singleShot(0, follow_bottom)
+
+        if settle:
+            for delay in (40, 120, 240, 400):
+                QTimer.singleShot(delay, follow_bottom)
 
     def force_thought_scroll_to_bottom(self):
         scroll_bar = self.global_thought_box.verticalScrollBar()
@@ -5347,6 +5098,7 @@ class FZAstroAI(
 
         self.last_rendered_stream_text = snapshot
         self.last_stream_render = time.perf_counter()
+        should_follow_chat = self.chat_scroll_is_near_bottom()
 
         try:
             stream_widget.set_stream_text(snapshot)
@@ -5374,7 +5126,7 @@ class FZAstroAI(
             stream_widget.updateGeometry()
             self.chat_layout.activate()
             self.chat_container.updateGeometry()
-            QTimer.singleShot(0, self.force_scroll_to_bottom)
+            self.queue_chat_scroll_to_bottom(should_follow_chat)
 
         except RuntimeError:
             self.current_stream_widget = None
@@ -5384,8 +5136,29 @@ class FZAstroAI(
         if self.pending_stream_text != self.last_rendered_stream_text:
             self.stream_render_timer.start(self.stream_render_interval_ms)
 
-    def prepare_current_context_budget(self, model, api_messages, num_predict=0):
+    def prepare_current_context_budget(
+        self, model, api_messages, num_predict=0, context_budget_result=None
+    ):
         """Cache estimated prompt/context data for the live status label."""
+        if context_budget_result is not None:
+            self.current_prompt_context_tokens = max(
+                0, int(getattr(context_budget_result, "prompt_tokens", 0) or 0)
+            )
+            self.current_context_limit_tokens = getattr(
+                context_budget_result, "context_limit", None
+            )
+            self.current_generation_budget_tokens = max(
+                0,
+                int(getattr(context_budget_result, "generation_budget", 0) or 0),
+            )
+            self.current_context_trimmed_sections = list(
+                getattr(context_budget_result, "trimmed_sections", ()) or ()
+            )
+            self.current_context_budget_warnings = list(
+                getattr(context_budget_result, "warnings", ()) or ()
+            )
+            return
+
         self.current_prompt_context_tokens = estimate_messages_context_tokens(
             api_messages
         )
@@ -5398,6 +5171,8 @@ class FZAstroAI(
             self.current_generation_budget_tokens = max(0, int(num_predict))
         except (TypeError, ValueError):
             self.current_generation_budget_tokens = 0
+        self.current_context_trimmed_sections = []
+        self.current_context_budget_warnings = []
 
     def context_budget_status_fragment(self, output_tokens=0):
         """Return compact estimated context usage for the bottom status bar."""
@@ -5414,6 +5189,13 @@ class FZAstroAI(
             context_limit = None
 
         if context_limit and context_limit > 0:
+            if used_tokens > context_limit:
+                over_tokens = used_tokens - context_limit
+                return (
+                    f"ctx over ~{format_token_budget_count(over_tokens)}/"
+                    f"{format_token_budget_count(context_limit)}"
+                )
+
             remaining_tokens = max(0, context_limit - used_tokens)
             return (
                 f"ctx left ~{format_token_budget_count(remaining_tokens)}/"

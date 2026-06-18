@@ -1460,11 +1460,23 @@ class NinaControlDialog(QWidget):
         QTimer.singleShot(1200, self.refresh_status)
 
     def _main_window_parent(self):
-        parent = self.parent()
-        if parent is not None and hasattr(
-            parent, "try_handle_predefined_imaging_plan_command"
+        host = getattr(self, "_workspace_host", None)
+        if host is not None and (
+            hasattr(host, "try_handle_predefined_imaging_plan_command")
+            or hasattr(host, "open_astro_targets_dialog")
+            or hasattr(host, "get_pending_imaging_target_from_targets")
         ):
-            return parent
+            return host
+
+        parent = self.parentWidget()
+        while parent is not None:
+            if (
+                hasattr(parent, "try_handle_predefined_imaging_plan_command")
+                or hasattr(parent, "open_astro_targets_dialog")
+                or hasattr(parent, "get_pending_imaging_target_from_targets")
+            ):
+                return parent
+            parent = parent.parentWidget()
         return None
 
     def open_targets(self):

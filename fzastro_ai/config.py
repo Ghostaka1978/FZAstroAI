@@ -25,7 +25,7 @@ def env_float(name: str, default: float, *, minimum: float | None = None) -> flo
 
 
 APP_NAME = "FZAstro AI"
-APP_VERSION = "2.3.0"
+APP_VERSION = "2.3.1"
 APP_MILESTONE = "Imaging Production"
 APP_VERSION_LABEL = f"{APP_NAME} v{APP_VERSION} ({APP_MILESTONE})"
 DEFAULT_MODEL_NAME = (
@@ -249,6 +249,16 @@ This desktop app has a local Python subprocess runner. It can run Python code on
 Do not say that no code-execution tool is available inside this app. Also do not claim that you personally executed code unless the app has returned a Python execution result message. When asked to create Python code and test it, provide one self-contained runnable Python code block fenced as ```python. The app will execute that generated code after your response and then show stdout/stderr as a separate Python execution result.
 
 This runner is local subprocess execution with timeout, not a secure sandbox.
+"""
+
+RESPONSE_STYLE_PROMPT = r"""
+APPLICATION RESPONSE STYLE
+
+- Answer the user directly first; avoid filler and generic capability disclaimers.
+- For data-heavy replies, use compact Markdown headings, bullets, or tables so facts are scannable.
+- Preserve important numbers, dates, units, sources, and caveats; do not hide useful details.
+- Use Markdown links like [source](https://example.com) instead of raw HTML, href attributes, SourceURL fields, or long pasted URLs.
+- Do not include debug/API URLs unless the user asks for the raw endpoint; cite them as a labeled source link when relevant.
 """
 
 PYTHON_AUTO_TEST_PROMPT = r"""

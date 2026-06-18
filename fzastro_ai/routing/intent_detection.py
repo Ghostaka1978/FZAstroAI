@@ -446,6 +446,16 @@ def is_deterministic_url_tool_request(text):
 def explicitly_requests_external_information(text):
     clean = str(text or "").lower()
 
+    if (
+        not re.search(r"https?://[^\s<>\'\"]+", clean)
+        and re.search(r"\b(?:python|code|script|snippet|example|program)\b", clean)
+        and re.search(
+            r"\b(?:show|write|create|generate|make|give|print|prints|example)\b",
+            clean,
+        )
+    ):
+        return False
+
     if is_web_image_request(clean):
         # "image from page 270 from <book/pdf>" is local document routing,
         # not an external web-image request.

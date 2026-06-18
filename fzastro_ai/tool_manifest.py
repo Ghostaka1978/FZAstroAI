@@ -49,6 +49,26 @@ TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
         ("symbol",),
     ),
     ToolCapability(
+        "market.compare",
+        "Market",
+        "Compare market quotes",
+        "Fetch current quote data for multiple tracked symbols and compare them in a table.",
+        ("symbols",),
+    ),
+    ToolCapability(
+        "market.pulse",
+        "Market",
+        "Global market pulse",
+        "Fetch global indices, commodities, FX/rates, and tracked stock indicators.",
+    ),
+    ToolCapability(
+        "weather.today",
+        "Weather",
+        "Current weather",
+        "Fetch current conditions and today's forecast for a city, coordinates, or IP-derived location.",
+        ("location",),
+    ),
+    ToolCapability(
         "documents.search",
         "Documents",
         "Search documents",

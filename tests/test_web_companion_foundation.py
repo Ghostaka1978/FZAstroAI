@@ -115,10 +115,21 @@ def test_web_companion_polished_ui_routes_and_layout():
     assert "Runtime base URL" not in html
     assert "Daily News Brief" in html
     assert "/api/news/daily" in html
+    assert "weatherBtn" in html
+    assert "marketsBtn" in html
+    assert "renderTable" in html
+    assert "markdownToHtml(finalText)" in html
     assert "with_image: true" in html
     assert "/api/assets/file" in html
     assert "asset_file" in server
     assert "daily_news_endpoint" in server
+    assert "_web_chat_direct_tool_response" in server
+    assert "detect_deterministic_tool_plan" in server
+    assert "fetch_7timer_astro_forecast" in server
+    assert "plan_targets" in server
+    assert "_format_web_seeing_result" in server
+    assert "_format_web_targets_result" in server
+    assert "index_path.read_text" in server
 
 
 def test_desktop_web_companion_lan_url_copy_is_exposed():

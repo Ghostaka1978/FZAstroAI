@@ -133,8 +133,22 @@ class NewsHeaderBlock:
 
 
 @dataclass(frozen=True)
+class DailyNewsBriefBlock:
+    """Structured daily-news briefing payload with exact source metadata."""
+
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class StockQuoteBlock:
     """Structured stock quote payload produced by market tools."""
+
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class MarketPulseBlock:
+    """Structured global market pulse payload produced by market tools."""
 
     payload: dict[str, Any]
 
@@ -152,7 +166,9 @@ ContentBlock: TypeAlias = (
     | CitationBlock
     | SourceHeaderBlock
     | NewsHeaderBlock
+    | DailyNewsBriefBlock
     | StockQuoteBlock
+    | MarketPulseBlock
 )
 
 
@@ -229,5 +245,51 @@ def blocks_to_plain_text(blocks: Sequence[ContentBlock] | None) -> str:
             page = f", page {block.page}" if block.page is not None else ""
             url = f"\n{block.url}" if block.url else ""
             lines.append(f"[{block.label}] {block.source}{page}{url}".strip())
+        elif isinstance(block, DailyNewsBriefBlock):
+            payload = block.payload or {}
+            sections = []
+            for section in payload.get("sections") or []:
+                stories = [
+                    f"- {story.get('headline')} ({story.get('publisher') or 'Source'})"
+                    for story in section.get("stories") or []
+                ]
+                if stories:
+                    sections.append(
+                        f"{section.get('name') or 'News'}\n" + "\n".join(stories)
+                    )
+            lines.append(
+                "\n\n".join(
+                    [
+                        str(payload.get("title") or "Daily News Brief"),
+                        *sections,
+                    ]
+                ).strip()
+            )
+        elif isinstance(block, StockQuoteBlock):
+            payload = block.payload or {}
+            ticker = str(payload.get("ticker") or "").strip()
+            price = str(payload.get("price") or "").strip()
+            change = str(payload.get("percentage_change") or "").strip()
+            lines.append(f"[Market quote] {ticker}: {price} ({change}%)".strip())
+        elif isinstance(block, MarketPulseBlock):
+            payload = block.payload or {}
+            sections = []
+            for group in payload.get("groups") or []:
+                rows = [
+                    f"{row.get('label')}: {row.get('last')} ({row.get('change_text') or row.get('percent_change')})"
+                    for row in group.get("rows") or []
+                ]
+                if rows:
+                    sections.append(
+                        f"{group.get('name') or 'Market group'}\n" + "\n".join(rows)
+                    )
+            lines.append(
+                "\n\n".join(
+                    [
+                        str(payload.get("title") or "Global Market Pulse"),
+                        *sections,
+                    ]
+                ).strip()
+            )
 
     return "\n\n".join(line for line in lines if str(line).strip()).strip()

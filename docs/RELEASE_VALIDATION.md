@@ -1,6 +1,6 @@
-# FZAstro AI v2.3.0 Imaging Production Build and Validation
+# FZAstro AI v2.3.1 Imaging Production Build and Validation
 
-This file is the production release checklist for **FZAstro AI v2.3.0 - Imaging Production**.
+This file is the production release checklist for **FZAstro AI v2.3.1 - Imaging Production**.
 
 A build can be marked production-ready only after automated tests, release validation, and manual acceptance checks pass on the target Windows machine.
 
@@ -55,7 +55,7 @@ Recommended root deploy button:
 .\DEPLOY.bat
 ```
 
-`DEPLOY.bat` runs `scripts/deploy.ps1 -RunValidation -GitRelease`. After a successful build and validation, it stages the release changes, creates a local release commit, and creates the annotated tag from `VERSION.txt` (`v2.3.0` for this release).
+`DEPLOY.bat` runs `scripts/deploy.ps1 -RunValidation -GitRelease`. After a successful build and validation, it stages the release changes, creates a local release commit, and creates the annotated tag from `VERSION.txt` (`v2.3.1` for this release).
 
 To also push the current branch and tag:
 
@@ -77,8 +77,8 @@ The deploy/build/validation scripts use a quiet progress display by default. The
 Git release flags:
 
 - `-GitRelease` stages release changes, creates a commit, and creates the tag from `VERSION.txt`.
-- `-GitTag v2.3.0` overrides the default tag if needed.
-- `-GitCommitMessage "Release FZAstro AI v2.3.0"` overrides the default commit message.
+- `-GitTag v2.3.1` overrides the default tag if needed.
+- `-GitCommitMessage "Release FZAstro AI v2.3.1"` overrides the default commit message.
 - `-GitPush` pushes the current branch and tag to `origin` after the local commit/tag.
 - `-GitRemote` and `-GitBranch` can override the push target.
 
@@ -119,14 +119,14 @@ Validation should check:
 ### Desktop app
 
 - Launch `FZAstroAI.exe`.
-- Confirm the title/about identity is `FZAstro AI v2.3.0 (Imaging Production)`.
+- Confirm the title/about identity is `FZAstro AI v2.3.1 (Imaging Production)`.
 - Confirm normal chat works with the configured Ollama/OpenAI-compatible endpoint.
 - Confirm source chips still appear for LLM, Docs, Web, Files, Python, Memory, News, Market, and App workflows.
 - Confirm the app closes cleanly without worker shutdown errors.
 
 ### Documentation/help/about
 
-- Help and About should describe v2.3.0, not RC3 or older v2.1 text as the current release.
+- Help and About should describe v2.3.1, not RC3 or older v2.1 text as the current release.
 - Root should contain one primary `README.md`; detailed docs should live under `docs/`.
 - Root should expose one easy deploy button, `DEPLOY.bat`; PowerShell workflow logic should remain under `scripts/`.
 - Root should not contain stale installer/runtime leftovers such as `Codex Installer.exe`, `Microsoft.Services.Store.winmd`, or `DELETE_THESE_FILES.txt`.
@@ -212,10 +212,10 @@ Manual fallback if needed:
 ```powershell
 git status --short
 git add -A -- .
-git commit -m "Release FZAstro AI v2.3.0"
-git tag -a v2.3.0 -m "FZAstro AI v2.3.0"
+git commit -m "Release FZAstro AI v2.3.1"
+git tag -a v2.3.1 -m "FZAstro AI v2.3.1"
 git push origin main
-git push origin v2.3.0
+git push origin v2.3.1
 ```
 
 

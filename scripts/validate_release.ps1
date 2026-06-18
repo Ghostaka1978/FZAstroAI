@@ -501,7 +501,7 @@ Set-Content -Path $ValidationLog -Value "FZAstro AI validation log" -Encoding UT
 $script:QuietOutput = -not $VerboseOutput
 $script:WorkflowLogPath = $ValidationLog
 
-Write-Host "FZAstro AI v2.3.0 Imaging Production Validation"
+Write-Host "FZAstro AI v2.3.1 Imaging Production Validation"
 Write-Host "EXE:  $ExePath"
 Write-Host "Logs: $ValidationLog"
 Set-FZAstroBuildEnvironment -PythonPath $ResolvedPython -Root $ProjectRoot -BuildPath $BuildRoot
@@ -518,8 +518,8 @@ Write-ValidationLog -Path $ValidationLog -Value "SizeMB: $sizeMB"
 $VersionFile = Join-Path $ProjectRoot "VERSION.txt"
 if (Test-Path $VersionFile) {
     $version = (Get-Content $VersionFile -Raw).Trim()
-    if ($version -match "^2\.3\.0$") { Write-ValidationLog -Path $ValidationLog -Value "VERSION.txt reports $version" }
-    else { Write-Warning "VERSION.txt does not look like v2.3.0: $version" }
+    if ($version -match "^2\.3\.1$") { Write-ValidationLog -Path $ValidationLog -Value "VERSION.txt reports $version" }
+    else { Write-Warning "VERSION.txt does not look like v2.3.1: $version" }
 }
 else { Write-Warning "VERSION.txt not found" }
 
@@ -665,4 +665,3 @@ Write-Host ""
 Write-Host "VALIDATION SCRIPT COMPLETE"
 Write-Host "Log: $ValidationLog"
 Write-Host "Manual checklist: docs\RELEASE_VALIDATION.md"
-

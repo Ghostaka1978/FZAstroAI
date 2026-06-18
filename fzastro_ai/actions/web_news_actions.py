@@ -10,8 +10,13 @@ import uuid
 
 from PySide6.QtCore import QTimer
 
-from ..config import PYTHON_APPLICATION_CAPABILITY_PROMPT, PYTHON_AUTO_TEST_PROMPT
-from ..conversation_context import build_recent_chat_context
+from ..file_tools import has_image_attachments
+from ..llm import (
+    build_chat_request_plan,
+    find_installed_vision_model,
+    get_ollama_model_capabilities,
+    is_experimental_vision_model,
+)
 from ..logging_utils import log_debug, log_exception
 from ..memory_store import (
     normalize_persistent_memory,
@@ -20,7 +25,7 @@ from ..memory_store import (
 from ..news_tools import build_deterministic_daily_news_brief, parse_news_sources
 from ..routing.intent_detection import build_web_query as _routing_build_web_query
 from ..routing.source_tags import build_response_source_tags
-from ..workers import ChatWorker, WebDecisionWorker, WebSearchWorker
+from ..workers import ChatWorker, ToolDecisionWorker, WebSearchWorker
 
 
 def prepare_content(text, files):
@@ -28,33 +33,6 @@ def prepare_content(text, files):
     from ..app import prepare_content as _prepare_content
 
     return _prepare_content(text, files)
-
-
-def normalize_content_for_model(content, allow_images=True):
-    from ..app import normalize_content_for_model as _normalize_content_for_model
-
-    return _normalize_content_for_model(content, allow_images=allow_images)
-
-
-from ..file_tools import has_image_attachments
-
-
-def get_ollama_model_capabilities(model_name):
-    from ..app import get_ollama_model_capabilities as _get_ollama_model_capabilities
-
-    return _get_ollama_model_capabilities(model_name)
-
-
-def find_installed_vision_model(exclude_model=None):
-    from ..app import find_installed_vision_model as _find_installed_vision_model
-
-    return _find_installed_vision_model(exclude_model=exclude_model)
-
-
-def is_experimental_vision_model(model_name):
-    from ..app import is_experimental_vision_model as _is_experimental_vision_model
-
-    return _is_experimental_vision_model(model_name)
 
 
 class WebNewsActionsMixin:
@@ -542,6 +520,120 @@ class WebNewsActionsMixin:
         self.force_scroll_to_bottom()
         QTimer.singleShot(0, self.force_scroll_to_bottom)
 
+    def complete_direct_weather_response(self, display_text, user_files, weather_text):
+        """Store and render a weather result without asking the LLM to narrate it."""
+        elapsed = max(0.0, time.perf_counter() - self.request_start_time)
+        user_text = str(display_text or "").strip()
+        stored_user_content = prepare_content(user_text, user_files)
+        user_message_id = uuid.uuid4().hex
+
+        self.messages.append(
+            {
+                "id": user_message_id,
+                "role": "user",
+                "content": stored_user_content,
+                "files": list(user_files or []),
+            }
+        )
+        self.bind_latest_unbound_message_widget(user_message_id, user_role=True)
+
+        clean_weather_text = str(weather_text or "").strip()
+
+        if clean_weather_text.startswith("[WEATHER]"):
+            assistant_text = clean_weather_text.split("\n", 1)[1].strip()
+            status_text = f"Weather retrieved in {elapsed:.2f}s"
+        else:
+            assistant_text = clean_weather_text or "Weather lookup failed."
+            status_text = f"Weather lookup failed after {elapsed:.2f}s"
+
+        assistant_message_id = uuid.uuid4().hex
+        self.messages.append(
+            {
+                "id": assistant_message_id,
+                "role": "assistant",
+                "content": assistant_text,
+                "files": [],
+                "news_sources": {},
+                "response_time": elapsed,
+                "source_tags": ["app", "weather"],
+            }
+        )
+
+        self.add_message_widget(
+            ":AI: ",
+            assistant_text,
+            message_id=assistant_message_id,
+            response_time=elapsed,
+            source_tags=["app", "weather"],
+            animate=False,
+        )
+        self.current_news_sources = {}
+        self.web_worker = None
+        self.save_current_chat()
+        self.set_idle_ui_state(status_text)
+        self.force_scroll_to_bottom()
+        QTimer.singleShot(0, self.force_scroll_to_bottom)
+
+    def complete_direct_market_response(self, display_text, user_files, market_text):
+        """Store and render a market result without asking the LLM to narrate it."""
+        elapsed = max(0.0, time.perf_counter() - self.request_start_time)
+        user_text = str(display_text or "").strip()
+        stored_user_content = prepare_content(user_text, user_files)
+        user_message_id = uuid.uuid4().hex
+
+        self.messages.append(
+            {
+                "id": user_message_id,
+                "role": "user",
+                "content": stored_user_content,
+                "files": list(user_files or []),
+            }
+        )
+        self.bind_latest_unbound_message_widget(user_message_id, user_role=True)
+
+        clean_market_text = str(market_text or "").strip()
+
+        if clean_market_text.startswith("[MARKET_COMPARE]"):
+            assistant_text = clean_market_text.split("\n", 1)[1].strip()
+            status_text = f"Market comparison retrieved in {elapsed:.2f}s"
+        elif clean_market_text.startswith("[STOCK_QUOTE]"):
+            assistant_text = clean_market_text
+            status_text = f"Market quote retrieved in {elapsed:.2f}s"
+        elif clean_market_text.startswith("[MARKET_PULSE]"):
+            assistant_text = clean_market_text
+            status_text = f"Global market pulse retrieved in {elapsed:.2f}s"
+        else:
+            assistant_text = clean_market_text or "Market data lookup failed."
+            status_text = f"Market lookup failed after {elapsed:.2f}s"
+
+        assistant_message_id = uuid.uuid4().hex
+        self.messages.append(
+            {
+                "id": assistant_message_id,
+                "role": "assistant",
+                "content": assistant_text,
+                "files": [],
+                "news_sources": {},
+                "response_time": elapsed,
+                "source_tags": ["app", "market_data"],
+            }
+        )
+
+        self.add_message_widget(
+            ":AI: ",
+            assistant_text,
+            message_id=assistant_message_id,
+            response_time=elapsed,
+            source_tags=["app", "market_data"],
+            animate=False,
+        )
+        self.current_news_sources = {}
+        self.web_worker = None
+        self.save_current_chat()
+        self.set_idle_ui_state(status_text)
+        self.force_scroll_to_bottom()
+        QTimer.singleShot(0, self.force_scroll_to_bottom)
+
     def handle_daily_news_progress(self, partial_results):
         """Update the Daily News card as RSS sections finish loading.
 
@@ -564,6 +656,7 @@ class WebNewsActionsMixin:
             return
 
         elapsed = max(0.0, time.perf_counter() - self.request_start_time)
+        should_follow_chat = True
         widget = getattr(self, "current_progress_news_widget", None)
 
         if widget is None:
@@ -591,13 +684,14 @@ class WebNewsActionsMixin:
         self.stats_label.setText(
             f"Loading daily news... {len(news_sources)} sources • {elapsed:.2f}s"
         )
-        QTimer.singleShot(0, self.force_scroll_to_bottom)
+        self.queue_chat_scroll_to_bottom(should_follow_chat)
 
     def complete_direct_daily_news_response(
         self, display_text, user_files, search_results, assistant_files=None
     ):
         """Render Daily News directly instead of sending 100+ RSS items to the model."""
         elapsed = max(0.0, time.perf_counter() - self.request_start_time)
+        should_follow_chat = True
         user_text = str(display_text or "").strip()
         stored_user_content = prepare_content(user_text, user_files)
         user_message_id = uuid.uuid4().hex
@@ -655,8 +749,7 @@ class WebNewsActionsMixin:
         self.web_worker = None
         self.save_current_chat()
         self.set_idle_ui_state(f"Daily news assembled directly in {elapsed:.2f}s")
-        self.force_scroll_to_bottom()
-        QTimer.singleShot(0, self.force_scroll_to_bottom)
+        self.queue_chat_scroll_to_bottom(should_follow_chat, settle=True)
 
     def continue_send_message_after_web(
         self,
@@ -698,6 +791,14 @@ class WebNewsActionsMixin:
                 result_kind = "News retrieval"
             elif "[WEB IMAGE]" in str(search_results or ""):
                 result_kind = "Web image search"
+            elif "[WEATHER]" in str(search_results or ""):
+                result_kind = "Weather lookup"
+            elif "[STOCK_QUOTE]" in str(search_results or ""):
+                result_kind = "Market quote"
+            elif "[MARKET_COMPARE]" in str(search_results or ""):
+                result_kind = "Market comparison"
+            elif "[MARKET_PULSE]" in str(search_results or ""):
+                result_kind = "Market pulse"
 
             self.set_last_tool_result(
                 result_kind,
@@ -753,6 +854,29 @@ class WebNewsActionsMixin:
                 user_files,
                 search_results,
                 assistant_files,
+            )
+            return
+
+        if "[WEATHER]" in str(search_results or "") or str(
+            search_results or ""
+        ).startswith("Weather lookup failed"):
+            self.complete_direct_weather_response(
+                display_text if display_text is not None else original_text,
+                user_files,
+                search_results,
+            )
+            return
+
+        if (
+            "[STOCK_QUOTE]" in str(search_results or "")
+            or "[MARKET_COMPARE]" in str(search_results or "")
+            or "[MARKET_PULSE]" in str(search_results or "")
+            or str(search_results or "").startswith("Market quote failed")
+        ):
+            self.complete_direct_market_response(
+                display_text if display_text is not None else original_text,
+                user_files,
+                search_results,
             )
             return
 
@@ -1008,8 +1132,6 @@ class WebNewsActionsMixin:
                 QTimer.singleShot(0, self.force_scroll_to_bottom)
                 return
 
-        api_messages = []
-
         system_prompt = self.system_prompt.toPlainText().strip()
         python_auto_test_request = self.is_python_generate_and_test_request(
             stored_user_text
@@ -1022,7 +1144,6 @@ class WebNewsActionsMixin:
         self.persistent_memory_data = memory_data
         save_persistent_memory(memory_data)
         memory_context = ""
-        recent_chat_context = build_recent_chat_context(self.messages[:-1])
         knowledge_context = ""
         knowledge_visual_files = []
         knowledge_results = []
@@ -1197,24 +1318,6 @@ class WebNewsActionsMixin:
             except Exception as error:
                 log_exception("FZAstroAI attachment context diagnostic", error)
 
-        python_execution_context = "\n\n" + PYTHON_APPLICATION_CAPABILITY_PROMPT.strip()
-
-        if python_auto_test_request:
-            python_execution_context += "\n\n" + PYTHON_AUTO_TEST_PROMPT.strip()
-
-        combined_system_prompt = (
-            system_prompt
-            + recent_chat_context
-            + memory_context
-            + knowledge_context
-            + python_execution_context
-        )
-
-        if combined_system_prompt.strip():
-            api_messages.append(
-                {"role": "system", "content": combined_system_prompt.strip()}
-            )
-
         model = str(model_override or self.current_model_name()).strip()
         model_capabilities = get_ollama_model_capabilities(model)
 
@@ -1298,24 +1401,33 @@ class WebNewsActionsMixin:
 
         self.stats_label.setText(f"{model} • 0.00s")
 
-        for message in self.messages[:-1]:
-            api_messages.append(
-                {
-                    "role": message["role"],
-                    "content": normalize_content_for_model(
-                        message["content"], allow_images=allow_images
-                    ),
-                }
+        is_news_generation = "[NEWS HEADLINES]" in text
+        is_visual_follow_up = request_requires_vision
+        is_exhaustive_document_request = bool(
+            include_document_knowledge
+            and knowledge_query
+            and self.knowledge_library.query_requests_exhaustive_results(
+                knowledge_query
             )
-
-        api_messages.append(
-            {
-                "role": "user",
-                "content": normalize_content_for_model(
-                    request_user_content, allow_images=allow_images
-                ),
-            }
         )
+        request_plan = build_chat_request_plan(
+            system_prompt=system_prompt,
+            history_messages=self.messages[:-1],
+            current_user_content=request_user_content,
+            allow_images=allow_images,
+            model=model,
+            base_url=self.current_base_url(),
+            memory_context=memory_context,
+            knowledge_context=knowledge_context,
+            python_auto_test_request=python_auto_test_request,
+            is_news_generation=is_news_generation,
+            request_requires_vision=is_visual_follow_up,
+            is_exhaustive_document_request=is_exhaustive_document_request,
+        )
+        api_messages = request_plan.api_messages
+        context_budget = request_plan.context_budget
+        generation_settings = request_plan.generation_settings
+        num_predict = generation_settings.num_predict
 
         self.set_busy_ui_state()
 
@@ -1347,37 +1459,26 @@ class WebNewsActionsMixin:
             self.attached_files = []
             self.render_attachments()
 
-        # Daily-news prompts contain up to 140 RSS items and strict citation
-        # formatting. Thinking mode can loop over its planning/checking phase
-        # instead of reaching the final answer, so disable thinking only for
-        # this workflow. Normal conversations keep their Thoughts output.
-        is_news_generation = "[NEWS HEADLINES]" in text
+        self.stream_render_interval_ms = generation_settings.stream_render_interval_ms
 
-        # News answers are much longer than normal chat replies.  Rendering the
-        # entire growing document too frequently forces repeated word wrapping
-        # and full scroll-area relayouts on the GUI thread.  Use a calmer visual
-        # refresh cadence for news while keeping normal chat streaming fluid.
-        self.stream_render_interval_ms = 280 if is_news_generation else 90
-
-        is_visual_follow_up = request_requires_vision
-        is_exhaustive_document_request = bool(
-            include_document_knowledge
-            and knowledge_query
-            and self.knowledge_library.query_requests_exhaustive_results(
-                knowledge_query
+        if context_budget.trimmed_sections or context_budget.warnings:
+            log_debug(
+                "CONTEXT BUDGET",
+                (
+                    f"model={model}, prompt_tokens={context_budget.prompt_tokens}, "
+                    f"context_limit={context_budget.context_limit}, "
+                    f"generation_budget={context_budget.generation_budget}, "
+                    f"trimmed={context_budget.trimmed_sections}, "
+                    f"warnings={context_budget.warnings}"
+                ),
             )
+
+        self.prepare_current_context_budget(
+            model,
+            api_messages,
+            num_predict,
+            context_budget_result=context_budget,
         )
-
-        if is_news_generation:
-            num_predict = 12000
-        elif is_visual_follow_up:
-            num_predict = 1200
-        elif is_exhaustive_document_request:
-            num_predict = 12000
-        else:
-            num_predict = 4096
-
-        self.prepare_current_context_budget(model, api_messages, num_predict)
         self.stats_label.setText(
             f"{model} • 0.00s • out 0 chars/~0 tok • "
             f"{self.context_budget_status_fragment(0)} • ~0.0 tok/s"
@@ -1386,12 +1487,8 @@ class WebNewsActionsMixin:
         self.worker = ChatWorker(
             api_messages,
             model,
-            think_enabled=not (
-                is_news_generation
-                or is_visual_follow_up
-                or is_exhaustive_document_request
-            ),
-            emit_interval=(0.14 if is_news_generation else 0.07),
+            think_enabled=generation_settings.think_enabled,
+            emit_interval=generation_settings.emit_interval,
             num_predict=num_predict,
             vision_request=is_visual_follow_up,
             base_url=self.current_base_url(),
@@ -1423,38 +1520,6 @@ class WebNewsActionsMixin:
     def start_web_decision(
         self, text, display_text, files, force_search=False, model_override=None
     ):
-        # Safety guard for direct callers: local attachments should not depend on
-        # the web/tool router unless the user explicitly asks for external data.
-        # This avoids intermittent timeouts/stalls when a local vision request is
-        # sent through WebDecisionWorker in Auto mode.
-        if files and not force_search:
-            try:
-                attached_file_needs_web = bool(
-                    self.explicitly_requests_external_information(text)
-                    or self.has_explicit_http_url(text)
-                    or self.is_deterministic_url_tool_request(text)
-                )
-            except Exception as error:
-                log_exception(
-                    "FZAstroAI.start_web_decision attached-file preflight", error
-                )
-                attached_file_needs_web = False
-
-            if not attached_file_needs_web:
-                self._pending_web_request = None
-                self.current_news_sources = {}
-                self.stats_label.setText("Inspecting attached file locally... • 0.00s")
-                self.send_message_after_web(
-                    text,
-                    [],
-                    display_text=display_text,
-                    files=files,
-                    show_user=False,
-                    include_document_knowledge=False,
-                    model_override=model_override,
-                )
-                return
-
         # Document excerpts are opt-in. Direct document actions below can still
         # enable them, but ordinary chat/model routing should only use context
         # the user explicitly supplied through the app surface.
@@ -1469,63 +1534,18 @@ class WebNewsActionsMixin:
             "model_override": model_override,
         }
 
-        # Local document-page display must win before the generic web-image
-        # router.  A request can contain "image" and still mean a rendered PDF
-        # page from the Document Knowledge Library.
-        if self.is_local_document_direct_request(text, files):
-            self._pending_web_request = None
-            self.current_news_sources = {}
-            self.stats_label.setText(
-                "Using local document knowledge directly... • 0.00s"
-            )
-            self.send_message_after_web(
-                text,
-                [],
-                display_text=display_text,
-                files=files,
-                show_user=False,
-                include_document_knowledge=True,
-                model_override=model_override,
-            )
-            return
-
-        # Explicit image requests are deterministic and must not depend on the
-        # language model deciding whether web access is required. The existing
-        # web-image worker downloads and validates the image before display.
-        if (
-            not files
-            and self.is_web_image_request(text)
-            and not self.is_deterministic_url_tool_request(text)
-        ):
-            self.stats_label.setText("Preparing web image search...")
-            self.start_web_search_request(text, self._pending_web_request)
-            return
-
-        # Direct URL actions are deterministic too. Do not ask the LLM router
-        # whether to use the web when the user clearly asks to screenshot, read,
-        # extract, summarize, or analyze a specific HTTP/HTTPS page. This keeps
-        # Auto mode from answering locally and accidentally skipping Playwright.
-        if not files and self.is_deterministic_url_tool_request(text):
-            self.stats_label.setText("Preparing URL page extraction...")
-            self.start_web_search_request(text, self._pending_web_request)
-            return
-
-        # Explicit web/current-information requests are also deterministic. The
-        # LLM router is useful for ambiguous Auto-mode requests, but it should
-        # not delay obvious web searches or fail the request because a large
-        # local model timed out while deciding whether to search.
-        if force_search or (
-            not files and self.explicitly_requests_external_information(text)
-        ):
+        # Forced search is deterministic. This method otherwise starts the
+        # model-based tool router only after deterministic routing has declined.
+        if force_search:
             self.stats_label.setText("Preparing web search without model routing...")
             self.start_web_search_request(
                 self.build_web_query(text), self._pending_web_request
             )
             return
 
-        self.stats_label.setText("Deciding whether web access is required...")
+        self.stats_label.setText("Deciding whether an app tool is required...")
 
-        self.decision_worker = WebDecisionWorker(
+        self.decision_worker = ToolDecisionWorker(
             text,
             self.current_model_name(),
             force_search=force_search,
@@ -1561,10 +1581,14 @@ class WebNewsActionsMixin:
             and self.is_web_image_request(original_request_text)
         )
 
-        worker_mode = "web"
+        requested_worker_mode = str(request.get("worker_mode") or "").strip()
+        worker_mode = requested_worker_mode or "web"
         worker_query = query
 
-        if screenshot_request:
+        if requested_worker_mode:
+            worker_query = query
+
+        elif screenshot_request:
             worker_mode = "website_screenshot"
             worker_query = original_request_text
 
@@ -1587,6 +1611,18 @@ class WebNewsActionsMixin:
 
         elif worker_mode == "image":
             self.stats_label.setText(f"Searching web images: {worker_query}")
+
+        elif worker_mode == "weather":
+            self.stats_label.setText(f"Fetching weather: {worker_query}")
+
+        elif worker_mode == "stock_quote":
+            self.stats_label.setText(f"Fetching market quote: {worker_query}")
+
+        elif worker_mode == "stock_compare":
+            self.stats_label.setText(f"Comparing market quotes: {worker_query}")
+
+        elif worker_mode == "market_pulse":
+            self.stats_label.setText("Fetching global market pulse...")
 
         elif "||" in str(worker_query):
             self.stats_label.setText("Fetching daily news feeds in parallel... • 0.00s")
