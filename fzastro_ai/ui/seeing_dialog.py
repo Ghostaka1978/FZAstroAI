@@ -1028,12 +1028,12 @@ class SeeingNightPlannerWidget(QWidget):
             cloud_title = (
                 "☁ Night cloud forecast"
                 if has_dark
-                else "☁ Twilight cloud forecast"
-                if has_twilight
-                else "☁ Cloud forecast"
+                else "☁ Twilight cloud forecast" if has_twilight else "☁ Cloud forecast"
             )
             cloud_suffix = (
-                "night avg" if has_dark else "twilight avg" if has_twilight else "day avg"
+                "night avg"
+                if has_dark
+                else "twilight avg" if has_twilight else "day avg"
             )
             cloud_text = (
                 f"{cloud_pct if cloud_pct is not None else '—'}% {cloud_suffix}"
@@ -1067,9 +1067,7 @@ class SeeingNightPlannerWidget(QWidget):
             score_title = (
                 "BEST SCORE"
                 if metrics.get("has_dark")
-                else "TWILIGHT"
-                if metrics.get("has_twilight")
-                else "NO DARK"
+                else "TWILIGHT" if metrics.get("has_twilight") else "NO DARK"
             )
             painter.setPen(score_color)
             painter.drawText(
@@ -1713,7 +1711,9 @@ class SeeingDialog(QDialog):
         if "astro dark" in best_dark:
             kind = "best dark"
         elif "twilight" in best_dark or "day" in best_dark:
-            kind = "twilight fallback" if "twilight" in best_dark else "daylight fallback"
+            kind = (
+                "twilight fallback" if "twilight" in best_dark else "daylight fallback"
+            )
         else:
             kind = "best forecast"
         return f"{period_text}{kind} {best_dt.strftime('%a %d %H:%M')}"
@@ -1793,7 +1793,9 @@ class SeeingDialog(QDialog):
         total_hours = total_minutes // 60
         minutes = total_minutes % 60
         if total_hours < 48:
-            return f"{total_hours}h {minutes}m old" if minutes else f"{total_hours}h old"
+            return (
+                f"{total_hours}h {minutes}m old" if minutes else f"{total_hours}h old"
+            )
         days = total_hours // 24
         hours = total_hours % 24
         return f"{days}d {hours}h old" if hours else f"{days}d old"

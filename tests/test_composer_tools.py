@@ -218,16 +218,23 @@ def test_document_brief_display_label_does_not_drive_local_inventory_router():
 def test_imported_documents_button_keeps_explicit_chat_picker():
     app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
 
-    assert 'self.imported_documents_button = QPushButton("Imported Documents (0)")' in app_text
+    assert (
+        'self.imported_documents_button = QPushButton("Imported Documents (0)")'
+        in app_text
+    )
     assert "self.show_knowledge_documents_in_chat" in app_text
     assert 'button.setText(f"Imported Documents ({int(document_count):,})")' in app_text
 
     direct_start = app_text.index('if action_id == "documents.list_documents":')
-    direct_block = app_text[direct_start : app_text.index('if action_id == "documents.brief_document":')]
+    direct_block = app_text[
+        direct_start : app_text.index('if action_id == "documents.brief_document":')
+    ]
     assert "self.open_document_knowledge_library()" in direct_block
 
     wrapper_start = app_text.index("def show_knowledge_documents_in_chat")
-    wrapper_block = app_text[wrapper_start : app_text.index("def _show_active_knowledge_document_required")]
+    wrapper_block = app_text[
+        wrapper_start : app_text.index("def _show_active_knowledge_document_required")
+    ]
     assert "self.format_knowledge_documents_chat_picker()" in wrapper_block
     assert "self.add_message_widget" in wrapper_block
     assert "self.open_document_knowledge_library()" not in wrapper_block

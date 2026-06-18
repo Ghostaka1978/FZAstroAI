@@ -24,7 +24,10 @@ def test_chat_renderer_separates_plain_text_from_markdown_display():
         encoding="utf-8-sig"
     )
 
-    assert "def render_text_block(text, news_mode=False, user_mode=False, plain_mode=False)" in text
+    assert (
+        "def render_text_block(text, news_mode=False, user_mode=False, plain_mode=False)"
+        in text
+    )
     assert "html.escape(text).splitlines()" in text
     assert 'plain_mode=block.format == "plain"' in text
     assert 'extensions=["fenced_code", "tables", "sane_lists", "nl2br"]' in text
@@ -73,9 +76,7 @@ def test_seeing_dialog_owns_twilight_helpers_used_by_day_blocks():
 
 
 def test_main_app_hosts_tool_windows_in_workspace_tabs():
-    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(
-        encoding="utf-8-sig"
-    )
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
     workspace_text = (
         PROJECT_ROOT / "fzastro_ai" / "ui" / "workspace_tabs.py"
     ).read_text(encoding="utf-8-sig")
@@ -165,9 +166,9 @@ def test_workspace_tabs_remove_redundant_dialog_buttons():
 
 
 def test_targets_tab_prioritizes_sky_preview_and_metadata():
-    targets_text = (
-        PROJECT_ROOT / "fzastro_ai" / "ui" / "targets_dialog.py"
-    ).read_text(encoding="utf-8-sig")
+    targets_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "targets_dialog.py").read_text(
+        encoding="utf-8-sig"
+    )
     styles_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "styles.py").read_text(
         encoding="utf-8-sig"
     )
@@ -187,12 +188,10 @@ def test_targets_tab_prioritizes_sky_preview_and_metadata():
 
 
 def test_management_panels_cleanup_when_opened_as_tabs():
-    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+    memory_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "memory_dialog.py").read_text(
         encoding="utf-8-sig"
     )
-    memory_text = (
-        PROJECT_ROOT / "fzastro_ai" / "ui" / "memory_dialog.py"
-    ).read_text(encoding="utf-8-sig")
     calibration_text = (
         PROJECT_ROOT / "fzastro_ai" / "ui" / "calibration_dialog.py"
     ).read_text(encoding="utf-8-sig")

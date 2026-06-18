@@ -2701,6 +2701,7 @@ def save_benchmark_history(history: list[dict]):
 
 def open_llm_benchmark_dialog(app_window):
     if app_window is not None and hasattr(app_window, "open_workspace_tab"):
+
         def _clear_reference(_widget=None):
             try:
                 if getattr(app_window, "llm_benchmark_dialog", None) is _widget:

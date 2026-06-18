@@ -261,7 +261,9 @@ def fetch_open_meteo_hourly_weather(
         raise ValueError("Open-Meteo returned no hourly weather data.")
     zone = _safe_zoneinfo(str(payload.get("timezone") or tz or "UTC"))
     times = hourly.get("time") if isinstance(hourly.get("time"), list) else []
-    cloud = hourly.get("cloud_cover") if isinstance(hourly.get("cloud_cover"), list) else []
+    cloud = (
+        hourly.get("cloud_cover") if isinstance(hourly.get("cloud_cover"), list) else []
+    )
     temps = (
         hourly.get("temperature_2m")
         if isinstance(hourly.get("temperature_2m"), list)
@@ -321,9 +323,9 @@ def fetch_open_meteo_hourly_weather(
     current_record: dict[str, Any] = {}
     if isinstance(current_payload, dict):
         try:
-            current_dt = datetime.fromisoformat(str(current_payload.get("time"))).replace(
-                tzinfo=zone
-            )
+            current_dt = datetime.fromisoformat(
+                str(current_payload.get("time"))
+            ).replace(tzinfo=zone)
             current_record = {
                 "local_iso": current_dt.isoformat(),
                 "cloud_cover": current_payload.get("cloud_cover"),
@@ -461,7 +463,9 @@ def expand_seeing_rows_to_hourly(
         row["source_7timer_timepoint_hours"] = source_row.get("timepoint_hours")
 
         record = _weather_record_for_local_hour(weather, current, zone)
-        if record is not None and _apply_open_meteo_record_to_row(row, record, source_url):
+        if record is not None and _apply_open_meteo_record_to_row(
+            row, record, source_url
+        ):
             matched_weather += 1
         else:
             _refresh_row_sky_score(row)
@@ -482,7 +486,9 @@ def expand_seeing_rows_to_hourly(
     return matched_weather
 
 
-def apply_open_meteo_current_weather(result: dict[str, Any], weather: dict[str, Any]) -> bool:
+def apply_open_meteo_current_weather(
+    result: dict[str, Any], weather: dict[str, Any]
+) -> bool:
     """Apply Open-Meteo current conditions to the closest current planner row."""
     current_record = (
         weather.get("current") if isinstance(weather.get("current"), dict) else {}
@@ -1686,10 +1692,7 @@ def fetch_7timer_astro_forecast(
         if isinstance(payload, dict):
             age_seconds = _cache_age_seconds(cached)
             cache_age_text = _cache_age_label(age_seconds)
-            if (
-                age_seconds is None
-                or age_seconds > SEEING_CACHE_MAX_AGE_SECONDS
-            ):
+            if age_seconds is None or age_seconds > SEEING_CACHE_MAX_AGE_SECONDS:
                 saved_text = str(cached.get("saved_utc") or "unknown UTC")
                 raise RuntimeError(
                     "Live 7Timer ASTRO request failed and the cached SEEING "
@@ -1734,7 +1737,9 @@ def fetch_7timer_astro_forecast(
                         "Open-Meteo cloud unavailable; using cached 7Timer cloud "
                         f"({weather_exc})."
                     )
-                    weather_note = " Open-Meteo cloud unavailable; using cached 7Timer cloud."
+                    weather_note = (
+                        " Open-Meteo cloud unavailable; using cached 7Timer cloud."
+                    )
             if include_context:
                 result = attach_astro_context(result, include_moon_periods=True)
             result["status_note"] = (

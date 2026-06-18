@@ -324,7 +324,9 @@ def test_open_meteo_current_cloud_corrects_nearest_current_hour():
     )
 
     assert matched == 4
-    current_row = next(row for row in result["rows"] if row["local_label"] == "2026-06-18 14:00")
+    current_row = next(
+        row for row in result["rows"] if row["local_label"] == "2026-06-18 14:00"
+    )
     assert current_row["current_weather_row"] is True
     assert current_row["cloud_source"] == "Open-Meteo current"
     assert current_row["cloud_mid_pct"] == 0

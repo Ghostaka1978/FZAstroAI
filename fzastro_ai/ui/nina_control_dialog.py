@@ -2723,6 +2723,7 @@ class NinaControlDialog(QWidget):
 
 def open_nina_control_dialog(parent=None):
     if parent is not None and hasattr(parent, "open_workspace_tab"):
+
         def _clear_reference(_widget=None):
             try:
                 if getattr(parent, "nina_control_dialog", None) is _widget:

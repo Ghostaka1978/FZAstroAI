@@ -140,11 +140,7 @@ def decide_chat_route(
             force_search=clean_web_mode == "Always",
         )
 
-    if (
-        recent_image_followup
-        and latest_assistant_image_available
-        and not file_list
-    ):
+    if recent_image_followup and latest_assistant_image_available and not file_list:
         return ChatRouteDecision(
             "recent_image_followup",
             reason="Request refers to a recent assistant image.",

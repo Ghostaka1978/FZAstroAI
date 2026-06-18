@@ -376,9 +376,7 @@ class ChatLifecycleMixin:
         external_information_request = self.explicitly_requests_external_information(
             text
         )
-        recent_image_followup = bool(
-            not files and self.references_recent_image(text)
-        )
+        recent_image_followup = bool(not files and self.references_recent_image(text))
         latest_image_available = bool(
             self.latest_assistant_image_files() if recent_image_followup else []
         )

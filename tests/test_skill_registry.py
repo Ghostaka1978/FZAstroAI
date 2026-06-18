@@ -135,14 +135,8 @@ def test_new_chat_and_imported_documents_buttons_live_next_to_tools():
         in app_text
     )
     assert 'QPushButton("Imported Documents (0)")' in app_text
-    assert (
-        "self.imported_documents_button.clicked.connect("
-        in app_text
-    )
-    assert (
-        "self.show_knowledge_documents_in_chat"
-        in app_text
-    )
+    assert "self.imported_documents_button.clicked.connect(" in app_text
+    assert "self.show_knowledge_documents_in_chat" in app_text
     assert 'button.setText(f"Imported Documents ({int(document_count):,})")' in app_text
     assert "runtime_group_layout.addWidget(self.new_chat_button" not in app_text
     assert "skills_group_layout.addWidget(self.new_chat_button" not in app_text

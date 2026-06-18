@@ -1080,6 +1080,7 @@ def show_astro_lookup_dialog(
     clean_query = str(query or "M31").strip() or "M31"
 
     if parent is not None and hasattr(parent, "open_workspace_tab"):
+
         def _clear_reference(_widget=None):
             try:
                 if getattr(parent, "astro_lookup_dialog", None) is _widget:
@@ -1112,7 +1113,9 @@ def show_astro_lookup_dialog(
             dialog.set_query(clean_query, run=auto_run)
         return dialog
 
-    dialog = AstroLookupDialog(parent, imaging=imaging, query=clean_query, include_query=True)
+    dialog = AstroLookupDialog(
+        parent, imaging=imaging, query=clean_query, include_query=True
+    )
     if parent is not None:
         try:
             setattr(parent, "astro_lookup_dialog", dialog)

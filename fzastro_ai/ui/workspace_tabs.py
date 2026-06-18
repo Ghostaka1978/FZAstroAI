@@ -67,9 +67,7 @@ class WorkspaceTabsMixin:
         except Exception:
             pass
         self.workspace_apps_button = self._create_workspace_apps_button()
-        tabs.setCornerWidget(
-            self.workspace_apps_button, Qt.Corner.TopRightCorner
-        )
+        tabs.setCornerWidget(self.workspace_apps_button, Qt.Corner.TopRightCorner)
         tabs.currentChanged.connect(self._handle_workspace_tab_changed)
         return tabs
 
@@ -414,14 +412,12 @@ class WorkspaceTabsMixin:
 
     def eventFilter(self, watched, event):
         try:
-            if (
-                getattr(watched, "objectName", lambda: "")() == "workspaceTabPage"
-                and event.type()
-                in (
-                    QEvent.Type.Resize,
-                    QEvent.Type.Show,
-                    QEvent.Type.LayoutRequest,
-                )
+            if getattr(
+                watched, "objectName", lambda: ""
+            )() == "workspaceTabPage" and event.type() in (
+                QEvent.Type.Resize,
+                QEvent.Type.Show,
+                QEvent.Type.LayoutRequest,
             ):
                 widget = self._workspace_content_for_page(watched)
                 if widget is not None:
@@ -485,9 +481,7 @@ class WorkspaceTabsMixin:
         for delay_ms in (0, 16, 40, 90, 180, 320):
             QTimer.singleShot(
                 delay_ms,
-                lambda tab_widget=widget: self._sync_workspace_tab_geometry(
-                    tab_widget
-                ),
+                lambda tab_widget=widget: self._sync_workspace_tab_geometry(tab_widget),
             )
 
     def _finish_workspace_tab_close(self, widget: QWidget):

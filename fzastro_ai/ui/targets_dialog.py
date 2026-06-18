@@ -332,7 +332,9 @@ class TargetsDialog(QDialog):
         self.inline_lookup_browser.setOpenExternalLinks(True)
         self.inline_lookup_browser.setVisible(False)
         self.inline_lookup_browser.setMaximumHeight(0)
-        self.inline_lookup_browser.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.inline_lookup_browser.setSizePolicy(
+            QSizePolicy.Ignored, QSizePolicy.Ignored
+        )
         self.inline_lookup_browser.setHtml(
             self._status_html(
                 "Select a target",
@@ -711,17 +713,15 @@ class TargetsDialog(QDialog):
         if not data:
             self.inline_lookup_meta_label.setText("Type: -- | Distance: --")
             return
-        object_type = str(
-            data.get("type") or data.get("object_type") or "Object"
-        ).strip() or "--"
+        object_type = (
+            str(data.get("type") or data.get("object_type") or "Object").strip() or "--"
+        )
         distance = self._target_distance_text(data, lookup_text=lookup_text)
         self.inline_lookup_meta_label.setText(
             f"Type: {object_type} | Distance: {distance}"
         )
 
-    def _target_distance_text(
-        self, pick: dict[str, Any], lookup_text: str = ""
-    ) -> str:
+    def _target_distance_text(self, pick: dict[str, Any], lookup_text: str = "") -> str:
         for key in ("distance_text", "distance_label", "distance", "dist"):
             value = pick.get(key)
             if value is not None and str(value).strip():
@@ -1380,6 +1380,7 @@ class TargetsDialog(QDialog):
 
 def show_targets_dialog(parent=None, location: dict[str, Any] | None = None):
     if parent is not None and hasattr(parent, "open_workspace_tab"):
+
         def _clear_reference(_widget=None):
             try:
                 if getattr(parent, "astro_targets_dialog", None) is _widget:
