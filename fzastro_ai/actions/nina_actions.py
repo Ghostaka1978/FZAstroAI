@@ -15,6 +15,7 @@ from ..nina.imaging_plan import (
     IMAGING_PLAN_DIR,
     ImagingPlanResult,
     build_predefined_imaging_plan,
+    build_selected_target_imaging_plan,
     format_imaging_plan_markdown,
     parse_predefined_imaging_command,
     predefined_imaging_command_help,
@@ -34,20 +35,36 @@ class ImagingPlanWorker(QThread):
     finished_plan = Signal(object, float)
     error_received = Signal(str)
 
-    def __init__(self, command, location: dict[str, Any], imaging: dict[str, Any]):
+    def __init__(
+        self,
+        command,
+        location: dict[str, Any],
+        imaging: dict[str, Any],
+        *,
+        selected_target: dict[str, Any] | None = None,
+    ):
         super().__init__()
         self.command = command
         self.location = dict(location or {})
         self.imaging = dict(imaging or {})
+        self.selected_target = dict(selected_target or {})
 
     def run(self):
         start = time.perf_counter()
         try:
-            plan = build_predefined_imaging_plan(
-                command=self.command,
-                location=self.location,
-                imaging=self.imaging,
-            )
+            if self.selected_target:
+                plan = build_selected_target_imaging_plan(
+                    command=self.command,
+                    location=self.location,
+                    imaging=self.imaging,
+                    selected_target=self.selected_target,
+                )
+            else:
+                plan = build_predefined_imaging_plan(
+                    command=self.command,
+                    location=self.location,
+                    imaging=self.imaging,
+                )
             elapsed = max(0.0, time.perf_counter() - start)
             self.finished_plan.emit(plan, elapsed)
         except Exception as exc:
@@ -59,7 +76,7 @@ class NinaActionsMixin:
     """Main-window hooks for FZAstro Imaging / bundled N.I.N.A. integration."""
 
     def open_nina_control(self):
-        open_nina_control_dialog(self)
+        return open_nina_control_dialog(self)
 
     def open_imaging_plans_folder(self):
         """Open the generated review-plan folder without starting equipment control."""
@@ -71,6 +88,81 @@ class NinaActionsMixin:
         except Exception as exc:
             log_exception("NinaActionsMixin.open_imaging_plans_folder", exc)
             QMessageBox.warning(self, "FZAstro Imaging plans", str(exc))
+
+    def set_pending_imaging_target_from_targets(
+        self,
+        pick: dict[str, Any],
+        *,
+        planner_options: dict[str, Any] | None = None,
+        planner_result: dict[str, Any] | None = None,
+        imaging: dict[str, Any] | None = None,
+        capture: dict[str, Any] | None = None,
+        lookup_html: str = "",
+        preview_image_path: str = "",
+        framing_preview: dict[str, Any] | None = None,
+    ):
+        """Stage a user-selected TARGETS row for Imaging Control.
+
+        This is only a UI handoff. It does not create a N.I.N.A. JSON file and
+        does not request slew/guiding/capture. Imaging Control later prepares a
+        draft plan from the selected target and calculates frames from the best
+        SEEING window. TARGETS may also hand over camera/focal/exposure/gain,
+        LOOKUP details, and a thumbnail preview for review.
+        """
+
+        self.pending_imaging_target_from_targets = {
+            "pick": dict(pick or {}),
+            "planner_options": dict(planner_options or {}),
+            "planner_result": dict(planner_result or {}),
+            "imaging": dict(imaging or {}),
+            "capture": dict(capture or {}),
+            "lookup_html": str(lookup_html or ""),
+            "preview_image_path": str(preview_image_path or ""),
+            "framing_preview": dict(framing_preview or {}),
+        }
+        try:
+            self.stats_label.setText(
+                f"Selected imaging target: {pick.get('name') or 'target'}"
+            )
+        except Exception:
+            pass
+
+    def get_pending_imaging_target_from_targets(self) -> dict[str, Any] | None:
+        pending = getattr(self, "pending_imaging_target_from_targets", None)
+        return dict(pending) if isinstance(pending, dict) else None
+
+    def prepare_pending_imaging_target_plan(
+        self, *, exposure_seconds: int | None = None, gain: int | None = None
+    ) -> bool:
+        pending = self.get_pending_imaging_target_from_targets()
+        pick = dict((pending or {}).get("pick") or {})
+        target = str(pick.get("name") or "").strip()
+        if not target:
+            QMessageBox.information(
+                self, "FZAstro Imaging plan", "Select a target in TARGETS first."
+            )
+            return False
+        capture = dict((pending or {}).get("capture") or {})
+        imaging = dict((pending or {}).get("imaging") or {})
+        if imaging and hasattr(self, "set_current_astro_imaging"):
+            try:
+                self.set_current_astro_imaging(imaging)
+            except Exception:
+                pass
+        exposure_source = (
+            exposure_seconds
+            if exposure_seconds is not None
+            else capture.get("exposure_seconds", 60)
+        )
+        gain_source = gain if gain is not None else capture.get("gain", 200)
+        exposure = max(1, min(24 * 3600, int(exposure_source or 60)))
+        gain_value = max(0, min(10000, int(gain_source or 0)))
+        # Do not pass a frame count. Frames are calculated from the best SEEING
+        # imaging window and the confirmed exposure length.
+        return self.try_handle_predefined_imaging_plan_command(
+            f"/nina-plan target {target} exposure {exposure}s gain {gain_value}",
+            selected_target=pick,
+        )
 
     def maybe_auto_check_nina_updates(self):
         settings = load_settings()
@@ -100,11 +192,14 @@ class NinaActionsMixin:
             except Exception:
                 pass
 
-    def try_handle_predefined_imaging_plan_command(self, text: str) -> bool:
+    def try_handle_predefined_imaging_plan_command(
+        self, text: str, *, selected_target: dict[str, Any] | None = None
+    ) -> bool:
         """Handle safe predefined FZAstro Imaging/N.I.N.A. plan commands.
 
-        This intentionally creates review-only plan files. It does not move the
-        mount, start capture, or run a N.I.N.A. sequence automatically.
+        This intentionally creates draft review files first. The importable
+        N.I.N.A. Advanced Sequencer JSON is generated only after the user
+        confirms target/framing/capture values in FZASTRO IMAGING CONTROL.
         """
 
         command = parse_predefined_imaging_command(text)
@@ -162,10 +257,12 @@ class NinaActionsMixin:
         except Exception:
             pass
         self.set_busy_ui_state(
-            "Creating FZAstro Imaging plan from SEEING/TARGETS... • 0.00s"
+            "Creating FZAstro Imaging draft from SEEING/TARGETS... • 0.00s"
         )
 
-        worker = ImagingPlanWorker(command, location, imaging)
+        worker = ImagingPlanWorker(
+            command, location, imaging, selected_target=selected_target
+        )
         self.nina_plan_worker = worker
         worker.finished_plan.connect(self.finish_predefined_imaging_plan)
         worker.error_received.connect(self.handle_predefined_imaging_plan_error)
@@ -185,17 +282,25 @@ class NinaActionsMixin:
             pass
 
         text = format_imaging_plan_markdown(plan)
-        open_note = self._try_open_generated_nina_sequence(plan)
-        if open_note:
-            text = f"{text}\n\n{open_note}"
+        text = (
+            f"{text}\n\n"
+            "**Next step:** open FZASTRO IMAGING CONTROL, load the latest draft, "
+            "review/adjust target framing, focal length, exposure, gain, and frames, "
+            "then click **CONFIRM & GENERATE N.I.N.A. JSON**. The importable "
+            "`.nina-sequence.json` is not generated before that confirmation."
+        )
         files = [
             plan.plan_text_path,
-            plan.nina_sequence_path,
             plan.nina_xml_path,
             plan.nina_csv_path,
             plan.nina_review_path,
             plan.plan_json_path,
         ]
+        if (
+            bool(getattr(plan, "nina_sequence_confirmed", False))
+            and Path(plan.nina_sequence_path).exists()
+        ):
+            files.insert(1, plan.nina_sequence_path)
         assistant_message_id = uuid.uuid4().hex
         source_tags = ["app", "astro", "imaging", "nina"]
 
@@ -225,7 +330,7 @@ class NinaActionsMixin:
         self.chat_container.updateGeometry()
         self.force_scroll_to_bottom()
         QTimer.singleShot(0, self.force_scroll_to_bottom)
-        self.set_idle_ui_state(f"FZAstro Imaging plan ready • {float(elapsed):.2f}s")
+        self.set_idle_ui_state(f"FZAstro Imaging draft ready • {float(elapsed):.2f}s")
 
     def _try_open_generated_nina_sequence(self, plan: ImagingPlanResult) -> str:
         """Launch FZAstro Imaging and attempt to open the generated sequence file.

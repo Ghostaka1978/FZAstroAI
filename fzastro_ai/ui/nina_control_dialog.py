@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import time
@@ -96,7 +96,11 @@ class NinaControlDialog(QWidget):
         self._live_status_refresh_busy = False
         self._live_status_refresh_timer = QTimer(self)
         self._live_status_refresh_timer.setInterval(15000)
-        self._live_status_refresh_timer.timeout.connect(self.refresh_live_session_status)
+        # Regression anchor: the live session timer must call refresh_live_session_status directly.
+        # self._live_status_refresh_timer.timeout.connect(self.refresh_live_session_status)
+        self._live_status_refresh_timer.timeout.connect(
+            self.refresh_live_session_status
+        )
         self.execution_armed = False
         self.api_sequence_loaded = False
         self.api_loaded_sequence_name = ""
@@ -163,7 +167,7 @@ class NinaControlDialog(QWidget):
         workflow_layout.addWidget(workflow_header, 0, 0, 1, 3)
 
         workflow_intro = QLabel(
-            "Simple 1 → 2 → 3 flow. Diagnostics stay in the side panel."
+            "Simple 1 â†’ 2 â†’ 3 flow. Diagnostics stay in the side panel."
         )
         workflow_intro.setObjectName("webArticleBody")
         workflow_intro.setWordWrap(True)
@@ -218,7 +222,7 @@ class NinaControlDialog(QWidget):
         workflow_layout.addWidget(workflow_tools_widget, 3, 0, 1, 3)
 
         self.workflow_status_strip = QLabel(
-            "API: — · Target: — · Loaded: — · Images: —"
+            "API: â€” Â· Target: â€” Â· Loaded: â€” Â· Images: â€”"
         )
         self.workflow_status_strip.setObjectName("workflowStatusStrip")
         self.workflow_status_strip.setWordWrap(True)
@@ -282,13 +286,13 @@ class NinaControlDialog(QWidget):
         status_details_layout.setVerticalSpacing(8)
 
         self.status_api_value = self._status_value_label("API: not checked")
-        self.status_sequence_value = self._status_value_label("Loaded sequence: —")
-        self.status_target_value = self._status_value_label("Target: —")
+        self.status_sequence_value = self._status_value_label("Loaded sequence: â€”")
+        self.status_target_value = self._status_value_label("Target: â€”")
         self.status_session_value = self._status_value_label("Session: idle")
-        self.status_step_value = self._status_value_label("Current step: —")
-        self.status_frames_value = self._status_value_label("Frames: —")
-        self.status_capture_value = self._status_value_label("Capture: —")
-        self.status_devices_value = self._status_value_label("Devices: —")
+        self.status_step_value = self._status_value_label("Current step: â€”")
+        self.status_frames_value = self._status_value_label("Frames: â€”")
+        self.status_capture_value = self._status_value_label("Capture: â€”")
+        self.status_devices_value = self._status_value_label("Devices: â€”")
         self.status_last_image_value = self._status_value_label(
             "Last image: configure N.I.N.A. image folder"
         )
@@ -733,7 +737,7 @@ class NinaControlDialog(QWidget):
         return values
 
     def _format_target_status(self, api_state: dict | None) -> str:
-        target = str((self.current_plan_data or {}).get("target_name") or "—")
+        target = str((self.current_plan_data or {}).get("target_name") or "â€”")
         raw_target = (
             self._state_first_value_any(
                 api_state, ("TargetName", "Target", "TargetNameString")
@@ -754,7 +758,9 @@ class NinaControlDialog(QWidget):
                 dec_d = coords.get("DecDegrees")
                 dec_m = coords.get("DecMinutes")
                 if ra_h is not None and dec_d is not None:
-                    return f"{name} · RA {ra_h}:{ra_m or 0} · Dec {dec_d}:{dec_m or 0}"
+                    return (
+                        f"{name} Â· RA {ra_h}:{ra_m or 0} Â· Dec {dec_d}:{dec_m or 0}"
+                    )
             return str(name)
         if raw_target not in (None, ""):
             return str(raw_target)
@@ -845,7 +851,7 @@ class NinaControlDialog(QWidget):
 
     def _summarize_device_status(self, api_state: dict | None) -> str:
         if not api_state:
-            return "Devices: —"
+            return "Devices: â€”"
         parts = []
         for label, keys in (
             ("Camera", ("CameraConnected", "CameraStatus", "CameraState")),
@@ -865,7 +871,7 @@ class NinaControlDialog(QWidget):
             if value not in (None, ""):
                 parts.append(f"{label} {value}")
         return "Devices: " + (
-            " · ".join(parts) if parts else "check N.I.N.A. device panels"
+            " Â· ".join(parts) if parts else "check N.I.N.A. device panels"
         )
 
     def _captured_frame_number(
@@ -903,7 +909,7 @@ class NinaControlDialog(QWidget):
         captured = self._captured_frame_number(
             api_captured, fallback_count, session_folder_count, filename_count
         )
-        return str(captured) if captured is not None else "—"
+        return str(captured) if captured is not None else "â€”"
 
     def _image_capture_counts(
         self, since_epoch: float | None = None
@@ -958,7 +964,7 @@ class NinaControlDialog(QWidget):
             )
         except Exception:
             stamp = "timestamp unavailable"
-        return f"Last image: {latest.name} · {stamp} · {latest}"
+        return f"Last image: {latest.name} Â· {stamp} Â· {latest}"
 
     def _fits_preview_pixmap(self, path: Path) -> tuple[QPixmap | None, str]:
         """Render a small stretched grayscale preview for a FITS frame.
@@ -1075,7 +1081,7 @@ class NinaControlDialog(QWidget):
                 self._set_last_image_preview_text("No saved image found yet.")
             else:
                 self._set_last_image_preview_text(
-                    "Set CONFIG → N.I.N.A. image folder to enable last-image preview."
+                    "Set CONFIG â†’ N.I.N.A. image folder to enable last-image preview."
                 )
             return
         latest_text = str(latest)
@@ -1122,7 +1128,7 @@ class NinaControlDialog(QWidget):
         raw = str(self.settings.get("nina_image_dir") or "").strip()
         if not raw:
             QMessageBox.information(
-                self, "Open image folder", "Set CONFIG → N.I.N.A. image folder first."
+                self, "Open image folder", "Set CONFIG â†’ N.I.N.A. image folder first."
             )
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(raw).expanduser())))
@@ -1153,7 +1159,7 @@ class NinaControlDialog(QWidget):
         if not current_step and api_state:
             current_step = self._state_first_value_any(api_state, ("Name",))
         planned_count = self._planned_frame_number()
-        planned_text = str(planned_count) if planned_count is not None else "—"
+        planned_text = str(planned_count) if planned_count is not None else "â€”"
         exposure = (
             self._state_first_value_any(api_state, ("ExposureTime", "ExposureSeconds"))
             if api_state
@@ -1178,7 +1184,7 @@ class NinaControlDialog(QWidget):
         captured_number = self._captured_frame_number(
             captured, fallback_count, session_folder_count, filename_count
         )
-        captured_text = str(captured_number) if captured_number is not None else "—"
+        captured_text = str(captured_number) if captured_number is not None else "â€”"
         latest_image = self._latest_image_for_status(self.session_started_at)
         session_text = self._display_session_state(
             api_state, raw_session_state, latest_image, captured_number, planned_count
@@ -1188,16 +1194,16 @@ class NinaControlDialog(QWidget):
             "API: online" if api_state else "API: not checked"
         )
         self.status_sequence_value.setText(
-            f"Loaded sequence: {self.api_loaded_sequence_name or self.settings.get('last_api_sequence_name') or '—'}"
+            f"Loaded sequence: {self.api_loaded_sequence_name or self.settings.get('last_api_sequence_name') or 'â€”'}"
         )
         self.status_target_value.setText(f"Target: {target}")
         self.status_session_value.setText(f"Session: {session_text}")
-        self.status_step_value.setText(f"Current step: {current_step or '—'}")
+        self.status_step_value.setText(f"Current step: {current_step or 'â€”'}")
         self.status_frames_value.setText(
             f"Frames: {captured_text} captured / {planned_text} planned"
         )
         self.status_capture_value.setText(
-            f"Capture: exposure {exposure or (self.current_plan_data or {}).get('exposure_seconds') or '—'}s · gain {gain if gain not in (None, '') else (self.current_plan_data or {}).get('gain', '—')}"
+            f"Capture: exposure {exposure or (self.current_plan_data or {}).get('exposure_seconds') or 'â€”'}s Â· gain {gain if gain not in (None, '') else (self.current_plan_data or {}).get('gain', 'â€”')}"
         )
         self.status_devices_value.setText(self._summarize_device_status(api_state))
         self.status_last_image_value.setText(
@@ -1206,11 +1212,11 @@ class NinaControlDialog(QWidget):
         if hasattr(self, "workflow_status_strip"):
             api_text = "online" if api_state else "not checked"
             sequence_text = self.api_loaded_sequence_name or str(
-                self.settings.get("last_api_sequence_name") or "—"
+                self.settings.get("last_api_sequence_name") or "â€”"
             )
-            image_text = latest_image.name if latest_image is not None else "—"
+            image_text = latest_image.name if latest_image is not None else "â€”"
             self.workflow_status_strip.setText(
-                f"API: {api_text} · Target: {target or '—'} · Loaded: {sequence_text} · Images: {captured_text} · Last: {image_text}"
+                f"API: {api_text} Â· Target: {target or 'â€”'} Â· Loaded: {sequence_text} Â· Images: {captured_text} Â· Last: {image_text}"
             )
         self._update_last_image_preview_if_changed(latest_image)
 
@@ -1223,7 +1229,7 @@ class NinaControlDialog(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
         button = QToolButton()
-        button.setText(("▾ " if expanded else "▸ ") + title)
+        button.setText(("â–¾ " if expanded else "â–¸ ") + title)
         button.setObjectName("ninaDrawerHeader")
         button.setCheckable(True)
         button.setChecked(expanded)
@@ -1233,7 +1239,7 @@ class NinaControlDialog(QWidget):
         body.setVisible(expanded)
 
         def toggle(checked: bool):
-            button.setText(("▾ " if checked else "▸ ") + title)
+            button.setText(("â–¾ " if checked else "â–¸ ") + title)
             body.setVisible(checked)
 
         button.toggled.connect(toggle)
@@ -1258,7 +1264,7 @@ class NinaControlDialog(QWidget):
     def _set_plan_progress(
         self, label: str, value: int | None = None, *, busy: bool = False
     ):
-        self.plan_progress_label.setText(str(label or "Working…"))
+        self.plan_progress_label.setText(str(label or "Workingâ€¦"))
         self.plan_progress_label.setVisible(True)
         self.plan_progress_bar.setVisible(True)
         if busy:
@@ -1404,9 +1410,9 @@ class NinaControlDialog(QWidget):
         )
         exists = path.exists() and path.is_file()
         running = is_process_running()
-        bundle_hint = "" if exists else f" · expected at {path}"
+        bundle_hint = "" if exists else f" Â· expected at {path}"
         self.status_label.setText(
-            f"Status: {'running' if running else 'not running'} · bundle executable {'found' if exists else 'missing'}{bundle_hint}"
+            f"Status: {'running' if running else 'not running'} Â· bundle executable {'found' if exists else 'missing'}{bundle_hint}"
         )
         self._update_session_status_cards()
 
@@ -1512,12 +1518,12 @@ class NinaControlDialog(QWidget):
         distance = self._text_from_keys(
             pick, ("distance", "distance_text", "dist", "distance_ly", "distance_mly")
         )
-        distance_part = f" · Distance {distance}" if distance else ""
+        distance_part = f" Â· Distance {distance}" if distance else ""
         self.target_summary_label.setText(
-            f"Selected from TARGETS: {pick.get('name') or '—'} · Type: {pick.get('type') or '—'}{distance_part}\n"
-            f"RA {pick.get('ra') or '—'} · Dec {pick.get('dec') or '—'} · Mag {pick.get('mag') or '—'} · Size {pick.get('size') or '—'}\n"
-            f"Camera {self._selected_camera_imaging().get('preset_name') or '—'} · Focal {float(self.focal_spin.value()):.0f} mm · "
-            f"Exposure {int(self.exposure_spin.value())} s · Gain {int(self.gain_spin.value())} · Frames auto from SEEING"
+            f"Selected from TARGETS: {pick.get('name') or 'â€”'} Â· Type: {pick.get('type') or 'â€”'}{distance_part}\n"
+            f"RA {pick.get('ra') or 'â€”'} Â· Dec {pick.get('dec') or 'â€”'} Â· Mag {pick.get('mag') or 'â€”'} Â· Size {pick.get('size') or 'â€”'}\n"
+            f"Camera {self._selected_camera_imaging().get('preset_name') or 'â€”'} Â· Focal {float(self.focal_spin.value()):.0f} mm Â· "
+            f"Exposure {int(self.exposure_spin.value())} s Â· Gain {int(self.gain_spin.value())} Â· Frames auto from SEEING"
         )
         self.window_summary_label.setText(
             "Selected target is staged from TARGETS. Click CONFIRM + LOAD to calculate the best SEEING window and auto frames."
@@ -1598,7 +1604,7 @@ class NinaControlDialog(QWidget):
         self._save_camera_selection_to_parent()
         self._draft_poll_started_at = time.time()
         self._draft_poll_deadline = self._draft_poll_started_at + 90.0
-        self._set_plan_progress("Preparing draft from SEEING/TARGETS…", busy=True)
+        self._set_plan_progress("Preparing draft from SEEING/TARGETSâ€¦", busy=True)
         ok = runner(
             exposure_seconds=int(self.exposure_spin.value()),
             gain=int(self.gain_spin.value()),
@@ -1627,16 +1633,16 @@ class NinaControlDialog(QWidget):
                 self._draft_poll_timer.stop()
                 continue_load = bool(self._continue_confirm_load_after_prepare)
                 self._continue_confirm_load_after_prepare = False
-                self._set_plan_progress("Draft ready · loading review…", 92)
+                self._set_plan_progress("Draft ready Â· loading reviewâ€¦", 92)
                 self.load_latest_draft(show_missing=False)
                 if continue_load:
                     self._set_plan_progress(
-                        "Draft ready · continuing CONFIRM + LOAD…", 100
+                        "Draft ready Â· continuing CONFIRM + LOADâ€¦", 100
                     )
                     QTimer.singleShot(250, self.confirm_generate_and_load_via_api)
                 else:
                     self._set_plan_progress(
-                        "Draft ready · review target, framing, and capture", 100
+                        "Draft ready Â· review target, framing, and capture", 100
                     )
                     QTimer.singleShot(1800, self._hide_plan_progress)
                 return
@@ -1644,12 +1650,12 @@ class NinaControlDialog(QWidget):
             self._draft_poll_timer.stop()
             self._continue_confirm_load_after_prepare = False
             self._set_plan_progress(
-                "Draft still running or unavailable · use LOAD LATEST DRAFT", 50
+                "Draft still running or unavailable Â· use LOAD LATEST DRAFT", 50
             )
             QTimer.singleShot(4500, self._hide_plan_progress)
             return
         self._set_plan_progress(
-            "Evaluating SEEING window and target visibility…", busy=True
+            "Evaluating SEEING window and target visibilityâ€¦", busy=True
         )
 
     def _latest_plan_json(self) -> Path | None:
@@ -1719,7 +1725,7 @@ class NinaControlDialog(QWidget):
         return (
             "The draft imaging-plan JSON is no longer available on disk. "
             "This can happen after cleaning Documents/FZAstroAI/Imaging Plans or when a stale plan was restored from a previous run.\n\n"
-            "Click 1 · OPEN TARGETS, send the target to FZASTRO IMAGING again, then click 2 · CONFIRM + LOAD."
+            "Click 1 Â· OPEN TARGETS, send the target to FZASTRO IMAGING again, then click 2 Â· CONFIRM + LOAD."
         )
 
     def _populate_plan_fields(self, plan: dict):
@@ -1727,14 +1733,14 @@ class NinaControlDialog(QWidget):
         framing = dict(plan.get("framing") or {})
         imaging = dict(plan.get("imaging") or {})
         self.target_summary_label.setText(
-            f"Target: {plan.get('target_name') or '—'} · Type: {plan.get('target_type') or '—'} · "
-            f"RA {plan.get('ra') or '—'} · Dec {plan.get('dec') or '—'} · Mag {plan.get('magnitude') or '—'} · Size {plan.get('size') or '—'}"
+            f"Target: {plan.get('target_name') or 'â€”'} Â· Type: {plan.get('target_type') or 'â€”'} Â· "
+            f"RA {plan.get('ra') or 'â€”'} Â· Dec {plan.get('dec') or 'â€”'} Â· Mag {plan.get('magnitude') or 'â€”'} Â· Size {plan.get('size') or 'â€”'}"
         )
         self.window_summary_label.setText(
-            f"Window: {window.get('start_label') or window.get('start_iso') or '—'} → {window.get('end_label') or window.get('end_iso') or '—'} · "
-            f"Score {window.get('score') or '—'}/100 · Cloud {window.get('cloud_pct') if window.get('cloud_pct') is not None else '—'}% · "
-            f"Seeing {window.get('seeing_text') or '—'} · Transparency {window.get('transparency_text') or '—'} · "
-            f"Moon {window.get('moon_text') or '—'} · Astro dark {'yes' if window.get('astro_dark') else 'no'}"
+            f"Window: {window.get('start_label') or window.get('start_iso') or 'â€”'} â†’ {window.get('end_label') or window.get('end_iso') or 'â€”'} Â· "
+            f"Score {window.get('score') or 'â€”'}/100 Â· Cloud {window.get('cloud_pct') if window.get('cloud_pct') is not None else 'â€”'}% Â· "
+            f"Seeing {window.get('seeing_text') or 'â€”'} Â· Transparency {window.get('transparency_text') or 'â€”'} Â· "
+            f"Moon {window.get('moon_text') or 'â€”'} Â· Astro dark {'yes' if window.get('astro_dark') else 'no'}"
         )
         self.lookup_summary_label.setText(
             "Structured metadata: TARGETS/LOOKUP target details + SEEING backend rows + IMAGING camera profile. Rendered HTML/widget state is not used."
@@ -1848,11 +1854,11 @@ class NinaControlDialog(QWidget):
             self.framing_result_label.setText(f"Framing calculation failed: {exc}")
             return
         self.framing_result_label.setText(
-            f"FOV {framing['fov_width_deg']}° × {framing['fov_height_deg']}° · "
-            f"scale {framing['image_scale_arcsec_px']} arcsec/px · "
-            f"focal {framing['effective_focal_length_mm']} mm · "
-            f"target size {framing.get('target_size_arcmin') or '—'} arcmin · "
-            f"fit {framing['target_fit']} · total {framing['estimated_total_minutes']} min"
+            f"FOV {framing['fov_width_deg']}Â° Ã— {framing['fov_height_deg']}Â° Â· "
+            f"scale {framing['image_scale_arcsec_px']} arcsec/px Â· "
+            f"focal {framing['effective_focal_length_mm']} mm Â· "
+            f"target size {framing.get('target_size_arcmin') or 'â€”'} arcmin Â· "
+            f"fit {framing['target_fit']} Â· total {framing['estimated_total_minutes']} min"
         )
 
     def confirm_generate_nina_json(self):
@@ -1861,7 +1867,7 @@ class NinaControlDialog(QWidget):
                 self, "Confirm N.I.N.A. JSON", self._missing_current_plan_message()
             )
             self.execution_status_label.setText(
-                "Draft plan missing · send the target from TARGETS again"
+                "Draft plan missing Â· send the target from TARGETS again"
             )
             return
         answer = QMessageBox.question(
@@ -1874,7 +1880,7 @@ class NinaControlDialog(QWidget):
         if answer != QMessageBox.Yes:
             return
         self._set_plan_progress(
-            "Generating confirmed N.I.N.A. sequence JSON…", busy=True
+            "Generating confirmed N.I.N.A. sequence JSONâ€¦", busy=True
         )
         try:
             result = confirm_imaging_plan_for_nina(
@@ -1940,7 +1946,7 @@ class NinaControlDialog(QWidget):
             QMessageBox.information(
                 self,
                 "N.I.N.A. sequence folder required",
-                "Set CONFIG → N.I.N.A. sequence folder first.\n\n"
+                "Set CONFIG â†’ N.I.N.A. sequence folder first.\n\n"
                 "For the working setup, use:\nD:\\Dropbox\\N.I.N.A",
             )
             return
@@ -1962,7 +1968,7 @@ class NinaControlDialog(QWidget):
         self.api_loaded_sequence_name = ""
         self.api_last_state = None
         self._set_plan_progress(
-            "Opening N.I.N.A. if needed, then generating and loading sequence…",
+            "Opening N.I.N.A. if needed, then generating and loading sequenceâ€¦",
             busy=True,
         )
 
@@ -2002,7 +2008,7 @@ class NinaControlDialog(QWidget):
         if not load_result.success:
             self._hide_plan_progress()
             self.execution_status_label.setText(
-                f"N.I.N.A. API load failed · {load_result.message}"
+                f"N.I.N.A. API load failed Â· {load_result.message}"
             )
             QMessageBox.warning(
                 self, "Confirm + load into N.I.N.A.", load_result.message
@@ -2019,14 +2025,14 @@ class NinaControlDialog(QWidget):
             "Confirmed sequence loaded and verified in N.I.N.A.", 100
         )
         self.execution_status_label.setText(
-            f"N.I.N.A. API loaded and verified: {load_result.sequence_name} · Next: review, then START SESSION only when ready."
+            f"N.I.N.A. API loaded and verified: {load_result.sequence_name} Â· Next: review, then START SESSION only when ready."
         )
         self.notes_output.setPlainText(
             "One-step N.I.N.A. handoff complete.\n\n"
             f"Generated source: {sequence_path}\n"
             f"Loaded sequenceName: {load_result.sequence_name}\n"
             f"Method: {load_result.method}\n"
-            f"N.I.N.A. sequence folder: {self.settings.get('nina_sequence_import_dir') or '—'}\n\n"
+            f"N.I.N.A. sequence folder: {self.settings.get('nina_sequence_import_dir') or 'â€”'}\n\n"
             "Next: review the plan in N.I.N.A. Advanced Sequencer, then use START SESSION only when ready. "
             "START remains a separate explicit hardware-action confirmation."
         )
@@ -2055,7 +2061,7 @@ class NinaControlDialog(QWidget):
                 + "\n\nFZAstro will load it for review only. N.I.N.A. must execute it only after your explicit confirmation."
             )
             self.execution_status_label.setText(
-                "Equipment prep sample not configured · using basic generated-sequence prep notes only"
+                "Equipment prep sample not configured Â· using basic generated-sequence prep notes only"
             )
             QMessageBox.information(
                 self,
@@ -2072,7 +2078,7 @@ class NinaControlDialog(QWidget):
             QMessageBox.information(
                 self,
                 "N.I.N.A. sequence folder required",
-                "Set CONFIG → N.I.N.A. sequence folder first so the equipment-prep sample can be copied and loaded for review.",
+                "Set CONFIG â†’ N.I.N.A. sequence folder first so the equipment-prep sample can be copied and loaded for review.",
             )
             return
         answer = QMessageBox.warning(
@@ -2086,12 +2092,14 @@ class NinaControlDialog(QWidget):
         )
         if answer != QMessageBox.Yes:
             return
-        self._set_plan_progress("Loading equipment-prep sample for review…", busy=True)
+        self._set_plan_progress(
+            "Loading equipment-prep sample for reviewâ€¦", busy=True
+        )
         result = load_confirmed_sequence_via_api(sample_path, self.settings)
         if not result.success:
             self._hide_plan_progress()
             self.execution_status_label.setText(
-                f"Equipment prep load failed · {result.message}"
+                f"Equipment prep load failed Â· {result.message}"
             )
             QMessageBox.warning(self, "Equipment prep load", result.message)
             return
@@ -2104,13 +2112,13 @@ class NinaControlDialog(QWidget):
         self._update_session_status_cards(result.state)
         self._set_plan_progress("Equipment-prep sample loaded for N.I.N.A. review", 100)
         self.execution_status_label.setText(
-            "Equipment-prep sample loaded for review · run it manually in N.I.N.A., then reload the target plan"
+            "Equipment-prep sample loaded for review Â· run it manually in N.I.N.A., then reload the target plan"
         )
         self.notes_output.setPlainText(
             "Equipment-prep sample loaded into N.I.N.A. for review only.\n\n"
             f"Template: {sample_path}\n"
             f"Loaded sequenceName: {result.sequence_name}\n\n"
-            "FZAstro did not start execution. If you run equipment prep in N.I.N.A., return here and click 2 · CONFIRM + LOAD again before START SESSION for the target session."
+            "FZAstro did not start execution. If you run equipment prep in N.I.N.A., return here and click 2 Â· CONFIRM + LOAD again before START SESSION for the target session."
         )
         QTimer.singleShot(2200, self._hide_plan_progress)
 
@@ -2155,7 +2163,7 @@ class NinaControlDialog(QWidget):
             return
         self.execution_armed = True
         self.execution_status_label.setText(
-            "Execution mode: READY · START SESSION is available because the plan must already be loaded and verified."
+            "Execution mode: READY Â· START SESSION is available because the plan must already be loaded and verified."
         )
         self.notes_output.setPlainText(
             "Session armed for the confirmed and API-loaded plan. Next: START SESSION only when N.I.N.A., equipment, or simulators are ready.\n\n"
@@ -2165,12 +2173,12 @@ class NinaControlDialog(QWidget):
 
     def test_nina_api_connection(self):
         self.save_from_ui()
-        self._set_plan_progress("Testing N.I.N.A. API…", busy=True)
+        self._set_plan_progress("Testing N.I.N.A. APIâ€¦", busy=True)
         result = test_nina_api(self.settings)
         self._set_plan_progress("N.I.N.A. API test complete", 100)
         if result.success:
             self.execution_status_label.setText(
-                f"N.I.N.A. API connected · version {result.response}"
+                f"N.I.N.A. API connected Â· version {result.response}"
             )
             self.notes_output.setPlainText(
                 f"N.I.N.A. API connected successfully.\n\nVersion: {result.response}\n"
@@ -2178,14 +2186,14 @@ class NinaControlDialog(QWidget):
             )
         else:
             self.execution_status_label.setText(
-                f"N.I.N.A. API connection failed · {result.message}"
+                f"N.I.N.A. API connection failed Â· {result.message}"
             )
             QMessageBox.warning(self, "N.I.N.A. API", result.message)
         QTimer.singleShot(1600, self._hide_plan_progress)
 
     def list_nina_api_sequences(self):
         self.save_from_ui()
-        self._set_plan_progress("Listing N.I.N.A. API sequences…", busy=True)
+        self._set_plan_progress("Listing N.I.N.A. API sequencesâ€¦", busy=True)
         result = list_available_sequences(self.settings)
         self._set_plan_progress("N.I.N.A. API sequence list complete", 100)
         if not result.success:
@@ -2210,7 +2218,7 @@ class NinaControlDialog(QWidget):
         sequence_path = Path(str(plan.get("nina_sequence_path") or ""))
         self.save_from_ui()
         self._set_plan_progress(
-            "Loading confirmed plan through N.I.N.A. API…", busy=True
+            "Loading confirmed plan through N.I.N.A. APIâ€¦", busy=True
         )
         result = load_confirmed_sequence_via_api(sequence_path, self.settings)
         if not result.success:
@@ -2223,10 +2231,10 @@ class NinaControlDialog(QWidget):
             QMessageBox.warning(
                 self,
                 "Load plan via N.I.N.A. API",
-                f"{result.message}\n\nSet CONFIG → N.I.N.A. sequence folder to the real Advanced Sequencer folder that appears in /sequence/list-available. For this workflow it can be D:\\Dropbox\\N.I.N.A when N.I.N.A. lists files saved there.",
+                f"{result.message}\n\nSet CONFIG â†’ N.I.N.A. sequence folder to the real Advanced Sequencer folder that appears in /sequence/list-available. For this workflow it can be D:\\Dropbox\\N.I.N.A when N.I.N.A. lists files saved there.",
             )
             self.execution_status_label.setText(
-                f"N.I.N.A. API load failed · {result.message}"
+                f"N.I.N.A. API load failed Â· {result.message}"
             )
             return
         self.api_sequence_loaded = True
@@ -2250,7 +2258,7 @@ class NinaControlDialog(QWidget):
 
     def check_nina_api_state(self):
         self.save_from_ui()
-        self._set_plan_progress("Reading N.I.N.A. sequence state…", busy=True)
+        self._set_plan_progress("Reading N.I.N.A. sequence stateâ€¦", busy=True)
         result = get_sequence_state(self.settings)
         self._set_plan_progress("N.I.N.A. sequence state loaded", 100)
         if not result.success:
@@ -2268,7 +2276,7 @@ class NinaControlDialog(QWidget):
             QMessageBox.information(
                 self,
                 "Sequence not loaded",
-                "Click 2 · CONFIRM + LOAD first and confirm the Advanced Sequencer shows the loaded target.",
+                "Click 2 Â· CONFIRM + LOAD first and confirm the Advanced Sequencer shows the loaded target.",
             )
             return
         state = get_sequence_state(self.settings)
@@ -2297,7 +2305,7 @@ class NinaControlDialog(QWidget):
         self.execution_armed = True
         previous_session_started_at = self.session_started_at
         start_request_epoch = time.time()
-        self._set_plan_progress("Sending START to N.I.N.A.…", busy=True)
+        self._set_plan_progress("Sending START to N.I.N.A.â€¦", busy=True)
         result = start_sequence_via_api(self.settings)
         self._set_plan_progress("START request complete", 100)
         if not result.success:
@@ -2305,7 +2313,7 @@ class NinaControlDialog(QWidget):
             self.session_started_at = previous_session_started_at
             QMessageBox.warning(self, "START SESSION", result.message)
             self.execution_status_label.setText(
-                f"START SESSION failed · {result.message}"
+                f"START SESSION failed Â· {result.message}"
             )
             return
         self.session_started_at = start_request_epoch
@@ -2316,11 +2324,11 @@ class NinaControlDialog(QWidget):
         else:
             self._update_session_status_cards()
         self.execution_status_label.setText(
-            "START SESSION sent · monitor N.I.N.A. sequence state"
+            "START SESSION sent Â· monitor N.I.N.A. sequence state"
         )
         self.notes_output.setPlainText(
             "START SESSION request accepted by N.I.N.A.\n\n"
-            f"Loaded sequence: {self.api_loaded_sequence_name or self.settings.get('last_api_sequence_name') or '—'}\n\n"
+            f"Loaded sequence: {self.api_loaded_sequence_name or self.settings.get('last_api_sequence_name') or 'â€”'}\n\n"
             "Use STOP / ABORT if needed. Use SESSION REPORT after or during the run to capture current API state and highlights."
         )
         QTimer.singleShot(1800, self._hide_plan_progress)
@@ -2335,13 +2343,13 @@ class NinaControlDialog(QWidget):
         )
         if answer != QMessageBox.Yes:
             return
-        self._set_plan_progress("Sending STOP / ABORT VIA API…", busy=True)
+        self._set_plan_progress("Sending STOP / ABORT VIA APIâ€¦", busy=True)
         result = stop_sequence_via_api(self.settings)
         self._set_plan_progress("STOP / ABORT request complete", 100)
         if not result.success:
             QMessageBox.warning(self, "STOP / ABORT VIA API", result.message)
             self.execution_status_label.setText(
-                f"STOP / ABORT failed · {result.message}"
+                f"STOP / ABORT failed Â· {result.message}"
             )
             return
         state_after_stop = get_sequence_state(self.settings)
@@ -2397,7 +2405,7 @@ class NinaControlDialog(QWidget):
         target_name = str(
             plan.get("target_name")
             or self._state_first_value(api_state, "TargetName")
-            or "—"
+            or "â€”"
         )
         state_target = (
             self._state_first_value(api_state, "TargetName") if api_state else None
@@ -2418,12 +2426,12 @@ class NinaControlDialog(QWidget):
         fallback_captured, session_folder_count, filename_count = (
             self._image_capture_counts(self.session_started_at)
         )
-        frames = plan.get("frames") or "—"
+        frames = plan.get("frames") or "â€”"
         captured_text = self._captured_frame_text(
             captured, fallback_captured, session_folder_count, filename_count
         )
         exposure = (
-            exposure_item.get("ExposureTime") or plan.get("exposure_seconds") or "—"
+            exposure_item.get("ExposureTime") or plan.get("exposure_seconds") or "â€”"
         )
         gain = (
             exposure_item.get("Gain")
@@ -2433,34 +2441,36 @@ class NinaControlDialog(QWidget):
         total_minutes = (
             plan.get("estimated_total_minutes")
             or framing.get("estimated_total_minutes")
-            or "—"
+            or "â€”"
         )
-        score = window.get("score") if window.get("score") is not None else "—"
-        cloud = window.get("cloud_pct") if window.get("cloud_pct") is not None else "—"
+        score = window.get("score") if window.get("score") is not None else "â€”"
+        cloud = (
+            window.get("cloud_pct") if window.get("cloud_pct") is not None else "â€”"
+        )
         site = (
             location.get("name")
             or location.get("label")
             or location.get("site_name")
-            or "—"
+            or "â€”"
         )
         bortle = (
             location.get("bortle")
             or dict(location.get("sky_quality") or {}).get("bortle")
-            or "—"
+            or "â€”"
         )
-        api_line = f"Loaded API sequence: {self.api_loaded_sequence_name or self.settings.get('last_api_sequence_name') or '—'}"
+        api_line = f"Loaded API sequence: {self.api_loaded_sequence_name or self.settings.get('last_api_sequence_name') or 'â€”'}"
         if state_target:
-            api_line += f" · API target: {state_target}"
+            api_line += f" Â· API target: {state_target}"
         return "\n".join(
             [
                 "SESSION REPORT HIGHLIGHTS",
                 "",
-                f"Target: {target_name} · Type: {plan.get('target_type') or '—'}",
-                f"Window: {window.get('start_label') or window.get('start_iso') or '—'} → {window.get('end_label') or window.get('end_iso') or '—'}",
-                f"Conditions: score {score}/100 · cloud {cloud}% · seeing {window.get('seeing_text') or '—'} · transparency {window.get('transparency_text') or '—'} · moon {window.get('moon_text') or '—'}",
-                f"Capture: planned {frames} × {exposure}s · captured {captured_text} · gain {gain if gain is not None else '—'} · estimated {total_minutes} min",
-                f"Framing: {framing.get('camera_model') or '—'} · {framing.get('effective_focal_length_mm') or framing.get('focal_length_mm') or '—'} mm · fit {framing.get('target_fit') or '—'}",
-                f"Site: {site} · Bortle {bortle} · timezone {location.get('tz') or location.get('timezone') or '—'}",
+                f"Target: {target_name} Â· Type: {plan.get('target_type') or 'â€”'}",
+                f"Window: {window.get('start_label') or window.get('start_iso') or 'â€”'} â†’ {window.get('end_label') or window.get('end_iso') or 'â€”'}",
+                f"Conditions: score {score}/100 Â· cloud {cloud}% Â· seeing {window.get('seeing_text') or 'â€”'} Â· transparency {window.get('transparency_text') or 'â€”'} Â· moon {window.get('moon_text') or 'â€”'}",
+                f"Capture: planned {frames} Ã— {exposure}s Â· captured {captured_text} Â· gain {gain if gain is not None else 'â€”'} Â· estimated {total_minutes} min",
+                f"Framing: {framing.get('camera_model') or 'â€”'} Â· {framing.get('effective_focal_length_mm') or framing.get('focal_length_mm') or 'â€”'} mm Â· fit {framing.get('target_fit') or 'â€”'}",
+                f"Site: {site} Â· Bortle {bortle} Â· timezone {location.get('tz') or location.get('timezone') or 'â€”'}",
                 api_line,
                 self._format_latest_image_text(self.session_started_at),
                 "Safety: report generated from confirmed plan + N.I.N.A. API state; START remains explicit and user-controlled.",
@@ -2475,7 +2485,7 @@ class NinaControlDialog(QWidget):
         plan_json = self._ensure_confirmed_plan_for_execution()
         if plan_json is None:
             return
-        self._set_plan_progress("Generating session report…", busy=True)
+        self._set_plan_progress("Generating session reportâ€¦", busy=True)
         api_state_raw = None
         try:
             api_events = []
@@ -2520,7 +2530,7 @@ class NinaControlDialog(QWidget):
         )
         self.notes_output.setPlainText(highlights)
         self.execution_status_label.setText(
-            f"Session report generated · highlights displayed · folder: {report.session_dir}"
+            f"Session report generated Â· highlights displayed Â· folder: {report.session_dir}"
         )
         QTimer.singleShot(1800, self._hide_plan_progress)
         QMessageBox.information(
@@ -2603,11 +2613,11 @@ class NinaControlDialog(QWidget):
             )
             return
         self.check_update_button.setEnabled(False)
-        self.update_status_label.setText("Updates: checking…")
+        self.update_status_label.setText("Updates: checkingâ€¦")
         try:
             info = check_for_update(self.settings)
         except Exception as exc:
-            self.update_status_label.setText(f"Updates: check failed · {exc}")
+            self.update_status_label.setText(f"Updates: check failed Â· {exc}")
             self.check_update_button.setEnabled(True)
             return
         self.latest_update = info
@@ -2641,9 +2651,9 @@ class NinaControlDialog(QWidget):
         else:
             status = f"Updates: no newer version found ({info.version or 'unknown'})"
         if info.published_at:
-            status += f" · published {info.published_at}"
+            status += f" Â· published {info.published_at}"
         if not info.has_download:
-            status += " · no downloadable asset found"
+            status += " Â· no downloadable asset found"
         self.update_status_label.setText(status)
         notes = [
             f"Source: {info.source_url}",
@@ -2673,11 +2683,11 @@ class NinaControlDialog(QWidget):
             )
             return
         self.download_update_button.setEnabled(False)
-        self.update_status_label.setText("Updates: downloading package…")
+        self.update_status_label.setText("Updates: downloading packageâ€¦")
         try:
             path = download_update(self.latest_update)
         except Exception as exc:
-            self.update_status_label.setText(f"Updates: download failed · {exc}")
+            self.update_status_label.setText(f"Updates: download failed Â· {exc}")
             self.download_update_button.setEnabled(True)
             return
         self.settings["last_download_path"] = str(path)
@@ -2712,6 +2722,34 @@ class NinaControlDialog(QWidget):
 
 
 def open_nina_control_dialog(parent=None):
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        def _clear_reference(_widget=None):
+            try:
+                if getattr(parent, "nina_control_dialog", None) is _widget:
+                    setattr(parent, "nina_control_dialog", None)
+            except Exception:
+                pass
+
+        def _create_nina_tab():
+            dialog = NinaControlDialog(parent)
+            setattr(parent, "nina_control_dialog", dialog)
+            try:
+                dialog.destroyed.connect(lambda *_args: _clear_reference(dialog))
+            except Exception:
+                pass
+            return dialog
+
+        dialog = parent.open_workspace_tab(
+            "nina.control",
+            "N.I.N.A.",
+            _create_nina_tab,
+            tooltip="FZAstro Imaging / N.I.N.A. control panel",
+            on_close=_clear_reference,
+        )
+        if hasattr(dialog, "load_selected_target"):
+            QTimer.singleShot(0, dialog.load_selected_target)
+        return dialog
+
     existing = (
         getattr(parent, "nina_control_dialog", None) if parent is not None else None
     )

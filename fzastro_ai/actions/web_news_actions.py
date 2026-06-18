@@ -14,14 +14,12 @@ from ..config import PYTHON_APPLICATION_CAPABILITY_PROMPT, PYTHON_AUTO_TEST_PROM
 from ..conversation_context import build_recent_chat_context
 from ..logging_utils import log_debug, log_exception
 from ..memory_store import (
-    build_persistent_memory_context,
     normalize_persistent_memory,
     save_persistent_memory,
 )
 from ..news_tools import build_deterministic_daily_news_brief, parse_news_sources
 from ..routing.intent_detection import build_web_query as _routing_build_web_query
 from ..routing.source_tags import build_response_source_tags
-from ..tool_manifest import build_tool_capability_prompt
 from ..workers import ChatWorker, WebDecisionWorker, WebSearchWorker
 
 
@@ -1010,48 +1008,6 @@ class WebNewsActionsMixin:
                 QTimer.singleShot(0, self.force_scroll_to_bottom)
                 return
 
-        if (
-            include_document_knowledge
-            and self.knowledge_library.query_requests_document_inventory(
-                routing_user_text
-            )
-        ):
-            direct_response = (
-                self.knowledge_library.format_document_inventory_response()
-            )
-            elapsed = max(0.0, time.perf_counter() - self.request_start_time)
-            assistant_message_id = uuid.uuid4().hex
-            self.messages.append(
-                {
-                    "id": assistant_message_id,
-                    "role": "assistant",
-                    "content": direct_response,
-                    "files": [],
-                    "news_sources": {},
-                    "response_time": elapsed,
-                    "source_tags": ["app", "document_knowledge"],
-                }
-            )
-            self.add_message_widget(
-                ":AI: ",
-                direct_response,
-                files=[],
-                message_id=assistant_message_id,
-                source_tags=["app", "document_knowledge"],
-                animate=False,
-            )
-
-            if show_user:
-                self.input_box.clear()
-                self.attached_files = []
-                self.render_attachments()
-
-            self.save_current_chat()
-            self.set_idle_ui_state("Document inventory returned directly")
-            self.force_scroll_to_bottom()
-            QTimer.singleShot(0, self.force_scroll_to_bottom)
-            return
-
         api_messages = []
 
         system_prompt = self.system_prompt.toPlainText().strip()
@@ -1060,10 +1016,12 @@ class WebNewsActionsMixin:
         )
         memory_data = normalize_persistent_memory(self.persistent_memory_data)
 
-        # Persist the structured JSON memory and inject relevant entries.
+        # Persist the structured JSON memory, but keep final-answer context
+        # opt-in. Automatic memory injection made plain answers look like they
+        # used hidden context instead of only the context buttons/user request.
         self.persistent_memory_data = memory_data
         save_persistent_memory(memory_data)
-        memory_context = build_persistent_memory_context(memory_data, stored_user_text)
+        memory_context = ""
         recent_chat_context = build_recent_chat_context(self.messages[:-1])
         knowledge_context = ""
         knowledge_visual_files = []
@@ -1244,15 +1202,12 @@ class WebNewsActionsMixin:
         if python_auto_test_request:
             python_execution_context += "\n\n" + PYTHON_AUTO_TEST_PROMPT.strip()
 
-        tool_capability_context = "\n\n" + build_tool_capability_prompt().strip()
-
         combined_system_prompt = (
             system_prompt
             + recent_chat_context
             + memory_context
             + knowledge_context
             + python_execution_context
-            + tool_capability_context
         )
 
         if combined_system_prompt.strip():
@@ -1500,14 +1455,10 @@ class WebNewsActionsMixin:
                 )
                 return
 
-        # Document excerpts are opt-in at first. They become enabled only when
-        # the request explicitly/contextually references the local library or
-        # when the conservative preflight below proves a strong local match.
-        # This prevents generic chat such as "I failed. What now?" from being
-        # contaminated by coincidental words in imported documents.
-        include_document_knowledge = not self.is_clearly_web_only_request(
-            text, files, force_search=force_search
-        ) and self.explicitly_or_contextually_references_documents(text)
+        # Document excerpts are opt-in. Direct document actions below can still
+        # enable them, but ordinary chat/model routing should only use context
+        # the user explicitly supplied through the app surface.
+        include_document_knowledge = False
 
         self._pending_web_request = {
             "text": text,
@@ -1571,58 +1522,6 @@ class WebNewsActionsMixin:
                 self.build_web_query(text), self._pending_web_request
             )
             return
-
-        # In Auto mode, consult the local document library before asking the
-        # web router. A strong local match prevents unrelated internet results
-        # from contaminating document-grounded answers. "Always" mode and
-        # explicit external-information requests still use the web.
-        if (
-            not force_search
-            and not files
-            and not self.explicitly_requests_external_information(text)
-        ):
-            try:
-                _, local_results, strong_local_match = (
-                    self.find_strong_document_knowledge(text)
-                )
-            except Exception as error:
-                log_exception("FZAstroAI.start_web_decision line 20133", error)
-                log_debug("DOCUMENT KNOWLEDGE PREFLIGHT ERROR", error)
-                local_results = []
-                strong_local_match = False
-
-            if strong_local_match:
-                # A verified strong match is the only automatic path that may
-                # enable document excerpts without an explicit document cue.
-                self._pending_web_request = None
-                self.current_news_sources = {}
-
-                source_names = sorted(
-                    {
-                        str(item.get("document_name", "")).strip()
-                        for item in local_results
-                        if str(item.get("document_name", "")).strip()
-                    }
-                )
-                source_text = ", ".join(source_names[:2])
-
-                if source_text:
-                    self.stats_label.setText(
-                        f"Using local document knowledge: {source_text}"
-                    )
-                else:
-                    self.stats_label.setText("Using local document knowledge")
-
-                self.send_message_after_web(
-                    text,
-                    [],
-                    display_text=display_text,
-                    files=files,
-                    show_user=False,
-                    include_document_knowledge=True,
-                    model_override=model_override,
-                )
-                return
 
         self.stats_label.setText("Deciding whether web access is required...")
 

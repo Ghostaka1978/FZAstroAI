@@ -24,6 +24,10 @@ from .window_utils import apply_window_defaults
 def open_about_window(parent):
     """Open a compact app/version/about dialog."""
     try:
+        if parent is not None and hasattr(parent, "focus_workspace_tab"):
+            if parent.focus_workspace_tab("system.about"):
+                return None
+
         dialog = QDialog(parent)
         apply_window_defaults(dialog)
         dialog.setObjectName("helpDialog")
@@ -120,6 +124,14 @@ External runtime notes:
         layout.addWidget(subtitle)
         layout.addWidget(details, 1)
         layout.addLayout(button_row)
+
+        if parent is not None and hasattr(parent, "open_workspace_tab"):
+            return parent.open_workspace_tab(
+                "system.about",
+                "ABOUT",
+                lambda: dialog,
+                tooltip="Version and release information",
+            )
 
         dialog.exec()
     except Exception as exc:

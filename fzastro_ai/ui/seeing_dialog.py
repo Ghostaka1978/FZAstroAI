@@ -628,13 +628,13 @@ class SeeingNightPlannerWidget(QWidget):
             pct = int(value)
         except Exception:
             pct = 100
-        if pct <= 15:
+        if pct <= 10:
             return "Clear"
-        if pct <= 40:
+        if pct <= 25:
             return "Mostly clear"
-        if pct <= 65:
+        if pct <= 55:
             return "Partly cloudy"
-        if pct <= 85:
+        if pct <= 75:
             return "Mostly cloudy"
         return "Cloudy"
 
@@ -733,10 +733,33 @@ class SeeingNightPlannerWidget(QWidget):
         except Exception:
             return default
 
+    @staticmethod
+    def _safe_float(value: Any, default: float = 90.0) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return default
+
+    def _is_twilight_row(self, row: dict[str, Any]) -> bool:
+        if row.get("astro_dark") is True:
+            return False
+        return self._safe_float(row.get("sun_altitude_deg"), 90.0) < -6.0
+
     def _imaging_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Rows that should drive night-imaging planner decisions."""
         dark_rows = [row for row in rows if row.get("astro_dark") is True]
-        return dark_rows or rows
+        if dark_rows:
+            return dark_rows
+        twilight_rows = [row for row in rows if self._is_twilight_row(row)]
+        return twilight_rows or rows
+
+    def _planning_scope(self, rows: list[dict[str, Any]]) -> str:
+        candidates = self._imaging_rows(rows)
+        if any(row.get("astro_dark") is True for row in candidates):
+            return "night"
+        if any(self._is_twilight_row(row) for row in candidates):
+            return "twilight"
+        return "day"
 
     def _best_row(self, block: dict[str, Any]) -> dict[str, Any]:
         rows = block.get("rows") if isinstance(block.get("rows"), list) else []
@@ -758,8 +781,11 @@ class SeeingNightPlannerWidget(QWidget):
                 "score": None,
                 "score_label": "Waiting",
                 "dark_count": 0,
+                "twilight_count": 0,
                 "moon_up_count": 0,
                 "has_dark": False,
+                "has_twilight": False,
+                "planning_scope": "day",
             }
         candidates = self._imaging_rows(rows)
         cloud_values = [
@@ -776,7 +802,9 @@ class SeeingNightPlannerWidget(QWidget):
         seeing_quality = max(seeing_values) if seeing_values else 0
         trans_quality = max(trans_values) if trans_values else 0
         dark_count = sum(1 for row in rows if row.get("astro_dark") is True)
+        twilight_count = sum(1 for row in rows if self._is_twilight_row(row))
         has_dark = dark_count > 0
+        planning_scope = self._planning_scope(rows)
         score = min(
             self._safe_int(best.get("score"), 0),
             self._record_cloud_cap(cloud_pct, has_dark),
@@ -791,8 +819,11 @@ class SeeingNightPlannerWidget(QWidget):
             "score": score,
             "score_label": score_label(score),
             "dark_count": dark_count,
+            "twilight_count": twilight_count,
             "moon_up_count": moon_up_count,
             "has_dark": has_dark,
+            "has_twilight": planning_scope == "twilight",
+            "planning_scope": planning_scope,
         }
 
     def mousePressEvent(self, event):  # noqa: N802 - Qt override
@@ -993,8 +1024,17 @@ class SeeingNightPlannerWidget(QWidget):
             # matches the score used for night imaging.
             cloud_pct = metrics.get("cloud_pct")
             has_dark = bool(metrics.get("has_dark"))
-            cloud_title = "☁ Night clouds" if has_dark else "☁ Clouds"
-            cloud_suffix = "night avg" if has_dark else "cover"
+            has_twilight = bool(metrics.get("has_twilight"))
+            cloud_title = (
+                "☁ Night cloud forecast"
+                if has_dark
+                else "☁ Twilight cloud forecast"
+                if has_twilight
+                else "☁ Cloud forecast"
+            )
+            cloud_suffix = (
+                "night avg" if has_dark else "twilight avg" if has_twilight else "day avg"
+            )
             cloud_text = (
                 f"{cloud_pct if cloud_pct is not None else '—'}% {cloud_suffix}"
             )
@@ -1024,7 +1064,13 @@ class SeeingNightPlannerWidget(QWidget):
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(QColor("#101820")))
             painter.drawRoundedRect(QRectF(score_x, y + 15, score_w, 68), 10, 10)
-            score_title = "BEST SCORE" if metrics.get("has_dark") else "NO DARK"
+            score_title = (
+                "BEST SCORE"
+                if metrics.get("has_dark")
+                else "TWILIGHT"
+                if metrics.get("has_twilight")
+                else "NO DARK"
+            )
             painter.setPen(score_color)
             painter.drawText(
                 QRectF(score_x + 12, y + 20, score_w - 24, 16),
@@ -1053,10 +1099,10 @@ class SeeingNightPlannerWidget(QWidget):
             )
             painter.setPen(QColor("#91a6bb"))
             time_rect = QRectF(score_x + 70, y + 61, score_w - 82, 16)
-            if metrics.get("has_dark"):
+            if metrics.get("has_dark") or metrics.get("has_twilight"):
                 time_label = str(best.get("local_label") or "best night hour")
             else:
-                time_label = "No astro dark"
+                time_label = "No dark/twilight"
             time_text = QFontMetrics(painter.font()).elidedText(
                 time_label,
                 Qt.ElideRight,
@@ -1108,6 +1154,33 @@ class SeeingDialog(QDialog):
             return int(value)
         except Exception:
             return default
+
+    @staticmethod
+    def _safe_float(value: Any, default: float = 90.0) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return default
+
+    def _is_twilight_row(self, row: dict[str, Any]) -> bool:
+        if row.get("astro_dark") is True:
+            return False
+        return self._safe_float(row.get("sun_altitude_deg"), 90.0) < -6.0
+
+    def _imaging_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        dark_rows = [row for row in rows if row.get("astro_dark") is True]
+        if dark_rows:
+            return dark_rows
+        twilight_rows = [row for row in rows if self._is_twilight_row(row)]
+        return twilight_rows or rows
+
+    def _planning_scope(self, rows: list[dict[str, Any]]) -> str:
+        candidates = self._imaging_rows(rows)
+        if any(row.get("astro_dark") is True for row in candidates):
+            return "night"
+        if any(self._is_twilight_row(row) for row in candidates):
+            return "twilight"
+        return "day"
 
     def __init__(self, parent=None, location: dict[str, Any] | None = None):
         super().__init__(parent)
@@ -1279,7 +1352,7 @@ class SeeingDialog(QDialog):
         table_layout = QVBoxLayout(table_panel)
         table_layout.setContentsMargins(9, 9, 9, 9)
         table_layout.setSpacing(6)
-        table_title = QLabel("Forecast points for selected day · chronological")
+        table_title = QLabel("Forecast model points for selected day · chronological")
         table_title.setObjectName("astroLookupSectionTitle")
         self.table = QTableWidget(0, 10)
         self.table.setObjectName("seeingForecastTable")
@@ -1289,7 +1362,7 @@ class SeeingDialog(QDialog):
             [
                 "Local",
                 "Score",
-                "Cloud",
+                "Cloud forecast",
                 "Astro dark",
                 "Moon",
                 "Seeing",
@@ -1640,7 +1713,7 @@ class SeeingDialog(QDialog):
         if "astro dark" in best_dark:
             kind = "best dark"
         elif "twilight" in best_dark or "day" in best_dark:
-            kind = "best twilight"
+            kind = "twilight fallback" if "twilight" in best_dark else "daylight fallback"
         else:
             kind = "best forecast"
         return f"{period_text}{kind} {best_dt.strftime('%a %d %H:%M')}"
@@ -1706,12 +1779,39 @@ class SeeingDialog(QDialog):
         worker.finished.connect(self.handle_worker_finished)
         worker.start()
 
+    @staticmethod
+    def _cache_age_status(seconds: Any) -> str:
+        try:
+            total_seconds = max(0, int(float(seconds)))
+        except Exception:
+            return ""
+        if total_seconds < 60:
+            return f"{total_seconds}s old"
+        total_minutes = total_seconds // 60
+        if total_minutes < 60:
+            return f"{total_minutes}m old"
+        total_hours = total_minutes // 60
+        minutes = total_minutes % 60
+        if total_hours < 48:
+            return f"{total_hours}h {minutes}m old" if minutes else f"{total_hours}h old"
+        days = total_hours // 24
+        hours = total_hours % 24
+        return f"{days}d {hours}h old" if hours else f"{days}d old"
+
+    def _cache_state_label(self, result: dict[str, Any]) -> str:
+        if not result.get("cache_used"):
+            return "Live forecast"
+        age_text = self._cache_age_status(result.get("cache_age_seconds"))
+        if age_text:
+            return f"Cached fallback ({age_text})"
+        return "Cached fallback"
+
     def handle_seeing_finished(self, result: dict, elapsed: float, success: bool):
         self.progress_bar.hide()
         self._set_controls_enabled(True)
         self._result = dict(result or {})
-        cache_text = "cached" if result.get("cache_used") else "live"
-        self.status_label.setText(f"Loaded {cache_text} • {float(elapsed):.2f}s")
+        cache_text = self._cache_state_label(result).lower()
+        self.status_label.setText(f"Loaded {cache_text} - {float(elapsed):.2f}s")
         self.current_period_label.setText(self._current_night_period_text(result))
         self.sky_quality_card.setText(self._sky_quality_html(result))
         self.score_card.setText(self._score_card_html(result))
@@ -1877,10 +1977,13 @@ class SeeingDialog(QDialog):
             start = day_items[0][0].replace(hour=0, minute=0, second=0, microsecond=0)
             end = start + timedelta(days=1)
             dark_rows = [row for row in block_rows if row.get("astro_dark") is True]
-            imaging_rows = dark_rows or block_rows
+            twilight_rows = [row for row in block_rows if self._is_twilight_row(row)]
+            imaging_rows = self._imaging_rows(block_rows)
+            planning_scope = self._planning_scope(block_rows)
             cloud_values = [int(row.get("cloud_mid_pct") or 0) for row in imaging_rows]
             seeing_values = [int(row.get("seeing_code") or 99) for row in imaging_rows]
             dark_count = len(dark_rows)
+            twilight_count = len(twilight_rows)
             moon_up_count = sum(1 for row in imaging_rows if row.get("moon_up") is True)
             best = max(imaging_rows, key=lambda row: int(row.get("score") or 0))
             avg_cloud = round(sum(cloud_values) / max(1, len(cloud_values)))
@@ -1906,9 +2009,10 @@ class SeeingDialog(QDialog):
                     "best_score": block_score,
                     "best_time": best.get("local_label"),
                     "avg_cloud": avg_cloud,
-                    "avg_cloud_scope": "night" if dark_rows else "day",
+                    "avg_cloud_scope": planning_scope,
                     "best_seeing_code": min(seeing_values),
                     "astro_dark_points": dark_count,
+                    "twilight_points": twilight_count,
                     "moon_up_points": moon_up_count,
                     "moon_pct": moon_row.get("moon_pct"),
                     "moon_phase": moon_row.get("moon_phase"),
@@ -1924,7 +2028,12 @@ class SeeingDialog(QDialog):
             cloud = block.get("avg_cloud")
             scope = str(block.get("avg_cloud_scope") or "day")
             best_label = "best score"
-            cloud_label = "night cloud" if scope == "night" else "day cloud"
+            if scope == "night":
+                cloud_label = "night forecast cloud"
+            elif scope == "twilight":
+                cloud_label = "twilight forecast cloud"
+            else:
+                cloud_label = "day forecast cloud"
             self.day_graph_combo.addItem(
                 f"Day {index + 1}: {block.get('short_label', f'day {index + 1}')} · {best_label} {score if score is not None else '—'} · {cloud_label} {cloud if cloud is not None else '—'}%",
                 index,
@@ -2170,6 +2279,8 @@ class SeeingDialog(QDialog):
     def _best_table_row(self) -> int:
         best_table_row = -1
         best_score = -1
+        twilight_row = -1
+        twilight_score = -1
         fallback_row = -1
         fallback_score = -1
         for table_row in range(self.table.rowCount()):
@@ -2186,7 +2297,14 @@ class SeeingDialog(QDialog):
             if self._is_night_row(data) and score > best_score:
                 best_score = score
                 best_table_row = table_row
-        return best_table_row if best_table_row >= 0 else fallback_row
+            if self._is_twilight_row(data) and score > twilight_score:
+                twilight_score = score
+                twilight_row = table_row
+        if best_table_row >= 0:
+            return best_table_row
+        if twilight_row >= 0:
+            return twilight_row
+        return fallback_row
 
     def _block_index_for_row_index(self, row_index: int) -> int:
         for block_index, block in enumerate(self._day_blocks):
@@ -2396,7 +2514,7 @@ class SeeingDialog(QDialog):
         <div style="font-family:'Segoe UI Variable','Segoe UI',sans-serif;color:#e8edf2;white-space:nowrap;font-size:11px;line-height:1.15;">
           <span style="color:{bortle_color};font-weight:850;">SQM</span> <b>{html.escape(sqm_text)}</b>
           <span style="color:#516171;"> | </span><span style="color:{bortle_color};font-weight:850;">Bortle</span> <b style="color:{bortle_color};">{html.escape(bortle_text)}</b> <span style="color:#91a6bb;">{html.escape(bortle_band)}</span>
-          <span style="color:#516171;"> | </span><span style="color:#8fd0ff;font-weight:850;">Night window</span> <b>{best_slot}</b>
+          <span style="color:#516171;"> | </span><span style="color:#8fd0ff;font-weight:850;">Best window</span> <b>{best_slot}</b>
           <span style="color:#516171;"> | </span><span style="color:#8fd0ff;font-weight:850;">Score</span> <b style="font-size:16px;">{html.escape(score_text)}</b> <span style="color:#cfe4ff;">{html.escape(str(label))}</span>
           <span style="color:#516171;"> | </span><span style="color:#8fd0ff;font-weight:850;">Cloud</span> <b>{cloud}</b>
           <span style="color:#516171;"> | </span><span style="color:#3296dc;font-weight:850;">Dark</span> <b>{dark}</b>
@@ -2441,7 +2559,7 @@ class SeeingDialog(QDialog):
                 <div style="font-size:24px;color:#ffffff;font-weight:900;line-height:.95;">{html.escape(score_text)}</div>
                 <div style="font-size:10px;color:#cfe4ff;font-weight:800;line-height:1;">{html.escape(str(label))}</div>
               </td>
-              <td style="width:13%;padding:5px 8px;background:#101b25;border:1px solid #263545;border-radius:8px;"><div style="font-size:8px;color:#91a6bb;font-weight:850;text-transform:uppercase;letter-spacing:.6px;">Cloud</div><div style="font-size:13px;color:#ffffff;font-weight:900;line-height:1.1;">{cloud}</div></td>
+              <td style="width:13%;padding:5px 8px;background:#101b25;border:1px solid #263545;border-radius:8px;"><div style="font-size:8px;color:#91a6bb;font-weight:850;text-transform:uppercase;letter-spacing:.6px;">Forecast cloud</div><div style="font-size:13px;color:#ffffff;font-weight:900;line-height:1.1;">{cloud}</div></td>
               <td style="width:13%;padding:5px 8px;background:#101b25;border:1px solid #263545;border-radius:8px;"><div style="font-size:8px;color:#91a6bb;font-weight:850;text-transform:uppercase;letter-spacing:.6px;">Astro dark</div><div style="font-size:13px;color:#ffffff;font-weight:900;line-height:1.1;">{dark}</div></td>
               <td style="width:12%;padding:5px 8px;background:#101b25;border:1px solid #263545;border-radius:8px;"><div style="font-size:8px;color:#91a6bb;font-weight:850;text-transform:uppercase;letter-spacing:.6px;">Moon</div><div style="font-size:13px;color:#ffffff;font-weight:900;line-height:1.1;">{moon}</div></td>
               <td style="width:16%;padding:5px 8px;background:#101b25;border:1px solid #263545;border-radius:8px;"><div style="font-size:8px;color:#91a6bb;font-weight:850;text-transform:uppercase;letter-spacing:.6px;">Seeing</div><div style="font-size:11px;color:#ffffff;font-weight:850;line-height:1.1;">{seeing}</div></td>
@@ -2456,9 +2574,9 @@ class SeeingDialog(QDialog):
             result.get("summary") if isinstance(result.get("summary"), dict) else {}
         )
         provider = html.escape(
-            str(result.get("provider") or "7Timer ASTRO + Moon/Dark")
+            str(result.get("provider") or "7Timer ASTRO + Open-Meteo Cloud + Moon/Dark")
         )
-        cache_state = "Cached fallback" if result.get("cache_used") else "Live forecast"
+        cache_state = self._cache_state_label(result)
         dark_periods = (
             summary.get("dark_periods")
             if isinstance(summary.get("dark_periods"), list)
@@ -2544,7 +2662,7 @@ class SeeingDialog(QDialog):
             <h1>{local}</h1>
             <div class="sub">UTC: {utc}</div>
             <table>
-              <tr><td><div class="k">Score</div><div class="v">{score} · {score_text}</div></td><td><div class="k">Cloud</div><div class="v">{cloud_pct}% · {cloud}</div></td></tr>
+              <tr><td><div class="k">Score</div><div class="v">{score} · {score_text}</div></td><td><div class="k">Forecast cloud</div><div class="v">{cloud_pct}% · {cloud}</div></td></tr>
               <tr><td><div class="k">Astro dark</div><div class="v">{dark} · Sun {sun_alt}°</div></td><td><div class="k">Moon</div><div class="v">{moon} · {phase}</div></td></tr>
               <tr><td><div class="k">Seeing</div><div class="v">{seeing}</div></td><td><div class="k">Transparency</div><div class="v">{trans}</div></td></tr>
               <tr><td><div class="k">Wind</div><div class="v">{wind} · {direction}</div></td><td><div class="k">Temp / precip</div><div class="v">{temp} · {precip}</div></td></tr>
@@ -2603,5 +2721,12 @@ class SeeingDialog(QDialog):
 
 
 def show_seeing_dialog(parent=None, location: dict[str, Any] | None = None):
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        return parent.open_workspace_tab(
+            "astro.seeing",
+            "SEEING",
+            lambda: SeeingDialog(parent, location),
+            tooltip="Astronomy seeing, cloud, darkness, and Moon planner",
+        )
     dialog = SeeingDialog(parent, location)
     return dialog.exec()

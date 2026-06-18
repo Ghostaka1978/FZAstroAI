@@ -362,29 +362,33 @@ class AstroActionsMixin:
         if self._astro_busy():
             return
 
-        show_targets_dialog(self, self.get_current_astro_location())
-        self.stats_label.setText("TARGETS closed")
+        result = show_targets_dialog(self, self.get_current_astro_location())
+        status = "opened" if hasattr(result, "setParent") else "closed"
+        self.stats_label.setText(f"TARGETS {status}")
 
     def open_sun_now_dialog(self):
         if self._astro_busy():
             return
 
-        show_sun_now_dialog(self)
-        self.stats_label.setText("SUN NOW closed")
+        result = show_sun_now_dialog(self)
+        status = "opened" if hasattr(result, "setParent") else "closed"
+        self.stats_label.setText(f"SUN NOW {status}")
 
     def open_astro_forecast_dialog(self):
         if self._astro_busy():
             return
 
-        show_seeing_dialog(self, self.get_current_astro_location())
-        self.stats_label.setText("SEEING closed")
+        result = show_seeing_dialog(self, self.get_current_astro_location())
+        status = "opened" if hasattr(result, "setParent") else "closed"
+        self.stats_label.setText(f"SEEING {status}")
 
     def open_solar_system_map(self):
         if self._astro_busy():
             return
 
-        show_solar_map_dialog(self)
-        self.stats_label.setText("SOLAR MAP closed")
+        result = show_solar_map_dialog(self)
+        status = "opened" if hasattr(result, "setParent") else "closed"
+        self.stats_label.setText(f"SOLAR MAP {status}")
 
     def is_astro_direct_request(self, text):
         clean = str(text or "").strip().casefold()

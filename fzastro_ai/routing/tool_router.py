@@ -133,14 +133,6 @@ def detect_deterministic_tool_plan(
                     reason="User asked for a local PDF page image/display.",
                 )
 
-            if knowledge_library.query_requests_document_inventory(clean_text):
-                return ToolPlan(
-                    action="documents_direct",
-                    tool_id="documents.list",
-                    query=clean_text,
-                    confidence=0.99,
-                    reason="User asked to list imported documents.",
-                )
         except Exception:
             # Caller logs local-library failures; routing must stay conservative.
             pass

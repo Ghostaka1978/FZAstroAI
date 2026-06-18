@@ -98,6 +98,26 @@ def get_main_stylesheet():
                 font-weight: 700;
             }
 
+            QLabel#ninaSectionTitle {
+                color: #ffcc66;
+                font-size: 12px;
+                font-weight: 850;
+                letter-spacing: 0.8px;
+                text-transform: uppercase;
+            }
+
+            QToolButton#ninaDrawerHeader {
+                background: #1b222b;
+                color: #ffcc66;
+                border: 1px solid #3c4652;
+                border-radius: 8px;
+                padding: 6px 8px;
+                font-size: 11px;
+                font-weight: 850;
+                letter-spacing: 0.7px;
+                text-align: left;
+            }
+
             QLabel#settingsCardSubtitle,
             QLabel#webArticleBody {
                 color: #8e98a6;
@@ -142,6 +162,57 @@ def get_main_stylesheet():
 
             QFrame#chatSurface {
                 background: #0d1014;
+            }
+
+            QTabWidget#workspaceTabs {
+                background: transparent;
+                border: none;
+            }
+
+            QTabWidget#workspaceTabs::pane {
+                background: transparent;
+                border: none;
+                top: -1px;
+            }
+
+            QTabWidget#workspaceTabs QTabBar::tab {
+                background: #111820;
+                color: #9ba7b5;
+                border: 1px solid #27313c;
+                border-bottom-color: #1f2730;
+                border-top-left-radius: 7px;
+                border-top-right-radius: 7px;
+                min-width: 84px;
+                min-height: 28px;
+                padding: 4px 12px;
+                margin-right: 4px;
+                font-size: 11px;
+                font-weight: 750;
+            }
+
+            QTabWidget#workspaceTabs QTabBar::tab:selected {
+                background: #182332;
+                color: #f2f7ff;
+                border-color: #45617f;
+                border-bottom-color: #182332;
+            }
+
+            QTabWidget#workspaceTabs QTabBar::tab:hover:!selected {
+                background: #16202a;
+                color: #d7e2ee;
+                border-color: #344253;
+            }
+
+            QTabWidget#workspaceTabs QTabBar::close-button {
+                subcontrol-position: right;
+                width: 12px;
+                height: 12px;
+                margin-left: 5px;
+            }
+
+            QTabWidget#workspaceTabs QTabBar::close-button:hover {
+                background: #d25f72;
+                border-radius: 6px;
             }
 
             QFrame#skillsDrawer {
@@ -305,10 +376,66 @@ def get_main_stylesheet():
                 border-color: #526983;
             }
 
+            QPushButton#workflowStepButton {
+                background: #1d2632;
+                border: 1px solid #536f8c;
+                border-radius: 14px;
+                padding: 12px 14px;
+                min-height: 64px;
+                font-size: 13px;
+                font-weight: 900;
+                letter-spacing: 0.6px;
+            }
+
+            QPushButton#workflowStepButton:hover {
+                background: #243246;
+                border-color: #7aa0c8;
+            }
+
+            QPushButton#workflowToolButton {
+                background: #171d25;
+                border: 1px solid #3b4b60;
+                border-radius: 12px;
+                padding: 9px 12px;
+                font-size: 12px;
+                font-weight: 850;
+                letter-spacing: 0.4px;
+            }
+
+            QPushButton#workflowToolButton:hover {
+                background: #1f2834;
+                border-color: #60768f;
+            }
+
             QPushButton#dangerActionButton {
-                background: #24191b;
-                border-color: #523035;
-                color: #e6c7cb;
+                background: #22181b;
+                border: 1px solid #63373e;
+                border-radius: 12px;
+                color: #efcfd3;
+                padding: 9px 12px;
+                font-size: 12px;
+                font-weight: 850;
+                letter-spacing: 0.4px;
+            }
+
+            QPushButton#dangerActionButton:hover {
+                background: #2d1e22;
+                border-color: #86515a;
+            }
+
+            QLabel#workflowStatusStrip {
+                background: #10151c;
+                color: #a9bdd4;
+                border: 1px solid #263342;
+                border-radius: 10px;
+                padding: 8px 10px;
+                font-size: 11px;
+            }
+
+            QLabel#workflowHintText {
+                color: #8490a0;
+                font-size: 11px;
+                padding: 2px 4px;
             }
 
             QLabel#selectionPill {
@@ -1162,6 +1289,16 @@ def get_main_stylesheet():
 
             QMenu::item:selected {
                 background: #242c35;
+            }
+
+            QMenu QLabel#skillMenuSectionTitle {
+                color: #ffcc66;
+                background: #111820;
+                border: 1px solid #3b4652;
+                border-radius: 6px;
+                font-size: 10px;
+                font-weight: 900;
+                letter-spacing: 1.0px;
             }
 
             QToolTip {

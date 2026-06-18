@@ -1,226 +1,78 @@
-# FZAstro AI v2.1.0
+# FZAstro AI v2.1.0 — Imaging Production
 
-FZAstro AI v2.1.0 is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document research, web/news/market tools, local Python execution, hardware telemetry, LLM benchmarking, and integrated astronomy planning.
+FZAstro AI is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document knowledge, persistent local memory, Python execution, web/news/market tools, hardware telemetry, LLM benchmarking, Developer Workbench coding assistance, Web Companion, and integrated astronomy planning.
 
-Version 2.1 is the Imaging Production release: it keeps the cleaned Version 2 production tree and adds the first safe Astro → FZAstro Imaging/N.I.N.A. planning bridge, real Advanced Sequencer JSON export, auto-launch/open handoff, and a polished imaging control panel.
+Release identity: **FZAstro AI v2.1.0 (Imaging Production)**.
+GitHub repository: https://github.com/Ghostaka1978/FZAstroAI
 
-The **FZ** square in the app header opens the project GitHub repository: `https://github.com/Ghostaka1978/FZAstroAI`.
+## Major production areas
 
-## Version 2.1 focus
-
-- Clean source layout: application code lives under `fzastro_ai/`; root keeps launch, build, validation, version, and top-level docs only.
-- `overlay/` has been removed as a separate folder. The useful Developer Workbench pieces are now integrated under `fzastro_ai/dev_agent`, `fzastro_ai/ui/dev_workbench_dialog.py`, and `fzastro_ai/actions/dev_actions.py`.
-- Stale bundle/patch readmes were removed or consolidated into `docs/`.
-- The app identity is now `FZAstro AI v2.1.0 (Imaging Production)`.
-- Build hygiene removes `__pycache__`, `.pyc`, `.bak`, and old overlay artifacts from the source package.
-- The standalone PyInstaller spec was cleaned so Web Companion static files are included safely.
-
-## What FZAstro AI does
-
-FZAstro AI provides one local workstation for:
-
-- Local/Ollama or OpenAI-compatible chat
-- Document Knowledge Library for PDFs, text, source code, and Excel documents
-- Exact PDF page text retrieval and visual page/image rendering when needed
-- Optional OCR for scanned document pages
-- Web search, webpage reading, webpage screenshots, Daily News, market quotes, gold, and crude-oil actions
-- Local Python execution from chat/code workflows
-- Persistent memory with review/search tools
-- Source tags: LLM, Docs, Web, News, Market, Files, Vision, Python, Memory, and App
-- Hardware telemetry for GPU/VRAM, CPU, RAM, and best-effort temperatures
-- LLM Benchmark Dashboard with dashboard/history/compare views, telemetry, persona/calibration options, `Run All Presets`, `Delete Selected`, and the legacy `LLM BENCH` wording for release validation
-- Web Companion browser interface for LAN/iPad/mobile access to the Windows host
-- Integrated Astro Tools Suite
-- AI Developer Workbench for coding context, planning, compile checks, pytest checks, and safe patch workflows
-- FZAstro Imaging / N.I.N.A. bundle launcher with safe update-check/download workflow
-- Safe predefined imaging commands that create review-only N.I.N.A. Advanced Sequencer plans from SITE, IMAGING, SEEING, and TARGETS context
-- Real `.nina-sequence.json` export, plus Markdown, XML, CSV, and review metadata files under `Documents\FZAstroAI\Imaging Plans`
-- Optional launch/open handoff that opens FZAstro Imaging and attempts to load the generated sequence without starting hardware actions
+- **Astro Tools Suite** — SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP.
+- **FZASTRO IMAGING / N.I.N.A. bridge** — safe Advanced Sequencer JSON export, bundled FZAstro Imaging launcher, N.I.N.A. API handoff, explicit ARM + START VIA API control, and session reports.
+- **LLM Benchmark Dashboard** — LLM BENCH opens a polished control layout with Dashboard, History, Compare, and benchmark controls.
+- **Developer Workbench** — project scanning, context building, patch creation, compile/pytest checks, error analysis, and code-building workflows.
+- **Document knowledge** — import/search local documents with SQLite-backed storage.
+- **Web Companion** — local browser/LAN companion for iPad/mobile workflows.
 
 ## Astro Tools Suite
 
-Use **Skills → Astro** or the Astro toolbar for the production astronomy tools:
+The Astro Tools Suite includes **SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP**. SEEING and TARGETS use structured backend data for cloud-aware planning, night scoring, Bortle context, and target selection rather than scraping rendered UI text.
 
-`SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP`
+Bortle-aware visual hints are preserved: **8–9 white/urban**, **6–7 yellow**, **4–5 green**, **2–3 blue**, and **1 violet**. The night planner keeps cloud-aware score caps, moon/darkness context, and urban/white-zone helper text.
 
-Highlights:
+Astropy/IERS runtime handling disables unsafe live IERS downloads in the app path to avoid malformed table crashes, while provider timeouts are handled safely and logged instead of breaking astronomy workflows.
 
-- **SITE** stores observing coordinates, elevation, timezone, SQM, Bortle, and source notes.
-- **IMAGING** stores camera preset, focal length, field of view, image size, and rotation.
-- **LOOKUP** searches catalog objects and can show distance-ladder calculations using parallax, Gaia proxy, NED-D, and Hubble-style estimates where available. Optional visibility: `FZASTRO_USE_DISTANCE_LADDER=1`.
+## FZASTRO IMAGING / N.I.N.A. workflow
 
-Distance ladder calculations are documented for LOOKUP so release checks can verify parallax, Gaia, NED-D, Hubble, and `FZASTRO_USE_DISTANCE_LADDER` coverage.
+FZASTRO IMAGING CONTROL is designed as a review-first operations cockpit:
 
-- **SUN NOW** shows NASA/SDO solar imagery with metadata and cached fallback.
-- **SEEING / Astro Night Planner** uses night-first forecast points, astronomical-dark prioritization, Moon periods, cloud-aware scoring, and Bortle-aware tinting.
-- **TARGETS** ranks astrophotography targets by site/date and supports CSV export plus optional local OpenNGC import.
-- **SOLAR MAP** shows a native 2D solar-system map with zoom, pan, orbit/label/grid toggles, and planet data.
+1. **OPEN TARGETS** — choose a target from structured TARGETS/SEEING context.
+2. **CONFIRM + LOAD INTO N.I.N.A.** — generate the confirmed `.nina-sequence.json`, copy a plain `.json` into the configured N.I.N.A. sequence folder, verify `/sequence/list-available`, load with `GET /sequence/load?sequenceName=...`, and verify `/sequence/state`.
+3. **EQUIPMENT PREP / POWER ON** — use basic generated prep steps or load a user-provided `FZAstro_EquipmentPrepSample.json` for N.I.N.A. review only.
+4. **ARM + START VIA API** — after explicit confirmation, start the loaded sequence using `GET /sequence/start`.
+5. **SESSION REPORT** — write Markdown/JSON reports and show target, conditions, capture, site, API, last-image, and safety highlights in the UI.
 
-Bortle tint rules remain: `8–9 white/urban`, `6–7 yellow`, `4–5 green`, `2–3 blue`, and `1 violet`.
+The workflow never starts automatically after load. START remains a separate user-confirmed hardware-action request.
 
-Astropy/IERS and web provider timeouts are hardened so malformed upstream tables or provider-timeout failures are logged instead of crashing normal workflows.
+## LLM Benchmark Dashboard
 
-See `docs/ASTRO_TOOLS_SUITE.md` for the focused astronomy guide.
+The **LLM Benchmark Dashboard** is available from **LLM BENCH**. It includes telemetry, history, comparison views, persona/calibration checks, and quality scoring. The benchmark workflow includes **Run All Presets**, **Delete Selected**, Composite scoring, and raw-model testing with **Raw model (no persona)**.
 
+## Distance ladder calculations
 
-## FZAstro Imaging / N.I.N.A. Bundle
+FZAstro AI includes **Distance ladder calculations** for astronomy object context. The distance-ladder path can use parallax, Gaia, NED-D, Hubble, and `hubble(z)` style fallback logic where available. Use `FZASTRO_USE_DISTANCE_LADDER` to enable or control this feature in supported workflows.
 
-Open the imaging-control bundle with the **N.I.N.A.** button in the top bar or with **ASTRO → FZASTRO IMAGING CONTROL**. This integration keeps the N.I.N.A.-based app as a side-by-side executable instead of merging C# source into the Python package.
+## Build and release workflow
 
-Current scope:
-
-- Build, select, or auto-detect the bundled `FZAstroImaging.exe`
-- Preserve the internal N.I.N.A. WPF assembly names: `NINA.exe` and `NINA.dll` remain in the bundle
-- Launch the imaging app from FZAstro AI
-- Store local integration settings in `%APPDATA%\FZAstroAI\nina_integration.json`
-- Configure localhost API host/port for the later control bridge
-- Check a configured update manifest or GitHub latest-release API URL
-- Download update packages for review without replacing a running equipment-control app
-- Quietly build the imaging bundle from N.I.N.A. source with progress/logs through `deploy.ps1 -BuildImagingBundle`
-
-## Safe Astro → Imaging planning
-
-FZAstro AI v2.1 adds a review-first planning bridge between the Astro Tools Suite and FZAstro Imaging/N.I.N.A.
-
-Supported text commands include:
-
-```text
-/nina-plan next
-/nina-plan next 60s gain 200
-/nina-plan target M13 60s gain 200
-/imaging-plan target NGC 7000 exposure 120s gain 100 frames 80
-```
-
-The ASTRO menu and FZAstro Imaging Control panel also expose uppercase production actions:
-
-```text
-PLAN NEXT TARGET
-PLAN SPECIFIC TARGET
-OPEN LATEST PLAN IN IMAGING
-OPEN PLANS FOLDER
-FZASTRO IMAGING CONTROL
-```
-
-Generated plans are stored in a readable per-plan folder:
-
-```text
-Documents\FZAstroAI\Imaging Plans\<plan_id>\
-```
-
-Each plan creates:
-
-- `<plan>.nina-sequence.json` — real N.I.N.A. Advanced Sequencer JSON filled from the saved OSC template
-- `<plan>.nina-plan.xml` — review/helper XML
-- `<plan>.nina-target.csv` — target/sequence review helper
-- `<plan>.nina-review.json` — FZAstro review metadata
-- `<plan>.json` — FZAstro internal metadata
-- `<plan>.md` — readable summary
-
-FZAstro can launch the bundled imaging app and attempt to open the generated `.nina-sequence.json` for review. The safety boundary remains strict: FZAstro does **not** slew, center, start guiding, run autofocus, start capture, start a sequence, or schedule hardware execution automatically.
-
-See `docs/NINA_BUNDLE_INTEGRATION.md` for the bundle/update/planning workflow.
-
-## AI Developer Workbench
-
-Open the new Developer Workbench with the **DEV** button in the quick actions bar.
-
-Current scope:
-
-- Project scanner that ignores generated caches, backups, build output, and runtime data
-- Task classifier for patch/test/release/ask requests
-- Relevant-file context builder
-- Visible implementation-plan generator
-- Failure-output analyzer for pytest/traceback output
-- Compile and pytest runner helpers
-- Safe patch snapshot primitives
-- Review-first UI; it prepares context and validation rather than silently editing files
-
-See `docs/AI_DEVELOPER_WORKBENCH.md` for details.
-
-## Web Companion
-
-The Web Companion lets the Windows desktop app expose a local browser interface for the same PC, iPad, phone, Mac, or another LAN device.
-
-Typical LAN command:
+Use a Python 3.11 virtual environment for the packaged app build and validation workflow:
 
 ```powershell
-.\scripts\run_web_companion.ps1 -Lan -Port 7860 -Token "fzastro"
-```
-
-Open from another device:
-
-```text
-http://YOUR-PC-LAN-IP:7860/
-```
-
-Set `FZASTRO_WEB_TOKEN` for LAN mode and do not expose this directly to the public internet.
-
-See `docs/WEB_COMPANION.md` for the full LAN/mobile workflow.
-
-## Project structure
-
-```text
-fzastro_ai/                 Application package
-fzastro_ai/actions/         Main-window action mixins
-fzastro_ai/astro_tools/     Astronomy engines, migrated FZASTRO tools, planners
-fzastro_ai/dev_agent/       AI Developer Workbench backend
-fzastro_ai/ui/              PySide6 dialogs/widgets/windows
-fzastro_ai/web_companion/   Local browser companion server and static UI
-fzastro_ai/workers/         Background worker classes
-tests/                      Automated tests
-docs/                       Consolidated detailed documentation
-scripts/                    PowerShell build, validation, setup, and utility scripts
-main.py                     Desktop/Web Companion entry point
-VERSION.txt                 Release version
-```
-
-## Development setup
-
-Use Python 3.11 on Windows for release builds. Do not use Python 3.14 for release builds; the scripts enforce Python 3.11 so dependency and PyInstaller behavior stay predictable.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1 -Force
+py -3.11 -m venv .venv
 . .\scripts\activate_venv.ps1
-python -m pytest
+.\scripts\deploy.ps1
 ```
 
-Launch from source:
+The scripts enforce Python 3.11 for the build even if newer interpreters such as **Python 3.14** are installed on the system. `scripts/reset_venv.ps1` recreates the venv, sets `FZASTRO_PYTHON`, and uses the sibling build folder one folder above the project root: `..\FZAstroAI_BUILD`.
 
-```powershell
-python main.py
-```
+`deploy.ps1` is the single release workflow command. It calls `scripts/clean_build.ps1`, which starts `build_exe.ps1` automatically, then the validation prompt can run `scripts/validate_release.ps1`. The cleanup/build/validation scripts use a progress bar, `VerboseOutput`, and logs under `..\FZAstroAI_BUILD\logs`.
 
-## Build and validation
+Important build variables:
 
-Recommended one-command workflow:
+- `FZASTRO_PROJECT_ROOT`
+- `FZASTRO_BUILD_ROOT`
+- `FZASTRO_PYTHON`
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1
-```
+## Runtime storage
 
-`scripts/deploy.ps1` calls `scripts/clean_build.ps1`; `scripts/clean_build.ps1` starts `build_exe.ps1` automatically. The workflow uses a progress bar for cleanup, build, and validation stages, logs noisy subprocess output under `..\FZAstroAI_BUILD\logs`, and supports `-VerboseOutput` when full live command output is needed.
+Runtime data is stored under `%APPDATA%\FZAstroAI` by default. Important files include:
 
-The default build folder is one folder above the project root:
+- `history.json`
+- `memory.json`
+- `calibration_profiles.json`
+- `document_knowledge.sqlite3`
+- `daily_news_cache.json`
+- `llm_benchmark_history.json`
+- `nina_integration.json`
+- `logs/fzastroai.log`
 
-```text
-..\FZAstroAI_BUILD
-```
-
-`scripts/activate_venv.ps1` sets `FZASTRO_PROJECT_ROOT`, `FZASTRO_BUILD_ROOT`, and `FZASTRO_PYTHON` for child commands.
-
-After a successful build, the script can show a validation prompt to run `scripts/validate_release.ps1`.
-
-## Release validation hygiene notes
-
-Release validation checks development/repair artifacts such as `.bak`, `.patch`, and `repair_*.ps1` files so they do not leak into the release package. It checks the release manifest, PyInstaller resource configuration, isolated `smoke_appdata`, and GUI smoke / GUI startup behavior.
-
-## Detailed docs
-
-- `docs/RELEASE_VALIDATION.md` — production build/validation checklist
-- `docs/PROJECT_OVERVIEW.md` — concise architecture summary
-- `docs/ASTRO_TOOLS_SUITE.md` — astronomy tools guide
-- `docs/AI_DEVELOPER_WORKBENCH.md` — Developer Workbench guide
-- `docs/WEB_COMPANION.md` — LAN/iPad/browser workflow
-- `docs/OFFLINE_VOICE_COMMANDS.md` — optional local Vosk voice commands
-- `docs/SCRIPTS.md` — PowerShell script folder layout and common commands
-- `docs/archive/RC3_FINAL_PRODUCTION_NOTES.md` — historical RC3 notes
+Set `FZASTRO_APP_DIR` to override the runtime data folder for testing or portable runs.

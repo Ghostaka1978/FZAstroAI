@@ -45,14 +45,23 @@ def test_detects_url_page_tools():
     assert plan.action == "web_screenshot_page"
 
 
-def test_detects_document_inventory_and_page_image():
+def test_detects_latest_version_as_web_search_when_web_enabled():
+    plan = detect_deterministic_tool_plan(
+        "What is the latest Python version?",
+        web_enabled=True,
+    )
+
+    assert plan is not None
+    assert plan.action == "web_search"
+    assert plan.tool_id == "web.search"
+
+
+def test_detects_document_page_image_but_not_inventory_dump():
     plan = detect_deterministic_tool_plan(
         "What books do we have?",
         knowledge_library=DummyKnowledgeLibrary(),
     )
-    assert plan is not None
-    assert plan.action == "documents_direct"
-    assert plan.tool_id == "documents.list"
+    assert plan is None
 
     plan = detect_deterministic_tool_plan(
         "Show page 42 of Yearbook as an image",

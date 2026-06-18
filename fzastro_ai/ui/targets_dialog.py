@@ -38,16 +38,19 @@ from ..astro_tools.target_catalog import (
     object_type_choices,
 )
 from ..logging_utils import log_exception, log_warning
+from ..nina.imaging_plan import calculate_framing_details
 from ..workers.astro_worker import AstroWorker
 from ..workers.targets_worker import TargetsWorker
 from .astro_location_dialog import choose_astro_location
 from .astro_lookup_dialog import (
+    CAMERA_PRESETS,
     AstroLookupDialog,
     FloatingSkyPreviewDialog,
     _legacy_lookup_to_html,
     _looks_like_html,
     _lookup_params_from_dialog_data,
     _markdown_to_html,
+    normalise_astro_imaging,
 )
 from .window_utils import apply_window_defaults
 
@@ -82,6 +85,8 @@ class TargetsDialog(QDialog):
         self._close_after_worker = False
         self._inline_lookup_serial = 0
         self._inline_lookup_pixmap: QPixmap | None = None
+        self._inline_lookup_image_path: Path | None = None
+        self._inline_lookup_html: str = ""
         self._floating_preview_dialog: FloatingSkyPreviewDialog | None = None
         self._last_result: dict[str, Any] = {}
         self._last_picks: list[dict[str, Any]] = []
@@ -335,6 +340,77 @@ class TargetsDialog(QDialog):
         image_panel.setMaximumHeight(220)
         side.addWidget(image_panel, 0)
 
+        framing_panel = QFrame()
+        framing_panel.setObjectName("astroLookupSettingsCard")
+        framing_layout = QGridLayout(framing_panel)
+        framing_layout.setContentsMargins(8, 8, 8, 8)
+        framing_layout.setHorizontalSpacing(6)
+        framing_layout.setVerticalSpacing(6)
+        framing_title = QLabel("FRAMING / CAPTURE TO SEND")
+        framing_title.setObjectName("astroLookupSectionTitle")
+        framing_layout.addWidget(framing_title, 0, 0, 1, 4)
+
+        self.imaging_camera_combo = QComboBox()
+        self.imaging_camera_combo.setObjectName("astroLookupCombo")
+        for preset_key, preset in CAMERA_PRESETS.items():
+            self.imaging_camera_combo.addItem(
+                str(preset.get("label") or preset.get("name") or preset_key),
+                str(preset_key),
+            )
+        self.imaging_focal_spin = QDoubleSpinBox()
+        self.imaging_focal_spin.setObjectName("astroLookupCombo")
+        self.imaging_focal_spin.setRange(50.0, 6000.0)
+        self.imaging_focal_spin.setDecimals(1)
+        self.imaging_focal_spin.setSuffix(" mm")
+        self.imaging_focal_spin.setValue(700.0)
+        self.imaging_exposure_spin = QSpinBox()
+        self.imaging_exposure_spin.setObjectName("astroLookupCombo")
+        self.imaging_exposure_spin.setRange(1, 86400)
+        self.imaging_exposure_spin.setSuffix(" s")
+        self.imaging_exposure_spin.setValue(60)
+        self.imaging_gain_spin = QSpinBox()
+        self.imaging_gain_spin.setObjectName("astroLookupCombo")
+        self.imaging_gain_spin.setRange(0, 10000)
+        self.imaging_gain_spin.setValue(200)
+
+        self.update_framing_preview_button = QPushButton("UPDATE PREVIEW")
+        self.update_framing_preview_button.clicked.connect(
+            self.update_selected_framing_preview
+        )
+        self.framing_preview_label = QLabel(
+            "Select a target; frames are auto-calculated later from the best SEEING window."
+        )
+        self.framing_preview_label.setObjectName("sidebarFooter")
+        self.framing_preview_label.setWordWrap(True)
+
+        fields = [
+            ("Camera", self.imaging_camera_combo),
+            ("Focal", self.imaging_focal_spin),
+            ("Exposure", self.imaging_exposure_spin),
+            ("Gain", self.imaging_gain_spin),
+        ]
+        for index, (caption, widget) in enumerate(fields):
+            row = 1 + index // 2
+            col = (index % 2) * 2
+            label = QLabel(caption)
+            label.setObjectName("toolbarCaption")
+            framing_layout.addWidget(label, row, col)
+            framing_layout.addWidget(widget, row, col + 1)
+        framing_layout.addWidget(self.update_framing_preview_button, 3, 0, 1, 2)
+        framing_layout.addWidget(self.framing_preview_label, 3, 2, 1, 2)
+        side.addWidget(framing_panel, 0)
+
+        self._load_parent_imaging_into_targets_controls()
+        self.imaging_camera_combo.currentIndexChanged.connect(
+            self.handle_targets_framing_changed
+        )
+        for widget in (
+            self.imaging_focal_spin,
+            self.imaging_exposure_spin,
+            self.imaging_gain_spin,
+        ):
+            widget.valueChanged.connect(self.handle_targets_framing_changed)
+
         action_row = QHBoxLayout()
         self.lookup_button = QPushButton("Open in LOOKUP")
         self.lookup_button.clicked.connect(self.open_selected_in_lookup)
@@ -342,8 +418,15 @@ class TargetsDialog(QDialog):
         self.copy_button = QPushButton("Copy name")
         self.copy_button.clicked.connect(self.copy_selected_name)
         self.copy_button.setEnabled(False)
+        self.send_to_imaging_button = QPushButton("SEND TO FZASTRO IMAGING")
+        self.send_to_imaging_button.setObjectName("primaryActionButton")
+        self.send_to_imaging_button.clicked.connect(
+            self.send_selected_to_imaging_control
+        )
+        self.send_to_imaging_button.setEnabled(False)
         action_row.addWidget(self.lookup_button)
         action_row.addWidget(self.copy_button)
+        action_row.addWidget(self.send_to_imaging_button)
         side.addLayout(action_row)
         split.addLayout(side, 2)
 
@@ -432,6 +515,7 @@ class TargetsDialog(QDialog):
         self._stop_inline_lookup_worker()
         self.lookup_button.setEnabled(False)
         self.copy_button.setEnabled(False)
+        self.send_to_imaging_button.setEnabled(False)
         self.export_button.setEnabled(False)
         self._clear_inline_lookup_panel(
             "Select a target",
@@ -540,9 +624,11 @@ class TargetsDialog(QDialog):
         enabled = bool(pick)
         self.lookup_button.setEnabled(enabled)
         self.copy_button.setEnabled(enabled)
+        self.send_to_imaging_button.setEnabled(enabled)
         if not pick:
             return
         self.details_browser.setHtml(self._details_html(pick))
+        self.refresh_targets_framing_summary(pick)
         self.queue_inline_lookup(pick)
 
     def _details_html(self, pick: dict[str, Any]) -> str:
@@ -581,6 +667,8 @@ class TargetsDialog(QDialog):
 
     def _clear_inline_lookup_panel(self, title: str, body: str = ""):
         self._inline_lookup_pixmap = None
+        self._inline_lookup_image_path = None
+        self._inline_lookup_html = ""
         self.inline_lookup_status_label.setText("Idle")
         self.inline_lookup_browser.setHtml(self._status_html(title, body))
         self.inline_lookup_image_label.setPixmap(QPixmap())
@@ -626,15 +714,7 @@ class TargetsDialog(QDialog):
         if str((selected or {}).get("name") or "").strip() != str(query).strip():
             return
 
-        parent = self.parent()
-        imaging = None
-        if parent is not None and hasattr(parent, "get_current_astro_imaging"):
-            try:
-                imaging = parent.get_current_astro_imaging()
-            except Exception:
-                imaging = None
-
-        params_data = dict(imaging or {})
+        params_data = self._selected_targets_imaging()
         params_data["query"] = str(query).strip()
         params = _lookup_params_from_dialog_data(params_data)
         width = max(1, int(params.get("width", 900)))
@@ -666,7 +746,8 @@ class TargetsDialog(QDialog):
         clean_text = str(text or "").strip()
         if success:
             self.inline_lookup_status_label.setText(f"Finished • {float(elapsed):.2f}s")
-            self.inline_lookup_browser.setHtml(self._lookup_result_html(clean_text))
+            self._inline_lookup_html = self._lookup_result_html(clean_text)
+            self.inline_lookup_browser.setHtml(self._inline_lookup_html)
         else:
             self.inline_lookup_status_label.setText(f"Problem • {float(elapsed):.2f}s")
             self.inline_lookup_browser.setHtml(
@@ -737,6 +818,7 @@ class TargetsDialog(QDialog):
 
         if image_path is None:
             self._inline_lookup_pixmap = None
+            self._inline_lookup_image_path = None
             self.inline_lookup_image_label.setPixmap(QPixmap())
             self.inline_lookup_image_label.setText("No sky image returned.")
             self.inline_lookup_image_label.setToolTip("")
@@ -745,6 +827,7 @@ class TargetsDialog(QDialog):
         pixmap = QPixmap(str(image_path))
         if pixmap.isNull():
             self._inline_lookup_pixmap = None
+            self._inline_lookup_image_path = None
             self.inline_lookup_image_label.setPixmap(QPixmap())
             self.inline_lookup_image_label.setText(
                 "Image returned, but Qt could not load it."
@@ -754,6 +837,7 @@ class TargetsDialog(QDialog):
             return
 
         self._inline_lookup_pixmap = pixmap
+        self._inline_lookup_image_path = image_path
         self.inline_lookup_image_label.setText("")
         self.inline_lookup_image_label.setToolTip(str(image_path))
         self.open_image_button.setEnabled(True)
@@ -850,6 +934,126 @@ class TargetsDialog(QDialog):
 
         QApplication.clipboard().setText(str(pick.get("name") or ""))
         self.status_label.setText("Copied target name")
+
+    def send_selected_to_imaging_control(self):
+        pick = self.selected_pick()
+        if not pick:
+            QMessageBox.information(self, "FZASTRO IMAGING", "Select a target first.")
+            return
+        parent = self.parent()
+        setter = (
+            getattr(parent, "set_pending_imaging_target_from_targets", None)
+            if parent is not None
+            else None
+        )
+        opener = (
+            getattr(parent, "open_nina_control", None) if parent is not None else None
+        )
+        if setter is None or opener is None:
+            QMessageBox.information(
+                self,
+                "FZASTRO IMAGING",
+                "Open TARGETS from the main FZAstro AI window to send a selected target into Imaging Control.",
+            )
+            return
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(20)
+        self.progress_bar.show()
+        self.status_label.setText("Sending selected target to FZASTRO IMAGING…")
+        setter(
+            pick,
+            planner_options=self.planner_options(),
+            planner_result=self._last_result,
+            imaging=self._selected_targets_imaging(),
+            capture={
+                "exposure_seconds": int(self.imaging_exposure_spin.value()),
+                "gain": int(self.imaging_gain_spin.value()),
+            },
+            lookup_html=self._inline_lookup_html,
+            preview_image_path=str(self._inline_lookup_image_path or ""),
+            framing_preview=self._current_framing_details(),
+        )
+        self.progress_bar.setValue(70)
+        self.status_label.setText(
+            f"Sent {pick.get('name') or 'target'} to FZASTRO IMAGING"
+        )
+        opener()
+        self.progress_bar.setValue(100)
+        # The target selection step is complete. Close TARGETS so the user lands
+        # in Imaging Control for final framing/capture review and confirmation.
+        QTimer.singleShot(180, self.accept)
+
+    def _load_parent_imaging_into_targets_controls(self):
+        parent = self.parent()
+        imaging = None
+        if parent is not None and hasattr(parent, "get_current_astro_imaging"):
+            try:
+                imaging = parent.get_current_astro_imaging()
+            except Exception:
+                imaging = None
+        data = normalise_astro_imaging(imaging or {})
+        index = self.imaging_camera_combo.findData(str(data.get("preset") or "585"))
+        if index >= 0:
+            self.imaging_camera_combo.setCurrentIndex(index)
+        self.imaging_focal_spin.setValue(float(data.get("focal_mm") or 700.0))
+
+    def _selected_targets_imaging(self) -> dict[str, Any]:
+        preset = str(self.imaging_camera_combo.currentData() or "585")
+        return normalise_astro_imaging(
+            {"preset": preset, "focal_mm": float(self.imaging_focal_spin.value())}
+        )
+
+    def _current_framing_details(self) -> dict[str, Any]:
+        pick = self.selected_pick() or {}
+        try:
+            return calculate_framing_details(
+                target_size=pick.get("size") or self._size_label(pick),
+                imaging=self._selected_targets_imaging(),
+                exposure_seconds=int(self.imaging_exposure_spin.value()),
+                gain=int(self.imaging_gain_spin.value()),
+                frames=1,
+            )
+        except Exception:
+            return {}
+
+    def refresh_targets_framing_summary(self, pick: dict[str, Any] | None = None):
+        pick = dict(pick or self.selected_pick() or {})
+        if not pick:
+            self.framing_preview_label.setText(
+                "Select a target; frames are auto-calculated later from the best SEEING window."
+            )
+            return
+        imaging = self._selected_targets_imaging()
+        framing = self._current_framing_details()
+        if framing:
+            self.framing_preview_label.setText(
+                f"{imaging.get('preset_name') or 'Camera'} · "
+                f"{float(imaging.get('focal_mm') or 0):.0f} mm · "
+                f"FOV {framing.get('fov_width_deg') or '—'}° × {framing.get('fov_height_deg') or '—'}° · "
+                f"scale {framing.get('image_scale_arcsec_px') or '—'} arcsec/px · "
+                f"fit {framing.get('target_fit') or '—'} · frames auto from SEEING"
+            )
+        else:
+            self.framing_preview_label.setText(
+                f"{imaging.get('preset_name') or 'Camera'} · {float(imaging.get('focal_mm') or 0):.0f} mm · frames auto from SEEING"
+            )
+
+    def handle_targets_framing_changed(self):
+        self.refresh_targets_framing_summary()
+        if self.selected_pick():
+            self.inline_lookup_status_label.setText("Preview changed")
+            self.inline_lookup_image_label.setText(
+                "Click UPDATE PREVIEW to regenerate the frame with this camera/focal length."
+            )
+            self.open_image_button.setEnabled(False)
+
+    def update_selected_framing_preview(self):
+        pick = self.selected_pick()
+        if not pick:
+            QMessageBox.information(self, "TARGETS framing", "Select a target first.")
+            return
+        self.refresh_targets_framing_summary(pick)
+        self.queue_inline_lookup(pick)
 
     def import_openngc(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -1050,5 +1254,61 @@ class TargetsDialog(QDialog):
 
 
 def show_targets_dialog(parent=None, location: dict[str, Any] | None = None):
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        def _clear_reference(_widget=None):
+            try:
+                if getattr(parent, "astro_targets_dialog", None) is _widget:
+                    setattr(parent, "astro_targets_dialog", None)
+            except Exception:
+                pass
+
+        def _create_targets_tab():
+            dialog = TargetsDialog(parent, location=location)
+            setattr(parent, "astro_targets_dialog", dialog)
+            try:
+                dialog.destroyed.connect(lambda *_args: _clear_reference(dialog))
+            except Exception:
+                pass
+            return dialog
+
+        return parent.open_workspace_tab(
+            "astro.targets",
+            "TARGETS",
+            _create_targets_tab,
+            tooltip="Best astrophotography targets for the selected site",
+            on_close=_clear_reference,
+        )
+
+    existing = (
+        getattr(parent, "astro_targets_dialog", None) if parent is not None else None
+    )
+    if existing is not None:
+        try:
+            if existing.isVisible():
+                existing.show()
+                existing.raise_()
+                existing.activateWindow()
+                return QDialog.Accepted
+        except RuntimeError:
+            existing = None
+
     dialog = TargetsDialog(parent, location=location)
-    return dialog.exec()
+    if parent is not None:
+        setattr(parent, "astro_targets_dialog", dialog)
+
+        def _clear_reference():
+            try:
+                if getattr(parent, "astro_targets_dialog", None) is dialog:
+                    setattr(parent, "astro_targets_dialog", None)
+            except Exception:
+                pass
+
+        dialog.destroyed.connect(_clear_reference)
+    try:
+        return dialog.exec()
+    finally:
+        if (
+            parent is not None
+            and getattr(parent, "astro_targets_dialog", None) is dialog
+        ):
+            setattr(parent, "astro_targets_dialog", None)

@@ -106,6 +106,11 @@ def save_persistent_memory_from_ui(self):
 
 
 def open_persistent_memory_library(self):
+    if hasattr(self, "focus_workspace_tab") and self.focus_workspace_tab(
+        "settings.memory"
+    ):
+        return None
+
     dialog = QDialog(self)
     apply_window_defaults(dialog)
     dialog.setWindowTitle("Persistent Memory Library")
@@ -193,18 +198,33 @@ def open_persistent_memory_library(self):
     self.memory_close_button = buttons.button(QDialogButtonBox.StandardButton.Close)
 
     self.refresh_persistent_memory_list()
+
+    def _clear_references(_widget=None):
+        if _widget is not None and self.memory_dialog is not _widget:
+            return
+        self.memory_dialog = None
+        self.memory_list_widget = None
+        self.memory_status_label = None
+        self.memory_search_input = None
+        self.memory_search_preview = None
+        self.memory_add_button = None
+        self.memory_edit_button = None
+        self.memory_delete_button = None
+        self.memory_clear_button = None
+        self.memory_close_button = None
+
+    if hasattr(self, "open_workspace_tab"):
+        return self.open_workspace_tab(
+            "settings.memory",
+            "MEMORY",
+            lambda: dialog,
+            tooltip="Persistent memory library",
+            on_close=_clear_references,
+        )
+
     dialog.exec()
 
-    self.memory_dialog = None
-    self.memory_list_widget = None
-    self.memory_status_label = None
-    self.memory_search_input = None
-    self.memory_search_preview = None
-    self.memory_add_button = None
-    self.memory_edit_button = None
-    self.memory_delete_button = None
-    self.memory_clear_button = None
-    self.memory_close_button = None
+    _clear_references(dialog)
 
 
 def test_persistent_memory_search(self):

@@ -2700,6 +2700,28 @@ def save_benchmark_history(history: list[dict]):
 
 
 def open_llm_benchmark_dialog(app_window):
+    if app_window is not None and hasattr(app_window, "open_workspace_tab"):
+        def _clear_reference(_widget=None):
+            try:
+                if getattr(app_window, "llm_benchmark_dialog", None) is _widget:
+                    setattr(app_window, "llm_benchmark_dialog", None)
+            except Exception:
+                pass
+
+        def _create_benchmark_tab():
+            dialog = LlmBenchmarkDialog(app_window)
+            app_window.llm_benchmark_dialog = dialog
+            dialog.destroyed.connect(lambda *_args: _clear_reference(dialog))
+            return dialog
+
+        return app_window.open_workspace_tab(
+            "llm.benchmark",
+            "LLM BENCH",
+            _create_benchmark_tab,
+            tooltip="LLM benchmark dashboard",
+            on_close=_clear_reference,
+        )
+
     existing = getattr(app_window, "llm_benchmark_dialog", None)
     if existing is not None:
         try:

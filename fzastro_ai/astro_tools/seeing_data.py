@@ -14,7 +14,9 @@ from ..logging_utils import log_debug, log_warning
 from ..network_utils import get_limited_json
 
 SEEING_CACHE_DIR = APP_DIR / "seeing"
+SEEING_CACHE_MAX_AGE_SECONDS = 6 * 60 * 60
 SEVEN_TIMER_API_BASE = "http://www.7timer.info/bin/api.pl"
+OPEN_METEO_FORECAST_BASE = "https://api.open-meteo.com/v1/forecast"
 METNO_MOON_BASE = "https://api.met.no/weatherapi/sunrise/3.0/moon"
 REQUEST_HEADERS = {
     "User-Agent": "FZAstroAI/1.0 SEEING (+https://github.com/Ghostaka1978/FZAstroAI)",
@@ -23,7 +25,7 @@ REQUEST_HEADERS = {
 SEEING_PROVIDER_HYBRID = "7timer_hybrid"
 SEEING_PROVIDER_7TIMER = "7timer"
 SEEING_PROVIDER_LABELS = {
-    SEEING_PROVIDER_HYBRID: "7Timer ASTRO + Moon/Dark",
+    SEEING_PROVIDER_HYBRID: "7Timer ASTRO + Open-Meteo Cloud + Moon/Dark",
     SEEING_PROVIDER_7TIMER: "7Timer ASTRO only",
 }
 
@@ -138,6 +140,51 @@ def build_7timer_astro_url(lat: Any, lon: Any, altitude_correction: Any = 0) -> 
     return f"{SEVEN_TIMER_API_BASE}?{query}"
 
 
+def build_open_meteo_hourly_url(
+    lat: Any,
+    lon: Any,
+    *,
+    tz: str | None = "UTC",
+    elev: Any = None,
+    forecast_days: int = 7,
+) -> str:
+    lat_f, lon_f = clamp_lat_lon(lat, lon)
+    query: dict[str, Any] = {
+        "latitude": f"{lat_f:.6f}",
+        "longitude": f"{lon_f:.6f}",
+        "hourly": ",".join(
+            [
+                "cloud_cover",
+                "temperature_2m",
+                "precipitation",
+                "precipitation_probability",
+                "wind_speed_10m",
+                "wind_direction_10m",
+            ]
+        ),
+        "current": ",".join(
+            [
+                "cloud_cover",
+                "temperature_2m",
+                "precipitation",
+                "wind_speed_10m",
+                "wind_direction_10m",
+            ]
+        ),
+        "temperature_unit": "celsius",
+        "wind_speed_unit": "ms",
+        "timezone": str(tz or "UTC"),
+        "forecast_days": max(1, min(16, int(forecast_days))),
+        "past_days": 1,
+    }
+    try:
+        if elev is not None:
+            query["elevation"] = f"{float(elev):.1f}"
+    except Exception:
+        pass
+    return f"{OPEN_METEO_FORECAST_BASE}?{urlencode(query)}"
+
+
 def _cache_key(
     lat: float,
     lon: float,
@@ -185,6 +232,441 @@ def _write_cache(path: Path, payload: dict[str, Any]) -> None:
         log_debug("SEEING cache write skipped", exc)
 
 
+def fetch_open_meteo_hourly_weather(
+    *,
+    lat: Any,
+    lon: Any,
+    elev: Any = None,
+    tz: str | None = "UTC",
+    forecast_days: int = 7,
+) -> dict[str, Any]:
+    """Fetch hourly cloud/weather from Open-Meteo for SEEING cloud truth."""
+    url = build_open_meteo_hourly_url(
+        lat,
+        lon,
+        tz=tz,
+        elev=elev,
+        forecast_days=forecast_days,
+    )
+    payload = get_limited_json(
+        url,
+        max_bytes=768 * 1024,
+        timeout=18,
+        headers=REQUEST_HEADERS,
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("Open-Meteo returned non-object JSON.")
+    hourly = payload.get("hourly")
+    if not isinstance(hourly, dict):
+        raise ValueError("Open-Meteo returned no hourly weather data.")
+    zone = _safe_zoneinfo(str(payload.get("timezone") or tz or "UTC"))
+    times = hourly.get("time") if isinstance(hourly.get("time"), list) else []
+    cloud = hourly.get("cloud_cover") if isinstance(hourly.get("cloud_cover"), list) else []
+    temps = (
+        hourly.get("temperature_2m")
+        if isinstance(hourly.get("temperature_2m"), list)
+        else []
+    )
+    wind_speeds = (
+        hourly.get("wind_speed_10m")
+        if isinstance(hourly.get("wind_speed_10m"), list)
+        else []
+    )
+    wind_dirs = (
+        hourly.get("wind_direction_10m")
+        if isinstance(hourly.get("wind_direction_10m"), list)
+        else []
+    )
+    precip = (
+        hourly.get("precipitation")
+        if isinstance(hourly.get("precipitation"), list)
+        else []
+    )
+    precip_probability = (
+        hourly.get("precipitation_probability")
+        if isinstance(hourly.get("precipitation_probability"), list)
+        else []
+    )
+    count = min(
+        len(times),
+        len(cloud),
+        len(temps),
+        len(wind_speeds),
+        len(wind_dirs),
+        len(precip),
+        len(precip_probability),
+    )
+    if count <= 0:
+        raise ValueError("Open-Meteo hourly weather data is empty.")
+
+    records: dict[str, dict[str, Any]] = {}
+    for index in range(count):
+        try:
+            local_dt = datetime.fromisoformat(str(times[index])).replace(tzinfo=zone)
+        except Exception:
+            continue
+        hour_key = local_dt.replace(minute=0, second=0, microsecond=0).isoformat()
+        records[hour_key] = {
+            "local_iso": hour_key,
+            "cloud_cover": cloud[index],
+            "temperature_2m": temps[index],
+            "wind_speed_10m": wind_speeds[index],
+            "wind_direction_10m": wind_dirs[index],
+            "precipitation": precip[index],
+            "precipitation_probability": precip_probability[index],
+        }
+    if not records:
+        raise ValueError("Open-Meteo hourly weather rows could not be parsed.")
+    current_payload = payload.get("current")
+    current_record: dict[str, Any] = {}
+    if isinstance(current_payload, dict):
+        try:
+            current_dt = datetime.fromisoformat(str(current_payload.get("time"))).replace(
+                tzinfo=zone
+            )
+            current_record = {
+                "local_iso": current_dt.isoformat(),
+                "cloud_cover": current_payload.get("cloud_cover"),
+                "temperature_2m": current_payload.get("temperature_2m"),
+                "wind_speed_10m": current_payload.get("wind_speed_10m"),
+                "wind_direction_10m": current_payload.get("wind_direction_10m"),
+                "precipitation": current_payload.get("precipitation"),
+                "precipitation_probability": None,
+                "is_current": True,
+            }
+        except Exception:
+            current_record = {}
+    return {
+        "provider": "Open-Meteo",
+        "source_url": url,
+        "timezone": str(payload.get("timezone") or tz or "UTC"),
+        "rows_by_local_hour": records,
+        "current": current_record,
+    }
+
+
+def _weather_record_for_local_hour(
+    weather: dict[str, Any], local_dt: datetime, zone: ZoneInfo
+) -> dict[str, Any] | None:
+    records = (
+        weather.get("rows_by_local_hour")
+        if isinstance(weather.get("rows_by_local_hour"), dict)
+        else {}
+    )
+    if not records:
+        return None
+    try:
+        key = (
+            local_dt.astimezone(zone)
+            .replace(minute=0, second=0, microsecond=0)
+            .isoformat()
+        )
+    except Exception:
+        return None
+    record = records.get(key)
+    return record if isinstance(record, dict) else None
+
+
+def _apply_open_meteo_record_to_row(
+    row: dict[str, Any], record: dict[str, Any], source_url: str
+) -> bool:
+    cloud_pct = _float_value(record.get("cloud_cover"))
+    if cloud_pct is None:
+        return False
+    cloud_int = max(0, min(100, int(round(cloud_pct))))
+    cloud_code = _cloud_code_from_pct(cloud_int)
+    row["cloud_7timer_code"] = row.get("cloud_code")
+    row["cloud_7timer_text"] = row.get("cloud_text")
+    row["cloud_7timer_mid_pct"] = row.get("cloud_mid_pct")
+    row["cloud_code"] = cloud_code
+    row["cloud_text"] = CLOUD_LABELS.get(cloud_code, ("Unknown", 100))[0]
+    row["cloud_mid_pct"] = cloud_int
+    row["cloud_source"] = "Open-Meteo hourly"
+    row["cloud_source_url"] = source_url
+
+    temp = _float_value(record.get("temperature_2m"))
+    if temp is not None:
+        row["temp2m_c"] = round(temp, 1)
+    wind_speed = _float_value(record.get("wind_speed_10m"))
+    if wind_speed is not None:
+        row["wind_speed_ms"] = round(wind_speed, 1)
+        row["wind_speed_code"] = _wind_speed_code_from_ms(wind_speed)
+        row["wind_speed_text"] = f"{wind_speed:.1f} m/s"
+    direction = _wind_direction_from_deg(record.get("wind_direction_10m"))
+    if direction:
+        row["wind_direction"] = direction
+    precip_type, precip_text = _precip_text_from_open_meteo(
+        record.get("precipitation"), record.get("precipitation_probability")
+    )
+    row["precip_type"] = precip_type
+    row["precip_text"] = precip_text
+    row["raw_open_meteo"] = dict(record)
+    _refresh_row_sky_score(row)
+    return True
+
+
+def expand_seeing_rows_to_hourly(
+    result: dict[str, Any], weather: dict[str, Any]
+) -> int:
+    """Expand 7Timer's 3-hour astronomy rows into hourly planner rows."""
+    rows = result.get("rows") if isinstance(result.get("rows"), list) else []
+    if len(rows) < 2:
+        return 0
+    zone = _safe_zoneinfo(str(result.get("tz") or weather.get("timezone") or "UTC"))
+    parsed: list[tuple[datetime, dict[str, Any]]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            local_dt = datetime.fromisoformat(str(row.get("local_iso"))).astimezone(
+                zone
+            )
+        except Exception:
+            continue
+        parsed.append((local_dt.replace(minute=0, second=0, microsecond=0), row))
+    if len(parsed) < 2:
+        return 0
+    parsed.sort(key=lambda item: item[0])
+    start = parsed[0][0]
+    end = parsed[-1][0]
+    if end <= start:
+        return 0
+
+    source_url = str(weather.get("source_url") or "")
+    hourly_rows: list[dict[str, Any]] = []
+    matched_weather = 0
+    current = start
+    while current <= end:
+        source_dt, source_row = min(
+            parsed, key=lambda item: abs((item[0] - current).total_seconds())
+        )
+        row = dict(source_row)
+        utc_dt = current.astimezone(timezone.utc)
+        row["utc_iso"] = utc_dt.isoformat().replace("+00:00", "Z")
+        row["local_iso"] = current.isoformat()
+        row["local_label"] = current.strftime("%Y-%m-%d %H:%M")
+        row["hour_label"] = current.strftime("%a %H:%M")
+        try:
+            init_dt = datetime.fromisoformat(
+                str(result.get("init_utc")).replace("Z", "+00:00")
+            )
+            row["timepoint_hours"] = round(
+                (utc_dt - init_dt.astimezone(timezone.utc)).total_seconds() / 3600
+            )
+        except Exception:
+            pass
+        row["hourly_row"] = True
+        row["hourly_interpolated"] = current != source_dt
+        row["source_7timer_local_label"] = str(source_row.get("local_label") or "")
+        row["source_7timer_timepoint_hours"] = source_row.get("timepoint_hours")
+
+        record = _weather_record_for_local_hour(weather, current, zone)
+        if record is not None and _apply_open_meteo_record_to_row(row, record, source_url):
+            matched_weather += 1
+        else:
+            _refresh_row_sky_score(row)
+        hourly_rows.append(row)
+        current += timedelta(hours=1)
+
+    if matched_weather <= 0:
+        return 0
+    result["rows"] = hourly_rows
+    result["hourly_rows"] = True
+    result["hourly_rows_added"] = max(0, len(hourly_rows) - len(rows))
+    result["seeing_cadence_note"] = (
+        "Hourly planner rows use nearest 7Timer seeing/transparency samples."
+    )
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    summary["rows"] = len(hourly_rows)
+    result["summary"] = summary
+    return matched_weather
+
+
+def apply_open_meteo_current_weather(result: dict[str, Any], weather: dict[str, Any]) -> bool:
+    """Apply Open-Meteo current conditions to the closest current planner row."""
+    current_record = (
+        weather.get("current") if isinstance(weather.get("current"), dict) else {}
+    )
+    if not current_record:
+        return False
+    current_iso = str(current_record.get("local_iso") or "").strip()
+    if not current_iso:
+        return False
+    try:
+        zone = _safe_zoneinfo(str(result.get("tz") or weather.get("timezone") or "UTC"))
+        current_dt = datetime.fromisoformat(current_iso).astimezone(zone)
+    except Exception:
+        return False
+    rows = result.get("rows") if isinstance(result.get("rows"), list) else []
+    best_row: dict[str, Any] | None = None
+    best_delta = 999999.0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            row_dt = datetime.fromisoformat(str(row.get("local_iso"))).astimezone(zone)
+        except Exception:
+            continue
+        delta = abs((row_dt - current_dt).total_seconds())
+        if delta < best_delta:
+            best_delta = delta
+            best_row = row
+    if best_row is None or best_delta > 60 * 60:
+        return False
+    source_url = str(weather.get("source_url") or "")
+    if not _apply_open_meteo_record_to_row(best_row, current_record, source_url):
+        return False
+    best_row["cloud_source"] = "Open-Meteo current"
+    best_row["current_weather_row"] = True
+    best_row["current_weather_time"] = current_iso
+    result["current_weather_applied"] = True
+    result["current_weather_time"] = current_iso
+    result["current_cloud_pct"] = best_row.get("cloud_mid_pct")
+    return True
+
+
+def apply_open_meteo_hourly_weather(
+    result: dict[str, Any], weather: dict[str, Any]
+) -> int:
+    """Replace coarse 7Timer cloud rows with Open-Meteo hourly cloud values."""
+    rows = result.get("rows") if isinstance(result.get("rows"), list) else []
+    records = (
+        weather.get("rows_by_local_hour")
+        if isinstance(weather.get("rows_by_local_hour"), dict)
+        else {}
+    )
+    if not rows or not records:
+        return 0
+    matched = expand_seeing_rows_to_hourly(result, weather)
+    if matched:
+        apply_open_meteo_current_weather(result, weather)
+        result["cloud_provider"] = "Open-Meteo hourly"
+        result["cloud_source_url"] = str(weather.get("source_url") or "")
+        return matched
+    zone = _safe_zoneinfo(str(result.get("tz") or weather.get("timezone") or "UTC"))
+    matched = 0
+    for row in rows:
+        try:
+            local_dt = datetime.fromisoformat(str(row.get("local_iso"))).astimezone(
+                zone
+            )
+        except Exception:
+            continue
+        key = local_dt.replace(minute=0, second=0, microsecond=0).isoformat()
+        record = records.get(key)
+        if not isinstance(record, dict):
+            continue
+        cloud_pct = _float_value(record.get("cloud_cover"))
+        if cloud_pct is None:
+            continue
+        cloud_int = max(0, min(100, int(round(cloud_pct))))
+        cloud_code = _cloud_code_from_pct(cloud_int)
+        row["cloud_7timer_code"] = row.get("cloud_code")
+        row["cloud_7timer_text"] = row.get("cloud_text")
+        row["cloud_7timer_mid_pct"] = row.get("cloud_mid_pct")
+        row["cloud_code"] = cloud_code
+        row["cloud_text"] = CLOUD_LABELS.get(cloud_code, ("Unknown", 100))[0]
+        row["cloud_mid_pct"] = cloud_int
+        row["cloud_source"] = "Open-Meteo hourly"
+        row["cloud_source_url"] = str(weather.get("source_url") or "")
+
+        temp = _float_value(record.get("temperature_2m"))
+        if temp is not None:
+            row["temp2m_c"] = round(temp, 1)
+        wind_speed = _float_value(record.get("wind_speed_10m"))
+        if wind_speed is not None:
+            row["wind_speed_ms"] = round(wind_speed, 1)
+            row["wind_speed_code"] = _wind_speed_code_from_ms(wind_speed)
+            row["wind_speed_text"] = f"{wind_speed:.1f} m/s"
+        direction = _wind_direction_from_deg(record.get("wind_direction_10m"))
+        if direction != "—":
+            row["wind_direction"] = direction
+        precip_type, precip_text = _precip_text_from_open_meteo(
+            record.get("precipitation"), record.get("precipitation_probability")
+        )
+        row["precip_type"] = precip_type
+        row["precip_text"] = precip_text
+        row["raw_open_meteo"] = dict(record)
+        _refresh_row_sky_score(row)
+        matched += 1
+    if matched:
+        apply_open_meteo_current_weather(result, weather)
+        result["cloud_provider"] = "Open-Meteo hourly"
+        result["cloud_source_url"] = str(weather.get("source_url") or "")
+    return matched
+
+
+def attach_open_meteo_weather(
+    result: dict[str, Any],
+    *,
+    lat: Any,
+    lon: Any,
+    elev: Any = None,
+    tz: str | None = "UTC",
+) -> dict[str, Any]:
+    """Attach Open-Meteo hourly cloud/weather, leaving 7Timer seeing intact."""
+    weather = fetch_open_meteo_hourly_weather(lat=lat, lon=lon, elev=elev, tz=tz)
+    matched = apply_open_meteo_hourly_weather(result, weather)
+    if matched <= 0:
+        raise ValueError("Open-Meteo hourly rows did not match 7Timer forecast hours.")
+    result["weather_provider"] = "Open-Meteo hourly"
+    result["weather_source_url"] = str(weather.get("source_url") or "")
+    result["weather_rows_matched"] = matched
+    if result.get("hourly_rows"):
+        result["weather_cadence"] = "hourly"
+    return result
+
+
+def _parse_cache_saved_utc(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _cache_age_seconds(
+    cached: dict[str, Any], *, now: datetime | None = None
+) -> int | None:
+    saved = _parse_cache_saved_utc(
+        cached.get("saved_utc") if isinstance(cached, dict) else None
+    )
+    if saved is None:
+        return None
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    age = (current.astimezone(timezone.utc) - saved).total_seconds()
+    return max(0, int(age))
+
+
+def _cache_age_label(seconds: int | float | None) -> str:
+    if seconds is None:
+        return "unknown age"
+    total_seconds = max(0, int(seconds))
+    if total_seconds < 60:
+        return f"{total_seconds}s old"
+    total_minutes = total_seconds // 60
+    if total_minutes < 60:
+        return f"{total_minutes}m old"
+    total_hours = total_minutes // 60
+    minutes = total_minutes % 60
+    if total_hours < 48:
+        if minutes:
+            return f"{total_hours}h {minutes}m old"
+        return f"{total_hours}h old"
+    days = total_hours // 24
+    hours = total_hours % 24
+    if hours:
+        return f"{days}d {hours}h old"
+    return f"{days}d old"
+
+
 def _parse_init_datetime(value: Any) -> datetime:
     text = str(value or "").strip()
     for fmt in ("%Y%m%d%H", "%Y%m%d%H%M", "%Y-%m-%d %H:%M:%S"):
@@ -209,12 +691,83 @@ def _int_value(value: Any, default: int = 0) -> int:
         return default
 
 
+def _float_value(value: Any, default: float | None = None) -> float | None:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
 def _quality_from_code(code: int, *, max_code: int) -> int:
     if code <= 0:
         return 0
     if max_code <= 1:
         return 100
     return max(0, min(100, round(100 - ((code - 1) / (max_code - 1)) * 100)))
+
+
+def _cloud_code_from_pct(value: Any) -> int:
+    try:
+        pct = max(0, min(100, int(round(float(value)))))
+    except Exception:
+        return 9
+    if pct <= 6:
+        return 1
+    if pct <= 19:
+        return 2
+    if pct <= 31:
+        return 3
+    if pct <= 44:
+        return 4
+    if pct <= 56:
+        return 5
+    if pct <= 69:
+        return 6
+    if pct <= 81:
+        return 7
+    if pct <= 94:
+        return 8
+    return 9
+
+
+def _wind_speed_code_from_ms(value: Any) -> int:
+    speed = _float_value(value, 0.0) or 0.0
+    if speed < 0.3:
+        return 1
+    if speed < 3.4:
+        return 2
+    if speed < 8.0:
+        return 3
+    if speed < 10.8:
+        return 4
+    if speed < 17.2:
+        return 5
+    if speed < 24.5:
+        return 6
+    if speed < 32.6:
+        return 7
+    return 8
+
+
+def _wind_direction_from_deg(value: Any) -> str:
+    degrees = _float_value(value)
+    if degrees is None:
+        return "—"
+    labels = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+    index = int((degrees % 360.0 + 22.5) // 45.0) % 8
+    return labels[index]
+
+
+def _precip_text_from_open_meteo(amount: Any, probability: Any) -> tuple[str, str]:
+    amount_mm = _float_value(amount, 0.0) or 0.0
+    probability_pct = _float_value(probability)
+    if amount_mm > 0.05:
+        if probability_pct is not None:
+            return "rain", f"Rain {amount_mm:.1f} mm · {int(round(probability_pct))}%"
+        return "rain", f"Rain {amount_mm:.1f} mm"
+    if probability_pct is not None and probability_pct >= 30:
+        return "rain", f"Possible rain {int(round(probability_pct))}%"
+    return "none", "None"
 
 
 def _cloud_score_from_pct(pct: int) -> int:
@@ -271,18 +824,22 @@ def _cloud_score_cap(pct: int) -> int:
     return 100
 
 
-def _row_score(row: dict[str, Any]) -> int:
-    seeing_score = _quality_from_code(_int_value(row.get("seeing")), max_code=8)
-    transparency_score = _quality_from_code(
-        _int_value(row.get("transparency")), max_code=8
-    )
-    cloud_code = _int_value(row.get("cloudcover"), 9)
-    cloud_mid_pct = CLOUD_LABELS.get(cloud_code, ("Unknown", 100))[1]
+def _score_from_parts(
+    *,
+    seeing_code: Any,
+    transparency_code: Any,
+    cloud_pct: Any,
+    wind_speed_code: Any = 2,
+    precip_type: Any = "none",
+) -> int:
+    seeing_score = _quality_from_code(_int_value(seeing_code), max_code=8)
+    transparency_score = _quality_from_code(_int_value(transparency_code), max_code=8)
+    cloud_mid_pct = max(0, min(100, _int_value(cloud_pct, 100)))
     cloud_score = _cloud_score_from_pct(cloud_mid_pct)
-    wind_speed = _int_value((row.get("wind10m") or {}).get("speed"), 2)
+    wind_speed = _int_value(wind_speed_code, 2)
     wind_score = _quality_from_code(wind_speed, max_code=8)
-    precip_type = str(row.get("prec_type") or "none").strip().lower()
-    precip_score = 100 if precip_type in {"", "none"} else 10
+    precip_text = str(precip_type or "none").strip().lower()
+    precip_score = 100 if precip_text in {"", "none"} else 10
     base_score = round(
         seeing_score * 0.30
         + transparency_score * 0.22
@@ -291,6 +848,32 @@ def _row_score(row: dict[str, Any]) -> int:
         + precip_score * 0.04
     )
     return max(0, min(100, min(base_score, _cloud_score_cap(cloud_mid_pct))))
+
+
+def _row_score(row: dict[str, Any]) -> int:
+    cloud_code = _int_value(row.get("cloudcover"), 9)
+    cloud_mid_pct = CLOUD_LABELS.get(cloud_code, ("Unknown", 100))[1]
+    return _score_from_parts(
+        seeing_code=row.get("seeing"),
+        transparency_code=row.get("transparency"),
+        cloud_pct=cloud_mid_pct,
+        wind_speed_code=(row.get("wind10m") or {}).get("speed"),
+        precip_type=row.get("prec_type"),
+    )
+
+
+def _refresh_row_sky_score(row: dict[str, Any]) -> None:
+    score = _score_from_parts(
+        seeing_code=row.get("seeing_code"),
+        transparency_code=row.get("transparency_code"),
+        cloud_pct=row.get("cloud_mid_pct"),
+        wind_speed_code=row.get("wind_speed_code"),
+        precip_type=row.get("precip_type"),
+    )
+    row["score"] = score
+    row["score_label"] = score_label(score)
+    row.pop("sky_score", None)
+    row.pop("sky_score_label", None)
 
 
 def score_label(score: Any) -> str:
@@ -372,6 +955,51 @@ def _moon_score_cap(moon_up: Any, moon_pct: Any) -> int:
     if pct >= 10:
         return 90
     return 100
+
+
+def _darkness_text_from_sun_altitude(value: Any) -> str:
+    altitude = _float_value(value)
+    if altitude is None:
+        return "Twilight/day"
+    if altitude < -18.0:
+        return "Astro dark"
+    if altitude < -12.0:
+        return "Astronomical twilight"
+    if altitude < -6.0:
+        return "Nautical twilight"
+    if altitude < 0.0:
+        return "Civil twilight"
+    return "Daylight"
+
+
+def _planner_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rows that should drive observing-window decisions.
+
+    True astronomical darkness is ideal. During high-summer/no-dark periods,
+    use twilight rows as the fallback instead of letting daylight rows drive
+    night-window summaries and daily cloud averages.
+    """
+    dark_rows = [row for row in rows if row.get("astro_dark") is True]
+    if dark_rows:
+        return dark_rows
+    twilight_rows = [
+        row
+        for row in rows
+        if (_float_value(row.get("sun_altitude_deg"), 90.0) or 90.0) < -6.0
+    ]
+    return twilight_rows or rows
+
+
+def _planner_scope(rows: list[dict[str, Any]]) -> str:
+    selected = _planner_rows(rows)
+    if any(row.get("astro_dark") is True for row in selected):
+        return "dark"
+    if any(
+        (_float_value(row.get("sun_altitude_deg"), 90.0) or 90.0) < -6.0
+        for row in selected
+    ):
+        return "twilight"
+    return "daylight"
 
 
 def _apply_imaging_context_score(row: dict[str, Any]) -> None:
@@ -786,7 +1414,7 @@ def attach_astro_context(
         )
         row["sun_altitude_deg"] = round(sun_alt, 1)
         row["astro_dark"] = bool(sun_alt < -18.0)
-        row["astro_dark_text"] = "Astro dark" if sun_alt < -18.0 else "Twilight/day"
+        row["astro_dark_text"] = _darkness_text_from_sun_altitude(sun_alt)
         row["moon_pct"] = int(round(illum * 100))
         row["moon_phase"] = phase
         row["moon_up"] = moon_up
@@ -806,10 +1434,11 @@ def attach_astro_context(
         f"{period.get('date', '—')}: rise {period.get('moonrise_label', '—')} · set {period.get('moonset_label', '—')} · {period.get('illumination_pct', '—')}% {period.get('phase', '')}"
         for period in moon_periods[:5]
     ]
-    # Summaries should represent the best imaging slot. Prefer actual
-    # astronomical darkness, and only fall back to twilight/day when no dark
-    # forecast points are available in the record.
-    imaging_rows = [row for row in rows if row.get("astro_dark") is True] or rows
+    # Summaries should represent the best observing slot. Prefer actual
+    # astronomical darkness, then twilight fallback, then daylight only when
+    # no darker forecast points are available in the record.
+    imaging_rows = _planner_rows(rows)
+    planner_scope = _planner_scope(rows)
     best_row = max(imaging_rows, key=lambda row: int(row.get("score") or 0))
     summary["best_score"] = int(best_row.get("score") or 0)
     summary["best_score_label"] = score_label(best_row.get("score"))
@@ -825,12 +1454,16 @@ def attach_astro_context(
     summary["best_cloud_compact"] = (
         f"{best_row.get('cloud_mid_pct', '—')}% · {best_row.get('cloud_text', '—')}"
     )
+    summary["best_window_kind"] = planner_scope
+    summary["best_window_has_astro_dark"] = planner_scope == "dark"
+    summary["best_window_is_twilight_fallback"] = planner_scope == "twilight"
     summary["dark_periods"] = dark_labels
     summary["next_dark_period"] = (
         dark_labels[0] if dark_labels else "No astronomical darkness in forecast range."
     )
     summary["moon_periods"] = moon_labels
     summary["moon_period_note"] = moon_note
+    summary["rows"] = len(rows)
     result["summary"] = summary
     result["astro_context"] = {
         "dark_periods": dark_periods,
@@ -1017,15 +1650,52 @@ def fetch_7timer_astro_forecast(
         )
         result["provider_id"] = provider_id
         result["provider"] = SEEING_PROVIDER_LABELS.get(provider_id, "7Timer ASTRO")
+        weather_note = ""
+        if include_context:
+            try:
+                result = attach_open_meteo_weather(
+                    result,
+                    lat=lat_f,
+                    lon=lon_f,
+                    elev=elev_f,
+                    tz=tz,
+                )
+                weather_note = (
+                    " Open-Meteo hourly cloud loaded; hourly planner rows generated."
+                    if result.get("hourly_rows")
+                    else " Open-Meteo hourly cloud loaded."
+                )
+                if result.get("current_weather_applied"):
+                    weather_note += " Current cloud applied to nearest hour."
+            except Exception as weather_exc:
+                log_warning("SEEING Open-Meteo cloud request failed", weather_exc)
+                result["weather_status_note"] = (
+                    f"Open-Meteo cloud unavailable; using 7Timer cloud ({weather_exc})."
+                )
+                weather_note = " Open-Meteo cloud unavailable; using 7Timer cloud."
         if include_context:
             result = attach_astro_context(result, include_moon_periods=True)
-        result["status_note"] = "Live 7Timer ASTRO forecast loaded."
+        result["status_note"] = (
+            "Live 7Timer ASTRO seeing/transparency loaded." + weather_note
+        )
         return result
     except Exception as exc:
         log_warning("SEEING live 7Timer ASTRO request failed", exc)
         cached = _read_cache(cache_path)
         payload = cached.get("payload") if isinstance(cached, dict) else None
         if isinstance(payload, dict):
+            age_seconds = _cache_age_seconds(cached)
+            cache_age_text = _cache_age_label(age_seconds)
+            if (
+                age_seconds is None
+                or age_seconds > SEEING_CACHE_MAX_AGE_SECONDS
+            ):
+                saved_text = str(cached.get("saved_utc") or "unknown UTC")
+                raise RuntimeError(
+                    "Live 7Timer ASTRO request failed and the cached SEEING "
+                    f"forecast is stale ({cache_age_text}, saved {saved_text}). "
+                    "Retry when the network/provider is available."
+                ) from exc
             result = parse_7timer_astro_payload(
                 payload,
                 lat=lat_f,
@@ -1038,10 +1708,38 @@ def fetch_7timer_astro_forecast(
             )
             result["provider_id"] = provider_id
             result["provider"] = SEEING_PROVIDER_LABELS.get(provider_id, "7Timer ASTRO")
+            result["cache_saved_utc"] = str(cached.get("saved_utc") or "")
+            result["cache_age_seconds"] = age_seconds
+            result["cache_max_age_seconds"] = SEEING_CACHE_MAX_AGE_SECONDS
+            weather_note = ""
+            if include_context:
+                try:
+                    result = attach_open_meteo_weather(
+                        result,
+                        lat=lat_f,
+                        lon=lon_f,
+                        elev=elev_f,
+                        tz=tz,
+                    )
+                    weather_note = (
+                        " Open-Meteo hourly cloud loaded; hourly planner rows generated."
+                        if result.get("hourly_rows")
+                        else " Open-Meteo hourly cloud loaded."
+                    )
+                    if result.get("current_weather_applied"):
+                        weather_note += " Current cloud applied to nearest hour."
+                except Exception as weather_exc:
+                    log_warning("SEEING Open-Meteo cloud request failed", weather_exc)
+                    result["weather_status_note"] = (
+                        "Open-Meteo cloud unavailable; using cached 7Timer cloud "
+                        f"({weather_exc})."
+                    )
+                    weather_note = " Open-Meteo cloud unavailable; using cached 7Timer cloud."
             if include_context:
                 result = attach_astro_context(result, include_moon_periods=True)
             result["status_note"] = (
-                f"Live 7Timer request failed; showing cached forecast from {cached.get('saved_utc', 'unknown UTC')}."
+                "Live 7Timer ASTRO request failed; showing recent cached "
+                f"seeing/transparency ({cache_age_text})." + weather_note
             )
             return result
         raise

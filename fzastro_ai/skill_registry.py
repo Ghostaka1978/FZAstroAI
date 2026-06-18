@@ -138,8 +138,8 @@ SKILLS: tuple[Skill, ...] = (
             ),
             _composer(
                 "documents.list_documents",
-                "List documents",
-                "Show the indexed document inventory in chat.",
+                "Open document library",
+                "Open the local document library for import, selection, search, and document actions.",
                 section="Library",
             ),
             _composer(
@@ -335,19 +335,6 @@ SKILLS: tuple[Skill, ...] = (
                 "open_astro_targets_dialog",
                 section="TOOLS",
                 favorite=True,
-            ),
-            _composer(
-                "imaging.plan_next_target",
-                "PLAN NEXT TARGET",
-                "Create a safe review-only FZAstro Imaging/N.I.N.A. plan for the next best practical target.",
-                section="FZASTRO IMAGING",
-                favorite=True,
-            ),
-            _composer(
-                "imaging.plan_specific_target",
-                "PLAN SPECIFIC TARGET",
-                "Create a safe review-only FZAstro Imaging/N.I.N.A. plan for a named target.",
-                section="FZASTRO IMAGING",
             ),
             _composer(
                 "imaging.open_plans_folder",

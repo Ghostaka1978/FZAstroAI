@@ -1,0 +1,1 @@
+﻿Remove fzastro_ai\skill_registry.py.bak_remove_plan_actions if it exists in the target app folder. It was a stale backup containing old document-list menu text.

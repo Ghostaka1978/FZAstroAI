@@ -188,6 +188,10 @@ from .window_utils import apply_window_defaults
 
 def open_help_cheat_sheet_dialog(parent):
     """Open the built-in routing and prompt cheat sheet."""
+    if parent is not None and hasattr(parent, "focus_workspace_tab"):
+        if parent.focus_workspace_tab("system.help"):
+            return None
+
     dialog = QDialog(parent)
     apply_window_defaults(dialog)
     dialog.setObjectName("helpDialog")
@@ -253,5 +257,13 @@ def open_help_cheat_sheet_dialog(parent):
     layout.addWidget(subtitle)
     layout.addWidget(help_view, 1)
     layout.addLayout(button_row)
+
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        return parent.open_workspace_tab(
+            "system.help",
+            "HELP",
+            lambda: dialog,
+            tooltip="FZAstro AI help and command guide",
+        )
 
     dialog.exec()

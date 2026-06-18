@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
@@ -118,8 +119,10 @@ class ImagingPlanResult:
     nina_xml_path: str
     nina_csv_path: str
     nina_sequence_path: str
+    framing: dict[str, Any] | None = None
     auto_start_requested: bool = False
     review_required: bool = True
+    nina_sequence_confirmed: bool = False
 
 
 def _normalise_text(text: str) -> str:
@@ -266,6 +269,19 @@ def _parse_dt(value: Any, tz_name: str) -> datetime | None:
         return None
 
 
+def _float_value(value: Any, default: float = 90.0) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _is_twilight_window_row(row: dict[str, Any]) -> bool:
+    if row.get("astro_dark") is True:
+        return False
+    return _float_value(row.get("sun_altitude_deg"), 90.0) < -6.0
+
+
 def choose_best_seeing_window(
     forecast: dict[str, Any], *, now: datetime | None = None
 ) -> ImagingWindow:
@@ -296,7 +312,10 @@ def choose_best_seeing_window(
     dark_candidates = [
         (row, dt) for row, dt in candidates if row.get("astro_dark") is True
     ]
-    candidates = dark_candidates or candidates
+    twilight_candidates = [
+        (row, dt) for row, dt in candidates if _is_twilight_window_row(row)
+    ]
+    candidates = dark_candidates or twilight_candidates or candidates
 
     row, start = max(
         candidates,
@@ -368,6 +387,157 @@ def _catalog_target(query: str) -> dict[str, Any]:
     }
 
 
+def _selected_target_from_pick(pick: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a TARGETS row selected by the user for imaging-plan generation.
+
+    The TARGETS -> Imaging Control workflow must not re-query or re-rank the
+    target catalog after the user has selected a row.  This preserves the exact
+    object the user reviewed in TARGETS, while the planner still evaluates the
+    best structured SEEING window for that confirmed target.
+    """
+
+    data = dict(pick or {})
+    name = str(data.get("name") or data.get("target_name") or "").strip()
+    if not name:
+        raise ValueError("Selected TARGETS handoff did not include a target name.")
+    return {
+        "name": name,
+        "type": str(data.get("type") or data.get("target_type") or ""),
+        "const": str(data.get("const") or data.get("constellation") or ""),
+        "ra": str(data.get("ra") or data.get("ra_text") or ""),
+        "dec": str(data.get("dec") or data.get("dec_text") or ""),
+        "mag": "" if data.get("mag") is None else str(data.get("mag")),
+        "size": str(data.get("size") or data.get("apparent_size") or ""),
+        "grade": int(data.get("grade") or 0),
+    }
+
+
+_PRACTICAL_TARGET_TYPES = {
+    "galaxy": 22,
+    "galaxies": 22,
+    "globular": 24,
+    "globularcluster": 24,
+    "globularclusterinmilkyway": 24,
+    "opencluster": 18,
+    "cluster": 16,
+    "nebula": 22,
+    "emissionnebula": 24,
+    "reflectionnebula": 20,
+    "darknebula": 16,
+    "planetarynebula": 18,
+    "supernovaremnant": 16,
+}
+
+_LOW_VALUE_TARGET_TYPES = {
+    "other",
+    "unknown",
+    "star",
+    "stars",
+    "doublestar",
+    "asterism",
+    "associationofstars",
+}
+
+
+def _compact_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+
+
+def _catalog_name_bonus(name: Any) -> int:
+    text = str(name or "").strip().upper()
+    if re.match(r"^M\s*\d+\b", text) or re.match(r"^MESSIER\s+\d+\b", text):
+        return 18
+    if re.match(r"^NGC\s*\d+\b", text):
+        return 9
+    if re.match(r"^IC\s*\d+\b", text):
+        return 2
+    if re.match(r"^BARNARD\s*\d+\b", text):
+        return 4
+    return 0
+
+
+def _parse_magnitude(value: Any) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except Exception:
+        return None
+
+
+def _parse_size_arcmin(value: Any) -> float | None:
+    text = (
+        str(value or "").strip().replace("′", "'").replace("’", "'").replace("″", '"')
+    )
+    if not text:
+        return None
+    match = re.search(
+        r"(\d+(?:\.\d+)?)\s*(°|deg|d|'|arcmin|m|\"|arcsec|s)?", text, re.I
+    )
+    if not match:
+        return None
+    try:
+        amount = float(match.group(1))
+    except Exception:
+        return None
+    unit = (match.group(2) or "").casefold()
+    if unit in {"°", "deg", "d"}:
+        return amount * 60.0
+    if unit in {'"', "arcsec", "s"}:
+        return amount / 60.0
+    return amount
+
+
+def _practical_target_bonus(pick: dict[str, Any]) -> int:
+    """Score how useful a target is for an automatic imaging recommendation.
+
+    The TARGETS planner should still use the AUTO catalog source, but AUTO can
+    contain many tiny or poorly classified OpenNGC/IC objects.  This bonus keeps
+    the big catalog available while making `/nina-plan next` prefer practical
+    astrophotography targets over obscure `Other` entries when the geometric
+    grades are similar.
+    """
+
+    bonus = _catalog_name_bonus(pick.get("name"))
+    compact_type = _compact_text(pick.get("type"))
+
+    if compact_type in _PRACTICAL_TARGET_TYPES:
+        bonus += _PRACTICAL_TARGET_TYPES[compact_type]
+    elif compact_type in _LOW_VALUE_TARGET_TYPES or not compact_type:
+        bonus -= 35
+    elif any(word in compact_type for word in ("galaxy", "nebula", "cluster")):
+        bonus += 14
+    else:
+        bonus -= 10
+
+    size_arcmin = _parse_size_arcmin(pick.get("size"))
+    if size_arcmin is None:
+        bonus -= 4
+    elif size_arcmin < 2.0:
+        bonus -= 16
+    elif size_arcmin < 5.0:
+        bonus -= 6
+    elif size_arcmin <= 120.0:
+        bonus += 8
+    else:
+        bonus += 3
+
+    mag = _parse_magnitude(pick.get("mag"))
+    if mag is not None:
+        if mag <= 8.0:
+            bonus += 8
+        elif mag <= 11.5:
+            bonus += 3
+        elif mag > 14.0:
+            bonus -= 10
+
+    return bonus
+
+
 def _choose_target(
     command: PredefinedImagingCommand,
     targets_result: dict[str, Any],
@@ -380,23 +550,26 @@ def _choose_target(
     if not isinstance(picks, list) or not picks:
         raise ValueError("TARGETS planner returned no usable target picks.")
 
-    window_start = _parse_dt(
-        window.start_iso, str(targets_result.get("location", {}).get("tz") or "UTC")
-    )
+    tz_name = str(targets_result.get("location", {}).get("tz") or "UTC")
+    window_start = _parse_dt(window.start_iso, tz_name)
 
-    def rank(pick: dict[str, Any]) -> tuple[int, float]:
+    def rank(pick: dict[str, Any]) -> tuple[int, int, float]:
         grade = int(pick.get("grade") or 0)
-        best = _parse_dt(
-            pick.get("best_time_local"),
-            str(targets_result.get("location", {}).get("tz") or "UTC"),
-        )
+        practical_bonus = _practical_target_bonus(pick)
+        best = _parse_dt(pick.get("best_time_local"), tz_name)
         if window_start is not None and best is not None:
             delta = abs((best - window_start).total_seconds()) / 60.0
         else:
             delta = 99999.0
-        return (grade, -delta)
 
-    best_pick = max((p for p in picks if isinstance(p, dict)), key=rank)
+        # Primary sort is a practical imaging score.  Keep the original TARGETS
+        # grade as the second key so AUTO still benefits from precise visibility
+        # calculations, but does not blindly choose tiny/unknown catalog entries.
+        practical_score = grade + practical_bonus
+        return (practical_score, grade, -delta)
+
+    usable_picks = [p for p in picks if isinstance(p, dict)]
+    best_pick = max(usable_picks, key=rank)
     return {
         "name": str(best_pick.get("name") or "Best target"),
         "type": str(best_pick.get("type") or ""),
@@ -406,6 +579,125 @@ def _choose_target(
         "mag": "" if best_pick.get("mag") is None else str(best_pick.get("mag")),
         "size": str(best_pick.get("size") or ""),
         "grade": int(best_pick.get("grade") or 0),
+    }
+
+
+def _float_from_mapping(
+    data: dict[str, Any], keys: tuple[str, ...], default: float
+) -> float:
+    for key in keys:
+        try:
+            value = data.get(key)
+        except Exception:
+            continue
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except Exception:
+            continue
+    return float(default)
+
+
+def _camera_sensor_dimensions(
+    imaging: dict[str, Any],
+) -> tuple[float, float, int, int, float]:
+    sensor_width = _float_from_mapping(
+        imaging, ("sensor_width_mm", "sensor_width"), 11.2
+    )
+    native_width = int(_float_from_mapping(imaging, ("native_width", "width"), 3840.0))
+    native_height = int(
+        _float_from_mapping(imaging, ("native_height", "height"), 2160.0)
+    )
+    aspect = native_height / max(1, native_width)
+    sensor_height = _float_from_mapping(
+        imaging,
+        ("sensor_height_mm", "sensor_height"),
+        sensor_width * aspect,
+    )
+    pixel_size_um = _float_from_mapping(
+        imaging,
+        ("pixel_size_um", "pixel_um", "pixel_size"),
+        sensor_width * 1000.0 / max(1, native_width),
+    )
+    return sensor_width, sensor_height, native_width, native_height, pixel_size_um
+
+
+def _fit_label(
+    target_width_arcmin: float | None, fov_width_deg: float, fov_height_deg: float
+) -> str:
+    if target_width_arcmin is None or target_width_arcmin <= 0:
+        return "unknown"
+    smallest_fov_arcmin = min(fov_width_deg, fov_height_deg) * 60.0
+    largest_fov_arcmin = max(fov_width_deg, fov_height_deg) * 60.0
+    if target_width_arcmin > largest_fov_arcmin * 1.12:
+        return "too large"
+    if target_width_arcmin > smallest_fov_arcmin * 0.78:
+        return "tight"
+    if target_width_arcmin < smallest_fov_arcmin * 0.08:
+        return "small"
+    return "good"
+
+
+def calculate_framing_details(
+    *,
+    target_size: Any,
+    imaging: dict[str, Any],
+    exposure_seconds: int,
+    gain: int,
+    frames: int,
+) -> dict[str, Any]:
+    """Calculate safe framing/capture metadata for review before N.I.N.A. export.
+
+    This uses structured TARGETS/LOOKUP metadata plus the IMAGING profile.  It
+    deliberately does not parse rendered lookup HTML or SEEING dialog HTML.
+    """
+
+    imaging = dict(imaging or {})
+    sensor_width, sensor_height, native_width, native_height, pixel_size_um = (
+        _camera_sensor_dimensions(imaging)
+    )
+    focal_mm = _float_from_mapping(imaging, ("focal_mm", "focal_length_mm"), 700.0)
+    reducer_factor = _float_from_mapping(
+        imaging, ("reducer_factor", "reducer", "barlow_factor"), 1.0
+    )
+    reducer_factor = max(0.05, min(10.0, reducer_factor))
+    effective_focal_mm = max(1.0, focal_mm * reducer_factor)
+    fov_width_deg = (
+        2.0 * math.atan((sensor_width / 2.0) / effective_focal_mm) * 180.0 / math.pi
+    )
+    fov_height_deg = (
+        2.0 * math.atan((sensor_height / 2.0) / effective_focal_mm) * 180.0 / math.pi
+    )
+    image_scale = 206.265 * pixel_size_um / effective_focal_mm
+    target_arcmin = _parse_size_arcmin(target_size)
+    total_minutes = max(1, int((max(1, frames) * max(1, exposure_seconds)) // 60))
+    return {
+        "camera_model": str(
+            imaging.get("preset_name")
+            or imaging.get("camera_name")
+            or imaging.get("preset")
+            or "Camera"
+        ),
+        "sensor_width_mm": round(sensor_width, 3),
+        "sensor_height_mm": round(sensor_height, 3),
+        "native_width": int(native_width),
+        "native_height": int(native_height),
+        "pixel_size_um": round(pixel_size_um, 3),
+        "focal_length_mm": round(focal_mm, 2),
+        "reducer_factor": round(reducer_factor, 3),
+        "effective_focal_length_mm": round(effective_focal_mm, 2),
+        "fov_width_deg": round(fov_width_deg, 4),
+        "fov_height_deg": round(fov_height_deg, 4),
+        "image_scale_arcsec_px": round(image_scale, 3),
+        "target_size_arcmin": (
+            None if target_arcmin is None else round(target_arcmin, 3)
+        ),
+        "target_fit": _fit_label(target_arcmin, fov_width_deg, fov_height_deg),
+        "exposure_seconds": int(exposure_seconds),
+        "gain": int(gain),
+        "frames": int(frames),
+        "estimated_total_minutes": int(total_minutes),
     }
 
 
@@ -613,7 +905,12 @@ def _write_plan_files(
             "exposure_seconds": result.exposure_seconds,
             "gain": result.gain,
             "frames": result.frames,
+            "nina_sequence_confirmed": bool(result.nina_sequence_confirmed),
+            "nina_sequence_path": (
+                result.nina_sequence_path if result.nina_sequence_confirmed else ""
+            ),
         },
+        "framing": dict(result.framing or {}),
         "conditions": asdict(result.window),
     }
     review_path.write_text(
@@ -621,7 +918,14 @@ def _write_plan_files(
     )
     _write_nina_review_xml(xml_path, result)
     _write_nina_review_csv(csv_path, result)
-    _write_nina_sequence_json(sequence_path, result)
+    # Do not create the N.I.N.A. Advanced Sequencer JSON at draft time.
+    # It is generated only after the user confirms target, framing, focal length,
+    # exposure, gain, and frame count in FZASTRO IMAGING CONTROL.
+    try:
+        if sequence_path.exists():
+            sequence_path.unlink()
+    except Exception:
+        pass
     return result
 
 
@@ -634,15 +938,28 @@ def build_imaging_plan_from_results(
     targets_result: dict[str, Any],
     output_dir: str | Path | None = None,
     created_at: datetime | None = None,
+    selected_target: dict[str, Any] | None = None,
 ) -> ImagingPlanResult:
     created = created_at or datetime.now(timezone.utc)
     window = choose_best_seeing_window(forecast, now=created)
-    target = _choose_target(command, targets_result, window)
+    target = (
+        _selected_target_from_pick(selected_target)
+        if isinstance(selected_target, dict) and selected_target
+        else _choose_target(command, targets_result, window)
+    )
     frames, duration_minutes = _frames_for_window(command, window)
     total_minutes = max(1, int((frames * command.exposure_seconds) // 60))
     plan_id = _safe_plan_id(str(target.get("name") or "target"), created)
     base_out_dir = Path(output_dir or IMAGING_PLAN_DIR)
     out_dir = base_out_dir / plan_id
+
+    framing = calculate_framing_details(
+        target_size=target.get("size"),
+        imaging=imaging,
+        exposure_seconds=int(command.exposure_seconds),
+        gain=int(command.gain),
+        frames=int(frames),
+    )
 
     result = ImagingPlanResult(
         plan_id=plan_id,
@@ -666,8 +983,10 @@ def build_imaging_plan_from_results(
         nina_xml_path=str(out_dir / f"{plan_id}.nina-plan.xml"),
         nina_csv_path=str(out_dir / f"{plan_id}.nina-target.csv"),
         nina_sequence_path=str(out_dir / f"{plan_id}.nina-sequence.json"),
+        framing=framing,
         auto_start_requested=bool(command.auto_start_requested),
         review_required=True,
+        nina_sequence_confirmed=False,
     )
 
     payload = {
@@ -679,7 +998,8 @@ def build_imaging_plan_from_results(
             "review_required": True,
             "auto_start": False,
             "hardware_actions_executed": False,
-            "message": "FZAstro created a review-only imaging plan. Confirm in FZAstro Imaging/N.I.N.A. before moving equipment or starting capture.",
+            "nina_sequence_confirmed": False,
+            "message": "FZAstro created a draft imaging plan. Confirm target framing, focal length, exposure, gain, and frames in FZASTRO IMAGING CONTROL before generating the N.I.N.A. sequence JSON.",
         },
     }
     return _write_plan_files(result, payload)
@@ -709,6 +1029,7 @@ def build_predefined_imaging_plan(
         date_iso=date_iso,
         limit=DEFAULT_TARGET_LIMIT,
         min_alt=DEFAULT_MIN_ALT_DEG,
+        catalog_source="auto",
     )
     return build_imaging_plan_from_results(
         command=command,
@@ -718,6 +1039,209 @@ def build_predefined_imaging_plan(
         targets_result=targets_result,
         output_dir=output_dir,
     )
+
+
+def build_selected_target_imaging_plan(
+    *,
+    command: PredefinedImagingCommand,
+    location: dict[str, Any],
+    imaging: dict[str, Any],
+    selected_target: dict[str, Any],
+    output_dir: str | Path | None = None,
+) -> ImagingPlanResult:
+    """Build a draft for the exact TARGETS row selected by the user.
+
+    This intentionally avoids looking up the target again by name.  TARGETS is
+    the selection surface; Imaging Control only adds SEEING-window evaluation,
+    auto frame calculation, framing/capture review, and final N.I.N.A. export.
+    """
+
+    forecast = fetch_7timer_astro_forecast(
+        lat=location.get("lat"),
+        lon=location.get("lon"),
+        elev=location.get("elev", 0.0),
+        tz=str(location.get("tz") or "UTC"),
+        altitude_correction="auto",
+    )
+    return build_imaging_plan_from_results(
+        command=command,
+        location=location,
+        imaging=imaging,
+        forecast=forecast,
+        targets_result={
+            "picks": [dict(selected_target or {})],
+            "location": dict(location or {}),
+        },
+        output_dir=output_dir,
+        selected_target=dict(selected_target or {}),
+    )
+
+
+def _window_from_payload(data: dict[str, Any]) -> ImagingWindow:
+    return ImagingWindow(
+        start_iso=str(data.get("start_iso") or ""),
+        end_iso=str(data.get("end_iso") or ""),
+        start_label=str(data.get("start_label") or ""),
+        end_label=str(data.get("end_label") or ""),
+        score=int(data.get("score") or 0),
+        score_label=str(data.get("score_label") or ""),
+        cloud_pct=data.get("cloud_pct"),
+        cloud_text=str(data.get("cloud_text") or ""),
+        seeing_text=str(data.get("seeing_text") or ""),
+        transparency_text=str(data.get("transparency_text") or ""),
+        moon_text=str(data.get("moon_text") or ""),
+        astro_dark=bool(data.get("astro_dark") is True),
+    )
+
+
+def _plan_from_payload(plan_data: dict[str, Any]) -> ImagingPlanResult:
+    return ImagingPlanResult(
+        plan_id=str(plan_data.get("plan_id") or ""),
+        target_name=str(plan_data.get("target_name") or "Target"),
+        target_type=str(plan_data.get("target_type") or ""),
+        ra=str(plan_data.get("ra") or ""),
+        dec=str(plan_data.get("dec") or ""),
+        magnitude=str(plan_data.get("magnitude") or ""),
+        size=str(plan_data.get("size") or ""),
+        target_grade=int(plan_data.get("target_grade") or 0),
+        exposure_seconds=int(
+            plan_data.get("exposure_seconds") or DEFAULT_EXPOSURE_SECONDS
+        ),
+        gain=int(plan_data.get("gain") or DEFAULT_GAIN),
+        frames=int(plan_data.get("frames") or 1),
+        estimated_total_minutes=int(plan_data.get("estimated_total_minutes") or 1),
+        window=_window_from_payload(dict(plan_data.get("window") or {})),
+        location=dict(plan_data.get("location") or {}),
+        imaging=dict(plan_data.get("imaging") or {}),
+        plan_json_path=str(plan_data.get("plan_json_path") or ""),
+        plan_text_path=str(plan_data.get("plan_text_path") or ""),
+        nina_review_path=str(plan_data.get("nina_review_path") or ""),
+        nina_xml_path=str(plan_data.get("nina_xml_path") or ""),
+        nina_csv_path=str(plan_data.get("nina_csv_path") or ""),
+        nina_sequence_path=str(plan_data.get("nina_sequence_path") or ""),
+        framing=dict(plan_data.get("framing") or {}),
+        auto_start_requested=bool(plan_data.get("auto_start_requested")),
+        review_required=True,
+        nina_sequence_confirmed=bool(plan_data.get("nina_sequence_confirmed")),
+    )
+
+
+def confirm_imaging_plan_for_nina(
+    plan_json_path: str | Path,
+    *,
+    camera_model: str | None = None,
+    focal_length_mm: float | None = None,
+    reducer_factor: float | None = None,
+    exposure_seconds: int | None = None,
+    gain: int | None = None,
+    frames: int | None = None,
+) -> ImagingPlanResult:
+    """Generate the final N.I.N.A. JSON only after explicit user confirmation.
+
+    The draft plan is allowed to exist as Markdown/XML/CSV/FZAstro metadata.  The
+    importable `.nina-sequence.json` file is created only here, after the user has
+    reviewed target, framing, focal length, exposure, gain, and frames.
+    """
+
+    json_path = Path(plan_json_path)
+    if not json_path.exists():
+        raise FileNotFoundError(
+            "Draft imaging-plan JSON was not found. Re-send the target from TARGETS and confirm/load again: "
+            f"{json_path}"
+        )
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    plan_data = dict(payload.get("plan") or {})
+    imaging = dict(plan_data.get("imaging") or {})
+
+    if camera_model:
+        imaging["preset_name"] = str(camera_model).strip()
+    if focal_length_mm is not None:
+        imaging["focal_mm"] = max(1.0, float(focal_length_mm))
+    if reducer_factor is not None:
+        imaging["reducer_factor"] = max(0.05, min(10.0, float(reducer_factor)))
+    if exposure_seconds is not None:
+        plan_data["exposure_seconds"] = max(1, min(24 * 3600, int(exposure_seconds)))
+    if gain is not None:
+        plan_data["gain"] = max(0, min(10000, int(gain)))
+    if frames is not None:
+        plan_data["frames"] = max(1, min(10000, int(frames)))
+
+    exposure = int(plan_data.get("exposure_seconds") or DEFAULT_EXPOSURE_SECONDS)
+    gain_value = int(plan_data.get("gain") or DEFAULT_GAIN)
+    frame_count = int(plan_data.get("frames") or 1)
+    total_minutes = max(1, int((frame_count * exposure) // 60))
+    plan_data["estimated_total_minutes"] = total_minutes
+    plan_data["imaging"] = imaging
+    plan_data["framing"] = calculate_framing_details(
+        target_size=plan_data.get("size"),
+        imaging=imaging,
+        exposure_seconds=exposure,
+        gain=gain_value,
+        frames=frame_count,
+    )
+    plan_data["nina_sequence_confirmed"] = True
+
+    result = _plan_from_payload(plan_data)
+    sequence_path = Path(result.nina_sequence_path)
+    sequence_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_nina_sequence_json(sequence_path, result)
+
+    payload["plan"] = asdict(result)
+    payload["safety"] = dict(payload.get("safety") or {})
+    payload["safety"].update(
+        {
+            "review_required": True,
+            "auto_start": False,
+            "hardware_actions_executed": False,
+            "nina_sequence_confirmed": True,
+            "message": "User confirmed target framing, focal length, exposure, gain, and frames before the N.I.N.A. sequence JSON was generated.",
+        }
+    )
+    payload["confirmation"] = {
+        "confirmed_utc": datetime.now(timezone.utc).isoformat(),
+        "camera_model": result.framing.get("camera_model") if result.framing else "",
+        "effective_focal_length_mm": (
+            result.framing.get("effective_focal_length_mm") if result.framing else None
+        ),
+        "exposure_seconds": result.exposure_seconds,
+        "gain": result.gain,
+        "frames": result.frames,
+        "nina_sequence_path": result.nina_sequence_path,
+    }
+    json_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    Path(result.plan_text_path).write_text(
+        format_imaging_plan_markdown(result), encoding="utf-8"
+    )
+    _write_nina_review_xml(Path(result.nina_xml_path), result)
+    _write_nina_review_csv(Path(result.nina_csv_path), result)
+
+    review_path = Path(result.nina_review_path)
+    try:
+        review_payload = json.loads(review_path.read_text(encoding="utf-8"))
+    except Exception:
+        review_payload = {}
+    review_payload.update(
+        {
+            "safe_mode": True,
+            "review_required": True,
+            "nina_sequence_confirmed": True,
+            "sequence": {
+                "start_time": result.window.start_iso,
+                "end_time": result.window.end_iso,
+                "exposure_seconds": result.exposure_seconds,
+                "gain": result.gain,
+                "frames": result.frames,
+                "nina_sequence_path": result.nina_sequence_path,
+            },
+            "framing": dict(result.framing or {}),
+        }
+    )
+    review_path.write_text(
+        json.dumps(review_payload, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    return result
 
 
 def format_imaging_plan_markdown(plan: ImagingPlanResult) -> str:
@@ -730,30 +1254,53 @@ def format_imaging_plan_markdown(plan: ImagingPlanResult) -> str:
     coord_line = ""
     if plan.ra or plan.dec:
         coord_line = f"\n- Coordinates: RA `{plan.ra or '—'}` · Dec `{plan.dec or '—'}`"
-    return (
-        "**FZAstro Imaging plan created**\n\n"
-        f"- Target: **{plan.target_name}**"
-        f"{coord_line}\n"
-        f"- Type: {plan.target_type or '—'} · Grade: {plan.target_grade or '—'}\n"
-        f"- Window: {plan.window.start_label} → {plan.window.end_label}\n"
-        f"- SEEING score: {plan.window.score}/100 · {plan.window.score_label}\n"
-        f"- Cloud: {plan.window.cloud_pct if plan.window.cloud_pct is not None else '—'}% · {plan.window.cloud_text or '—'}\n"
-        f"- Seeing: {plan.window.seeing_text or '—'}\n"
-        f"- Transparency: {plan.window.transparency_text or '—'}\n"
-        f"- Moon: {plan.window.moon_text or '—'}\n"
-        f"- Exposure: {plan.exposure_seconds}s · Gain: {plan.gain} · Frames: {plan.frames}\n"
-        f"- Estimated light time: {plan.estimated_total_minutes} min\n\n"
-        "review-only files created:\n"
-        f"- `{plan.plan_text_path}`\n"
+
+    framing = dict(plan.framing or {})
+    sequence_line = (
         f"- `{plan.nina_sequence_path}`\n"
-        f"- `{plan.nina_xml_path}`\n"
-        f"- `{plan.nina_csv_path}`\n"
-        f"- `{plan.nina_review_path}`\n"
-        f"- `{plan.plan_json_path}`\n\n"
-        "The `.nina-sequence.json` file is generated from a real N.I.N.A. Advanced Sequencer template. "
-        "The XML/CSV files are review/helper exports, and the JSON review file is kept for FZAstro metadata.\n\n"
-        "No telescope movement, capture start, or N.I.N.A. sequence execution was performed."
-        f"{warning}"
+        if plan.nina_sequence_confirmed
+        else f"- N.I.N.A. sequence JSON pending: `{plan.nina_sequence_path}`\n"
+    )
+    sequence_note = (
+        "The `.nina-sequence.json` file was generated from a real N.I.N.A. Advanced Sequencer template after confirmation. "
+        if plan.nina_sequence_confirmed
+        else "The `.nina-sequence.json` file has not been generated yet. Open FZASTRO IMAGING CONTROL, review the target/framing/capture values, then click CONFIRM & GENERATE N.I.N.A. JSON. "
+    )
+    file_header = (
+        "confirmed N.I.N.A. sequence + review files created:\n"
+        if plan.nina_sequence_confirmed
+        else "draft review files created; N.I.N.A. sequence JSON is pending user confirmation:\n"
+    )
+
+    return (
+        (
+            "**FZAstro Imaging plan confirmed**\n\n"
+            if plan.nina_sequence_confirmed
+            else "**FZAstro Imaging draft plan created**\n\n"
+        )
+        + f"- Target: **{plan.target_name}**"
+        + f"{coord_line}\n"
+        + f"- Type: {plan.target_type or '—'} · Grade: {plan.target_grade or '—'}\n"
+        + f"- Window: {plan.window.start_label} → {plan.window.end_label}\n"
+        + f"- SEEING score: {plan.window.score}/100 · {plan.window.score_label}\n"
+        + f"- Cloud: {plan.window.cloud_pct if plan.window.cloud_pct is not None else '—'}% · {plan.window.cloud_text or '—'}\n"
+        + f"- Seeing: {plan.window.seeing_text or '—'}\n"
+        + f"- Transparency: {plan.window.transparency_text or '—'}\n"
+        + f"- Moon: {plan.window.moon_text or '—'}\n"
+        + f"- Framing: {framing.get('camera_model') or 'Camera'} · {framing.get('effective_focal_length_mm') or '—'} mm effective · FOV {framing.get('fov_width_deg') or '—'}° × {framing.get('fov_height_deg') or '—'}° · {framing.get('image_scale_arcsec_px') or '—'} arcsec/px · fit {framing.get('target_fit') or '—'}\n"
+        + f"- Exposure: {plan.exposure_seconds}s · Gain: {plan.gain} · Frames: {plan.frames}\n"
+        + f"- Estimated light time: {plan.estimated_total_minutes} min\n\n"
+        + file_header
+        + f"- `{plan.plan_text_path}`\n"
+        + sequence_line
+        + f"- `{plan.nina_xml_path}`\n"
+        + f"- `{plan.nina_csv_path}`\n"
+        + f"- `{plan.nina_review_path}`\n"
+        + f"- `{plan.plan_json_path}`\n\n"
+        + sequence_note
+        + "The XML/CSV files are review/helper exports, and the JSON review file is kept for FZAstro metadata.\n\n"
+        + "No telescope movement, capture start, or N.I.N.A. sequence execution was performed."
+        + warning
     )
 
 
@@ -764,5 +1311,5 @@ def predefined_imaging_command_help() -> str:
         "- `/nina-plan next 60s gain 200`\n"
         "- `/nina-plan target M13 60s gain 200`\n"
         "- `/imaging-plan target NGC 7000 exposure 120s gain 100 frames 80`\n\n"
-        "These commands create review-only N.I.N.A. Advanced Sequencer JSON plus XML/CSV helper exports; they do not start hardware automatically."
+        "These commands create a draft review plan first. The N.I.N.A. Advanced Sequencer JSON is generated only after target framing, focal length, exposure, gain, and frames are confirmed in FZASTRO IMAGING CONTROL."
     )

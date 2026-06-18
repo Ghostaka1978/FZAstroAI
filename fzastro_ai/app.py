@@ -192,6 +192,7 @@ from .ui.source_chips import add_source_header_widget
 from .ui.styles import get_main_stylesheet
 from .ui.main_layout import MainLayoutMixin
 from .ui.attachment_controls import AttachmentControlsMixin
+from .ui.workspace_tabs import WorkspaceTabsMixin
 
 
 from .ui.message_widgets import (
@@ -835,6 +836,7 @@ class AutoHideStatusLabel(QLabel):
 
 class FZAstroAI(
     ShutdownControllerMixin,
+    WorkspaceTabsMixin,
     AttachmentControlsMixin,
     MainLayoutMixin,
     ChatLifecycleMixin,
@@ -1258,7 +1260,7 @@ class FZAstroAI(
 
         knowledge_card, knowledge_layout = self._create_settings_card(
             "Document knowledge",
-            "Searchable local document library used automatically during chat.",
+            "Searchable local document library used only when selected or explicitly requested.",
         )
         knowledge_layout.addWidget(self.document_knowledge_summary_label)
         knowledge_layout.addWidget(self.import_documents_memory_button)
@@ -1982,7 +1984,7 @@ class FZAstroAI(
         self.imported_documents_button.setObjectName("composerToolButton")
         self.imported_documents_button.setCursor(Qt.PointingHandCursor)
         self.imported_documents_button.setToolTip(
-            "Show the imported documents command picker in chat. The number in parentheses is the current imported document count."
+            "Show the imported documents command picker in chat. Use the Document Knowledge Library to import or remove documents."
         )
         self.imported_documents_button.setAccessibleName(
             "Show imported documents command picker"
@@ -2104,7 +2106,7 @@ class FZAstroAI(
         # one unified top command bar.
         # The bottom composer toolbar stays focused on Skills and message tooling.
         main_layout.addWidget(self.thought_panel)
-        main_layout.addWidget(chat_surface, 1)
+        main_layout.addWidget(self.create_workspace_tabs(chat_surface), 1)
         main_layout.addWidget(composer_shell)
         self.history_panel = QWidget()
         self.history_panel.setFixedWidth(368)
@@ -2493,6 +2495,11 @@ class FZAstroAI(
                 )
 
     def open_document_knowledge_library(self):
+        if hasattr(self, "focus_workspace_tab") and self.focus_workspace_tab(
+            "settings.documents"
+        ):
+            return None
+
         dialog = QDialog(self)
         apply_window_defaults(dialog)
         dialog.setWindowTitle("Document Knowledge Library")
@@ -2646,22 +2653,36 @@ class FZAstroAI(
             bool(self.knowledge_worker and self.knowledge_worker.isRunning())
         )
 
+        def _clear_references(_widget=None):
+            if _widget is not None and self.knowledge_dialog is not _widget:
+                return
+            self.knowledge_dialog = None
+            self.knowledge_list_widget = None
+            self.knowledge_options_button = None
+            self.knowledge_brief_button = None
+            self.knowledge_reader_button = None
+            self.knowledge_search_inside_button = None
+            self.knowledge_status_label = None
+            self.knowledge_import_button = None
+            self.knowledge_remove_button = None
+            self.knowledge_clear_button = None
+            self.knowledge_compact_button = None
+            self.knowledge_close_button = None
+            self.knowledge_search_input = None
+            self.knowledge_search_preview = None
+
+        if hasattr(self, "open_workspace_tab"):
+            return self.open_workspace_tab(
+                "settings.documents",
+                "DOCUMENTS",
+                lambda: dialog,
+                tooltip="Document Knowledge Library",
+                on_close=_clear_references,
+            )
+
         dialog.exec()
 
-        self.knowledge_dialog = None
-        self.knowledge_list_widget = None
-        self.knowledge_options_button = None
-        self.knowledge_brief_button = None
-        self.knowledge_reader_button = None
-        self.knowledge_search_inside_button = None
-        self.knowledge_status_label = None
-        self.knowledge_import_button = None
-        self.knowledge_remove_button = None
-        self.knowledge_clear_button = None
-        self.knowledge_compact_button = None
-        self.knowledge_close_button = None
-        self.knowledge_search_input = None
-        self.knowledge_search_preview = None
+        _clear_references(dialog)
 
     def set_document_knowledge_status(self, text, *, mirror_main=True):
         status_text = str(text or "").strip()
@@ -4251,7 +4272,7 @@ class FZAstroAI(
         values = values or {}
 
         if action_id == "documents.list_documents":
-            self.show_knowledge_documents_in_chat()
+            self.open_document_knowledge_library()
             return
 
         if action_id == "documents.brief_document":
@@ -4444,7 +4465,7 @@ class FZAstroAI(
             return True
 
         if clean_lower in {"/docs", "/documents", "/books", "/library"}:
-            self.show_knowledge_documents_in_chat()
+            self.open_document_knowledge_library()
             return True
 
         if re.fullmatch(
@@ -4461,7 +4482,7 @@ class FZAstroAI(
             clean,
             flags=re.IGNORECASE,
         ):
-            self.show_knowledge_documents_in_chat()
+            self.open_document_knowledge_library()
             return True
 
         select_match = re.match(
@@ -4695,8 +4716,8 @@ class FZAstroAI(
         self.show_text_dialog("Active Context", "\n".join(lines))
 
     def show_indexed_documents_context(self):
-        body = self.knowledge_library.format_document_inventory_response()
-        self.show_text_dialog("Indexed Documents", body, html_body=body.startswith("<"))
+        self.open_document_knowledge_library()
+        self.stats_label.setText("Opened indexed documents locally.")
 
     @staticmethod
     def _knowledge_document_chat_link(action, document_id, label):
@@ -4798,13 +4819,12 @@ class FZAstroAI(
 
     def _show_active_knowledge_document_required(self, action_label="run that action"):
         self.stats_label.setText(f"Select a document before trying to {action_label}.")
-        self.add_message_widget(
-            "Assistant",
-            "Select a document first from the imported document list, then run the action again.",
-            source_tags=["Docs"],
-            animate=True,
+        QMessageBox.information(
+            self,
+            "Select Document",
+            f"Select a document before trying to {action_label}.",
         )
-        self.show_knowledge_documents_in_chat()
+        self.open_document_knowledge_library()
 
     def activate_knowledge_document_by_id(self, document_id, *, announce=True):
         document = self.knowledge_library.get_document(document_id)

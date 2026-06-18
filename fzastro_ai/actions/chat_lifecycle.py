@@ -3,7 +3,6 @@
 Extracted from app.py during Phase 2K without behavior changes.
 """
 
-import re
 import time
 import uuid
 
@@ -14,6 +13,7 @@ from ..file_tools import has_image_attachments
 from ..logging_utils import log_debug, log_exception
 from ..memory_store import make_fenced_code
 from ..persona_routing import is_assistant_persona_status_query
+from ..routing.chat_route import decide_chat_route
 from ..routing.tool_router import detect_deterministic_tool_plan
 from ..routing.source_tags import (
     infer_response_source_tags,
@@ -372,9 +372,45 @@ class ChatLifecycleMixin:
             web_enabled=web_mode != "Off",
             force_web_search=False,
         )
+        local_document_direct = self.is_local_document_direct_request(text, files)
+        external_information_request = self.explicitly_requests_external_information(
+            text
+        )
+        recent_image_followup = bool(
+            not files and self.references_recent_image(text)
+        )
+        latest_image_available = bool(
+            self.latest_assistant_image_files() if recent_image_followup else []
+        )
+        attachment_needs_web = True
 
-        if self.execute_tool_plan(
-            tool_plan,
+        if files and web_mode != "Always":
+            try:
+                attachment_needs_web = bool(
+                    external_information_request
+                    or self.has_explicit_http_url(text)
+                    or self.is_deterministic_url_tool_request(text)
+                )
+            except Exception as error:
+                log_exception(
+                    "FZAstroAI.send_message attached-file web preflight", error
+                )
+                attachment_needs_web = False
+
+        route = decide_chat_route(
+            deterministic_tool_plan=tool_plan,
+            web_mode=web_mode,
+            files=files,
+            local_document_direct=local_document_direct,
+            web_image_request=self.is_web_image_request(text),
+            external_information_request=external_information_request,
+            recent_image_followup=recent_image_followup,
+            latest_assistant_image_available=latest_image_available,
+            attachment_needs_web=attachment_needs_web,
+        )
+
+        if route.action == "deterministic_tool" and self.execute_tool_plan(
+            route.tool_plan,
             text=text,
             display_text=display_text,
             files=files,
@@ -383,13 +419,14 @@ class ChatLifecycleMixin:
         ):
             return
 
-        if web_mode == "Off":
+        if route.action == "local_chat":
             self.send_message_after_web(
                 text,
                 [],
                 display_text=display_text,
                 files=files,
                 show_user=False,
+                include_document_knowledge=route.include_document_knowledge,
                 model_override=model_override,
             )
             return
@@ -397,7 +434,7 @@ class ChatLifecycleMixin:
         # Local document-library actions must win before the generic image
         # router.  "Give me the image from page 270 from <PDF title>" is a
         # rendered PDF-page request, not a Bing image search.
-        if self.is_local_document_direct_request(text, files):
+        if route.action == "local_document_direct":
             self.stats_label.setText(
                 "Using local document knowledge directly... • 0.00s"
             )
@@ -412,11 +449,45 @@ class ChatLifecycleMixin:
             )
             return
 
+        if route.action == "web_disabled_current_info":
+            self.generation_timer.stop()
+            elapsed = max(0.0, time.perf_counter() - self.request_start_time)
+            assistant_message_id = uuid.uuid4().hex
+            response_text = (
+                "Web is Off, so I cannot verify current or latest information for "
+                "this request. Switch Web to Auto or Always and ask again."
+            )
+            source_tags = ["app"]
+            self.messages.append(
+                {
+                    "id": assistant_message_id,
+                    "role": "assistant",
+                    "content": response_text,
+                    "files": [],
+                    "news_sources": {},
+                    "response_time": elapsed,
+                    "source_tags": source_tags,
+                }
+            )
+            self.add_message_widget(
+                ":AI: ",
+                response_text,
+                message_id=assistant_message_id,
+                response_time=elapsed,
+                source_tags=source_tags,
+            )
+            self.save_current_chat()
+            self.chat_container.adjustSize()
+            self.chat_container.updateGeometry()
+            self.force_scroll_to_bottom()
+            self.set_idle_ui_state("Web is Off")
+            return
+
         # Image retrieval is a deterministic capability, not a question for
         # the Auto web-routing model.  Route explicit web-image requests directly
         # from both Auto and Always modes so a router answer/refusal can never
         # intercept them.
-        if not files and self.is_web_image_request(text):
+        if route.action == "web_image":
             request = {
                 "text": text,
                 "display_text": display_text,
@@ -431,11 +502,7 @@ class ChatLifecycleMixin:
             self.start_web_search_request(text, request)
             return
 
-        if (
-            not files
-            and self.references_recent_image(text)
-            and self.latest_assistant_image_files()
-        ):
+        if route.action == "recent_image_followup":
             self.send_message_after_web(
                 text,
                 [],
@@ -447,91 +514,24 @@ class ChatLifecycleMixin:
             )
             return
 
-        # Local document-library actions must win over the web router in Auto
-        # and Always mode.  Otherwise requests like "give me the first 10
-        # pages of The Astronomy Handbook" can be sent to web search and the
-        # model will answer from metadata/snippets instead of using the local
-        # PDF page renderer.  Web Off already takes the local path; this makes
-        # Web Auto/Always behave the same for deterministic document actions.
-        local_document_direct_request = False
-
-        if not files and not re.search(
-            r"https?://[^\s<>\'\"]+", text, flags=re.IGNORECASE
-        ):
-            try:
-                local_document_direct_request = bool(
-                    self.knowledge_library.query_is_direct_page_display_request(text)
-                    or self.knowledge_library.query_requests_document_inventory(text)
-                    or (
-                        self.knowledge_library.query_requests_verbatim_text(text)
-                        and (
-                            self.references_document_knowledge(text)
-                            or bool(
-                                self.knowledge_library.query_requested_pdf_pages(text)
-                            )
-                            or self.knowledge_library.query_initial_visual_batch_request(
-                                text
-                            )
-                            is not None
-                        )
-                    )
-                )
-            except Exception as error:
-                log_exception("FZAstroAI.send_message line 20593", error)
-                log_debug("LOCAL DOCUMENT DIRECT PREFLIGHT ERROR", error)
-                local_document_direct_request = False
-
-        if local_document_direct_request:
-            self.stats_label.setText(
-                "Using local document knowledge directly... • 0.00s"
-            )
+        if route.action == "attachment_local":
+            self.stats_label.setText("Inspecting attached file locally... • 0.00s")
             self.send_message_after_web(
                 text,
                 [],
                 display_text=display_text,
                 files=files,
                 show_user=False,
-                include_document_knowledge=True,
+                include_document_knowledge=False,
                 model_override=model_override,
             )
             return
-
-        # Attached local files should not be delayed by the Auto web-routing
-        # model.  A prompt such as "Inspect the attached file" is already fully
-        # answerable from the local attachment and vision-capable model.  Keep
-        # the web path only for explicit external/current/URL requests or when
-        # the user has intentionally selected Web Always.
-        if files and web_mode != "Always":
-            try:
-                attached_file_needs_web = bool(
-                    self.explicitly_requests_external_information(text)
-                    or self.has_explicit_http_url(text)
-                    or self.is_deterministic_url_tool_request(text)
-                )
-            except Exception as error:
-                log_exception(
-                    "FZAstroAI.send_message attached-file web preflight", error
-                )
-                attached_file_needs_web = False
-
-            if not attached_file_needs_web:
-                self.stats_label.setText("Inspecting attached file locally... • 0.00s")
-                self.send_message_after_web(
-                    text,
-                    [],
-                    display_text=display_text,
-                    files=files,
-                    show_user=False,
-                    include_document_knowledge=False,
-                    model_override=model_override,
-                )
-                return
 
         self.start_web_decision(
             text,
             display_text,
             files,
-            force_search=web_mode == "Always",
+            force_search=route.force_search,
             model_override=model_override,
         )
 

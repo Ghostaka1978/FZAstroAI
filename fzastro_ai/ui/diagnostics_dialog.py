@@ -178,6 +178,10 @@ def build_diagnostics_report(parent):
 
 def open_diagnostics_window(parent):
     """Open runtime diagnostics and log access."""
+    if parent is not None and hasattr(parent, "focus_workspace_tab"):
+        if parent.focus_workspace_tab("system.diagnostics"):
+            return None
+
     dialog = QDialog(parent)
     apply_window_defaults(dialog)
     dialog.setObjectName("helpDialog")
@@ -264,5 +268,13 @@ def open_diagnostics_window(parent):
     layout.addWidget(subtitle)
     layout.addWidget(diagnostics_view, 1)
     layout.addLayout(button_row)
+
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        return parent.open_workspace_tab(
+            "system.diagnostics",
+            "DIAGNOSTICS",
+            lambda: dialog,
+            tooltip="Runtime diagnostics and recent logs",
+        )
 
     dialog.exec()

@@ -438,5 +438,12 @@ class SunNowDialog(QDialog):
 
 
 def show_sun_now_dialog(parent=None):
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        return parent.open_workspace_tab(
+            "astro.sun_now",
+            "SUN NOW",
+            lambda: SunNowDialog(parent),
+            tooltip="Latest NASA/SDO Sun images and Helioviewer metadata",
+        )
     dialog = SunNowDialog(parent)
     return dialog.exec()

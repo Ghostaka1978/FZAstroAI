@@ -72,7 +72,7 @@ def test_composer_actions_registry_contains_web_document_and_python_actions():
         "Screenshot page",
     ]
     assert [action.label for action in grouped["Documents"]] == [
-        "List documents",
+        "Open document library",
         "Search knowledge library",
         "Search inside document",
         "Find in documents",
@@ -82,8 +82,6 @@ def test_composer_actions_registry_contains_web_document_and_python_actions():
         "Show page image",
     ]
     assert [action.label for action in grouped["Imaging"]] == [
-        "PLAN NEXT TARGET",
-        "PLAN SPECIFIC TARGET",
         "OPEN PLANS FOLDER",
     ]
     assert [action.label for action in grouped["Python"]] == [
@@ -138,11 +136,7 @@ def test_composer_action_prompt_templates():
             assert "does not insert a prompt" in str(exc)
         else:
             raise AssertionError(f"{direct_document_action} should run locally")
-    for direct_imaging_action in (
-        "imaging.plan_next_target",
-        "imaging.plan_specific_target",
-        "imaging.open_plans_folder",
-    ):
+    for direct_imaging_action in ("imaging.open_plans_folder",):
         try:
             build_composer_action_prompt(
                 direct_imaging_action,
@@ -216,8 +210,24 @@ def test_document_brief_display_label_does_not_drive_local_inventory_router():
     ).read_text(encoding="utf-8-sig")
 
     assert "routing_user_text = str(text or" in web_actions_text
-    assert (
-        "query_requests_document_inventory(\n                routing_user_text"
-        in web_actions_text
-    )
+    assert "query_requests_document_inventory(" not in web_actions_text
+    assert "Document inventory returned directly" not in web_actions_text
     assert "build_document_knowledge_query(routing_user_text)" in web_actions_text
+
+
+def test_imported_documents_button_keeps_explicit_chat_picker():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+
+    assert 'self.imported_documents_button = QPushButton("Imported Documents (0)")' in app_text
+    assert "self.show_knowledge_documents_in_chat" in app_text
+    assert 'button.setText(f"Imported Documents ({int(document_count):,})")' in app_text
+
+    direct_start = app_text.index('if action_id == "documents.list_documents":')
+    direct_block = app_text[direct_start : app_text.index('if action_id == "documents.brief_document":')]
+    assert "self.open_document_knowledge_library()" in direct_block
+
+    wrapper_start = app_text.index("def show_knowledge_documents_in_chat")
+    wrapper_block = app_text[wrapper_start : app_text.index("def _show_active_knowledge_document_required")]
+    assert "self.format_knowledge_documents_chat_picker()" in wrapper_block
+    assert "self.add_message_widget" in wrapper_block
+    assert "self.open_document_knowledge_library()" not in wrapper_block

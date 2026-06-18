@@ -662,5 +662,12 @@ def _body_tooltip(body: dict[str, Any]) -> str:
 
 
 def show_solar_map_dialog(parent=None):
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        return parent.open_workspace_tab(
+            "astro.solar_map",
+            "SOLAR MAP",
+            lambda: SolarMapDialog(parent),
+            tooltip="Native interactive solar-system map",
+        )
     dialog = SolarMapDialog(parent)
     return dialog.exec()

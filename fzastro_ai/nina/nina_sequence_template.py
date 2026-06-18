@@ -118,14 +118,23 @@ def fill_osc_template(
 ) -> dict[str, Any]:
     data = copy.deepcopy(template)
     target_name = str(plan.target_name or "FZAstro Target").strip() or "FZAstro Target"
-    root_id = str(data.get("$id") or "1")
     ra_values = parse_ra(plan.ra)
     dec_values = parse_dec(plan.dec)
     start_values = _time_values(plan.start_iso)
     end_values = _time_values(plan.end_iso)
 
+    # The bundled scaffold is a DeepSkyObjectContainer because it is easier to
+    # maintain as a reusable target block.  Confirmed output is wrapped into a
+    # full N.I.N.A. SequenceRootContainer so the loaded plan matches the real
+    # Advanced Sequencer layout: Start -> Targets -> End.
+    target_container = _find_first_type(data, "DeepSkyObjectContainer")
+    target_root = target_container if isinstance(target_container, dict) else data
+    root_id = str(target_root.get("$id") or "1")
+
     data["Name"] = f"FZAstro {target_name}"
-    target = data.setdefault("Target", {})
+    if isinstance(target_container, dict):
+        target_container["Name"] = f"FZAstro {target_name}"
+    target = target_root.setdefault("Target", {})
     if isinstance(target, dict):
         target["TargetName"] = target_name
         target.setdefault("Rotation", 0.0)
@@ -145,6 +154,9 @@ def fill_osc_template(
         min_altitude_deg=float(plan.min_altitude_deg),
         note=str(plan.note or ""),
     )
+
+    if _is_type(data, "DeepSkyObjectContainer"):
+        return _wrap_target_container_in_sequence_root(data, target_name)
     return data
 
 
@@ -209,6 +221,174 @@ def _coordinates_dict(
 
 def _is_type(node: dict[str, Any], type_name: str) -> bool:
     return type_name in str(node.get("$type") or "")
+
+
+def _find_first_type(node: Any, type_name: str) -> dict[str, Any] | None:
+    if isinstance(node, dict):
+        if _is_type(node, type_name):
+            return node
+        for value in node.values():
+            found = _find_first_type(value, type_name)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _find_first_type(item, type_name)
+            if found is not None:
+                return found
+    return None
+
+
+def _sequence_collection(
+    collection_id: str, item_type: str, values: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "$id": collection_id,
+        "$type": (
+            "System.Collections.ObjectModel.ObservableCollection`1[["
+            f"{item_type}, NINA.Sequencer]], System.ObjectModel"
+        ),
+        "$values": values,
+    }
+
+
+def _empty_conditions(collection_id: str) -> dict[str, Any]:
+    return _sequence_collection(
+        collection_id,
+        "NINA.Sequencer.Conditions.ISequenceCondition",
+        [],
+    )
+
+
+def _empty_triggers(collection_id: str) -> dict[str, Any]:
+    return _sequence_collection(
+        collection_id,
+        "NINA.Sequencer.Trigger.ISequenceTrigger",
+        [],
+    )
+
+
+def _item_collection(
+    collection_id: str, values: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return _sequence_collection(
+        collection_id,
+        "NINA.Sequencer.SequenceItem.ISequenceItem",
+        values,
+    )
+
+
+def _sequential_strategy() -> dict[str, str]:
+    return {
+        "$type": (
+            "NINA.Sequencer.Container.ExecutionStrategy.SequentialStrategy, "
+            "NINA.Sequencer"
+        )
+    }
+
+
+def _wrap_target_container_in_sequence_root(
+    target_container: dict[str, Any], target_name: str
+) -> dict[str, Any]:
+    """Wrap the generated target block in a real Advanced Sequencer root.
+
+    The N.I.N.A. API loads complete sequence roots most predictably.  Keep the
+    detailed FZAstro target container intact, but place it under a Targets area
+    and add simple Start/End areas based on a user-exported working sequence.
+    IDs are intentionally high so they do not collide with the bundled target
+    template's existing JSON.NET ``$id`` references.
+    """
+
+    root_id = "9000"
+    start_id = "9004"
+    target_area_id = "9009"
+    end_id = "9016"
+
+    target_container["Parent"] = {"$ref": target_area_id}
+
+    start_area = {
+        "$id": start_id,
+        "$type": "NINA.Sequencer.Container.StartAreaContainer, NINA.Sequencer",
+        "Strategy": _sequential_strategy(),
+        "Name": "Start",
+        "Conditions": _empty_conditions("9005"),
+        "IsExpanded": True,
+        "Items": _item_collection(
+            "9006",
+            [
+                {
+                    "$id": "9007",
+                    "$type": (
+                        "NINA.Sequencer.SequenceItem.Connect.ConnectAllEquipment, "
+                        "NINA.Sequencer"
+                    ),
+                    "Parent": {"$ref": start_id},
+                    "ErrorBehavior": 0,
+                    "Attempts": 1,
+                }
+            ],
+        ),
+        "Triggers": _empty_triggers("9008"),
+        "Parent": {"$ref": root_id},
+        "ErrorBehavior": 0,
+        "Attempts": 1,
+    }
+
+    target_area = {
+        "$id": target_area_id,
+        "$type": "NINA.Sequencer.Container.TargetAreaContainer, NINA.Sequencer",
+        "Strategy": _sequential_strategy(),
+        "Name": "Targets",
+        "Conditions": _empty_conditions("9010"),
+        "IsExpanded": True,
+        "Items": _item_collection("9011", [target_container]),
+        "Triggers": _empty_triggers("9012"),
+        "Parent": {"$ref": root_id},
+        "ErrorBehavior": 0,
+        "Attempts": 1,
+    }
+
+    end_area = {
+        "$id": end_id,
+        "$type": "NINA.Sequencer.Container.EndAreaContainer, NINA.Sequencer",
+        "Strategy": _sequential_strategy(),
+        "Name": "End",
+        "Conditions": _empty_conditions("9017"),
+        "IsExpanded": True,
+        "Items": _item_collection(
+            "9018",
+            [
+                {
+                    "$id": "9019",
+                    "$type": (
+                        "NINA.Sequencer.SequenceItem.Connect.DisconnectAllEquipment, "
+                        "NINA.Sequencer"
+                    ),
+                    "Parent": {"$ref": end_id},
+                    "ErrorBehavior": 0,
+                    "Attempts": 1,
+                }
+            ],
+        ),
+        "Triggers": _empty_triggers("9020"),
+        "Parent": {"$ref": root_id},
+        "ErrorBehavior": 0,
+        "Attempts": 1,
+    }
+
+    return {
+        "$id": root_id,
+        "$type": "NINA.Sequencer.Container.SequenceRootContainer, NINA.Sequencer",
+        "Strategy": _sequential_strategy(),
+        "Name": f"FZAstro {target_name}",
+        "Conditions": _empty_conditions("9001"),
+        "IsExpanded": True,
+        "Items": _item_collection("9002", [start_area, target_area, end_area]),
+        "Triggers": _empty_triggers("9003"),
+        "Parent": None,
+        "ErrorBehavior": 0,
+        "Attempts": 1,
+    }
 
 
 def _parent_ref(node: dict[str, Any]) -> str:

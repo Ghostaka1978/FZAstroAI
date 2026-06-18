@@ -56,12 +56,6 @@ TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
         ("query",),
     ),
     ToolCapability(
-        "documents.list",
-        "Documents",
-        "List documents",
-        "List imported documents from the local knowledge library.",
-    ),
-    ToolCapability(
         "documents.show_page_image",
         "Documents",
         "Show document page image",

@@ -156,8 +156,8 @@ COMPOSER_DOCUMENT_ACTIONS: tuple[ComposerAction, ...] = (
     ComposerAction(
         action_id="documents.list_documents",
         group="Documents",
-        label="List documents",
-        description="List the documents currently indexed in the knowledge library.",
+        label="Open document library",
+        description="Open the local Document Knowledge Library for import, selection, search, and document actions.",
         mode="direct",
     ),
     ComposerAction(
@@ -229,34 +229,6 @@ COMPOSER_DOCUMENT_ACTIONS: tuple[ComposerAction, ...] = (
 
 
 COMPOSER_IMAGING_ACTIONS: tuple[ComposerAction, ...] = (
-    ComposerAction(
-        action_id="imaging.plan_next_target",
-        group="Imaging",
-        label="PLAN NEXT TARGET",
-        description="Create a safe review-only FZAstro Imaging/N.I.N.A. plan for the next best practical target.",
-        mode="direct",
-    ),
-    ComposerAction(
-        action_id="imaging.plan_specific_target",
-        group="Imaging",
-        label="PLAN SPECIFIC TARGET",
-        description="Create a safe review-only FZAstro Imaging/N.I.N.A. plan for a named target.",
-        fields=(
-            ComposerActionField("target", "Target name:"),
-            ComposerActionField(
-                "exposure_seconds",
-                "Exposure seconds:",
-                kind="int",
-                default=60,
-                minimum=1,
-                maximum=3600,
-            ),
-            ComposerActionField(
-                "gain", "Gain:", kind="int", default=200, minimum=0, maximum=10000
-            ),
-        ),
-        mode="direct",
-    ),
     ComposerAction(
         action_id="imaging.open_plans_folder",
         group="Imaging",

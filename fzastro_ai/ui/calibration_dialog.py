@@ -16,6 +16,11 @@ from .window_utils import apply_window_defaults
 
 
 def open_system_prompt_editor(self):
+    if hasattr(self, "focus_workspace_tab") and self.focus_workspace_tab(
+        "settings.system_prompt"
+    ):
+        return None
+
     dialog = QDialog(self)
     apply_window_defaults(dialog)
     dialog.setWindowTitle("AI Role / System Prompt")
@@ -231,9 +236,24 @@ def open_system_prompt_editor(self):
 
     editor.textChanged.connect(refresh_editor_status)
     refresh_editor_status()
+
+    def _clear_references(_widget=None):
+        if _widget is not None and self.system_prompt_dialog is not _widget:
+            return
+        self.system_prompt_dialog = None
+        self.system_prompt_editor = None
+        self.system_prompt_editor_status = None
+        self.system_prompt_character_label = None
+
+    if hasattr(self, "open_workspace_tab"):
+        return self.open_workspace_tab(
+            "settings.system_prompt",
+            "SYSTEM PROMPT",
+            lambda: dialog,
+            tooltip="AI role and calibration system prompt editor",
+            on_close=_clear_references,
+        )
+
     dialog.exec()
 
-    self.system_prompt_dialog = None
-    self.system_prompt_editor = None
-    self.system_prompt_editor_status = None
-    self.system_prompt_character_label = None
+    _clear_references(dialog)

@@ -710,78 +710,87 @@ def normalize_news_brief_markdown(text):
     return clean_text.strip()
 
 
-def render_text_block(text, news_mode=False, user_mode=False):
+def render_text_block(text, news_mode=False, user_mode=False, plain_mode=False):
     text = str(text or "")
     inventory_mode = is_document_inventory_response(text)
     browser_tool_mode = is_direct_browser_tool_response(text)
 
-    if news_mode:
+    if plain_mode:
+        escaped_lines = html.escape(text).splitlines() or [""]
+        html_content = "<br>\n".join(escaped_lines)
+    elif news_mode:
         text = normalize_news_brief_markdown(text)
     elif not user_mode and not inventory_mode and not browser_tool_mode:
         text = normalize_compacted_markdown(text)
 
-    text = re.sub(
-        r"\\\[(.*?)\\\]",
-        lambda m: f"$${m.group(1)}$$",
-        text,
-        flags=re.DOTALL,
-    )
-    text = re.sub(
-        r"\\\((.*?)\\\)",
-        lambda m: f"${m.group(1)}$",
-        text,
-        flags=re.DOTALL,
-    )
-
-    text = re.sub(
-        r"\$\$(.*?)\$\$",
-        lambda m: f'<div class="math-block">{clean_latex_math(m.group(1))}</div>',
-        text,
-        flags=re.DOTALL,
-    )
-
-    text = re.sub(
-        r"\$(.*?)\$",
-        lambda m: f'<span class="math-inline">{clean_latex_math(m.group(1))}</span>',
-        text,
-    )
-
-    # Models often emit raw LaTeX without dollar delimiters. Normalize those
-    # fragments before Markdown so the final message does not show markup such
-    # as \text{ K}, \Omega_\gamma,0, or 10^{-5}.
-    # Do not run this on Daily News: source IDs such as NEWS_0001 look like
-    # LaTeX subscripts to the lightweight cleaner, and clean_latex_math()
-    # collapses newlines. That turns valid news Markdown into one huge heading.
-    inventory_mode = inventory_mode or is_document_inventory_response(text)
-    browser_tool_mode = browser_tool_mode or is_direct_browser_tool_response(text)
-
-    if not news_mode and not inventory_mode and not browser_tool_mode:
-        text = normalize_loose_latex_markup(text)
-
-    # One final pass after lightweight LaTeX cleanup protects responses that
-    # contain both formulas and compact Markdown headings/lists. Deterministic
-    # app-generated tables and browser output already have intentional layout.
-    if not news_mode and not user_mode and not inventory_mode and not browser_tool_mode:
-        text = normalize_compacted_markdown(text)
-
-    html_content = markdown.markdown(
-        text, extensions=["fenced_code", "tables", "sane_lists", "nl2br"]
-    )
-
-    if news_mode:
-        # Last-resort HTML cleanup.  QTextBrowser supports only part of CSS, so
-        # relying on CSS to shrink <h1> tags inside <li> is not enough.  Convert
-        # accidental list-item headings back into normal list-item text.
-        html_content = re.sub(
-            r"(?is)<li>\s*<h[1-6][^>]*>(.*?)</h[1-6]>\s*</li>",
-            r"<li>\1</li>",
-            html_content,
+    if not plain_mode:
+        text = re.sub(
+            r"\\\[(.*?)\\\]",
+            lambda m: f"$${m.group(1)}$$",
+            text,
+            flags=re.DOTALL,
         )
-        html_content = re.sub(
-            r"(?is)<li>\s*<h[1-6][^>]*>(.*?)</h[1-6]>",
-            r"<li>\1",
-            html_content,
+        text = re.sub(
+            r"\\\((.*?)\\\)",
+            lambda m: f"${m.group(1)}$",
+            text,
+            flags=re.DOTALL,
         )
+
+        text = re.sub(
+            r"\$\$(.*?)\$\$",
+            lambda m: f'<div class="math-block">{clean_latex_math(m.group(1))}</div>',
+            text,
+            flags=re.DOTALL,
+        )
+
+        text = re.sub(
+            r"\$(.*?)\$",
+            lambda m: f'<span class="math-inline">{clean_latex_math(m.group(1))}</span>',
+            text,
+        )
+
+        # Models often emit raw LaTeX without dollar delimiters. Normalize those
+        # fragments before Markdown so the final message does not show markup such
+        # as \text{ K}, \Omega_\gamma,0, or 10^{-5}.
+        # Do not run this on Daily News: source IDs such as NEWS_0001 look like
+        # LaTeX subscripts to the lightweight cleaner, and clean_latex_math()
+        # collapses newlines. That turns valid news Markdown into one huge heading.
+        inventory_mode = inventory_mode or is_document_inventory_response(text)
+        browser_tool_mode = browser_tool_mode or is_direct_browser_tool_response(text)
+
+        if not news_mode and not inventory_mode and not browser_tool_mode:
+            text = normalize_loose_latex_markup(text)
+
+        # One final pass after lightweight LaTeX cleanup protects responses that
+        # contain both formulas and compact Markdown headings/lists. Deterministic
+        # app-generated tables and browser output already have intentional layout.
+        if (
+            not news_mode
+            and not user_mode
+            and not inventory_mode
+            and not browser_tool_mode
+        ):
+            text = normalize_compacted_markdown(text)
+
+        html_content = markdown.markdown(
+            text, extensions=["fenced_code", "tables", "sane_lists", "nl2br"]
+        )
+
+        if news_mode:
+            # Last-resort HTML cleanup.  QTextBrowser supports only part of CSS, so
+            # relying on CSS to shrink <h1> tags inside <li> is not enough.  Convert
+            # accidental list-item headings back into normal list-item text.
+            html_content = re.sub(
+                r"(?is)<li>\s*<h[1-6][^>]*>(.*?)</h[1-6]>\s*</li>",
+                r"<li>\1</li>",
+                html_content,
+            )
+            html_content = re.sub(
+                r"(?is)<li>\s*<h[1-6][^>]*>(.*?)</h[1-6]>",
+                r"<li>\1",
+                html_content,
+            )
 
     mode_class = (
         "news-copy" if news_mode else "user-copy" if user_mode else "assistant-copy"
@@ -803,6 +812,7 @@ body {{
     background: transparent;
     white-space: normal;
     word-wrap: break-word;
+    overflow-wrap: anywhere;
 }}
 
 .chat-copy p {{
@@ -819,6 +829,12 @@ body {{
     line-height: 1.25;
     font-weight: 750;
     margin: 18px 0 11px 0;
+}}
+
+.chat-copy h1:first-child,
+.chat-copy h2:first-child,
+.chat-copy h3:first-child {{
+    margin-top: 0;
 }}
 
 .chat-copy h2 {{
@@ -846,6 +862,10 @@ body {{
 .chat-copy li {{
     margin: 0 0 7px 0;
     padding-left: 2px;
+}}
+
+.chat-copy li p {{
+    margin: 0 0 6px 0;
 }}
 
 .chat-copy a {{
@@ -892,9 +912,26 @@ body {{
     font-size: 13px;
 }}
 
+.chat-copy pre {{
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    background: #0d1117;
+    border: 1px solid #28313a;
+    border-radius: 9px;
+    padding: 10px 12px;
+    margin: 10px 0 12px 0;
+}}
+
+.chat-copy pre code {{
+    background: transparent;
+    border: none;
+    padding: 0;
+}}
+
 .chat-copy table {{
     border-collapse: collapse;
     margin: 10px 0 14px 0;
+    max-width: 100%;
 }}
 
 .chat-copy th {{
@@ -2937,6 +2974,7 @@ class MessageWidget(QWidget):
                 block.text,
                 news_mode=self.is_news_message,
                 user_mode=self.is_user_message,
+                plain_mode=block.format == "plain",
             )
         )
         text_view.setHtml(rendered_html)

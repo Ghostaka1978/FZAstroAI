@@ -9,6 +9,7 @@ from fzastro_ai.nina.imaging_plan import (
     PredefinedImagingCommand,
     build_imaging_plan_from_results,
     choose_best_seeing_window,
+    confirm_imaging_plan_for_nina,
     parse_predefined_imaging_command,
 )
 
@@ -149,19 +150,131 @@ def test_build_imaging_plan_from_results_writes_review_files(tmp_path: Path):
     assert Path(plan.nina_review_path).exists()
     assert Path(plan.nina_xml_path).exists()
     assert Path(plan.nina_csv_path).exists()
-    assert Path(plan.nina_sequence_path).exists()
+    assert not Path(plan.nina_sequence_path).exists()
+    assert not plan.nina_sequence_confirmed
+    assert plan.framing
     assert Path(plan.plan_json_path).parent.name == plan.plan_id
     assert "<FZAstroImagingPlan" in Path(plan.nina_xml_path).read_text(encoding="utf-8")
     assert "Name,RA,Dec" in Path(plan.nina_csv_path).read_text(encoding="utf-8-sig")
-    assert "review-only" in Path(plan.plan_text_path).read_text(encoding="utf-8")
+    assert "draft" in Path(plan.plan_text_path).read_text(encoding="utf-8").lower()
 
-    sequence = json.loads(Path(plan.nina_sequence_path).read_text(encoding="utf-8"))
-    assert sequence["Target"]["TargetName"] == "M13"
-    assert sequence["Target"]["InputCoordinates"]["RAHours"] == 16
-    assert sequence["Target"]["InputCoordinates"]["RAMinutes"] == 41
-    assert sequence["Target"]["InputCoordinates"]["DecDegrees"] == 36
+    payload = json.loads(Path(plan.plan_json_path).read_text(encoding="utf-8"))
+    assert payload["safety"]["nina_sequence_confirmed"] is False
+
+    confirmed = confirm_imaging_plan_for_nina(
+        plan.plan_json_path,
+        camera_model="ASI585MC",
+        focal_length_mm=700,
+        reducer_factor=1.0,
+        exposure_seconds=90,
+        gain=150,
+        frames=33,
+    )
+    assert confirmed.nina_sequence_confirmed
+    assert Path(confirmed.nina_sequence_path).exists()
+
+    sequence = json.loads(
+        Path(confirmed.nina_sequence_path).read_text(encoding="utf-8")
+    )
+    assert sequence["$type"].startswith(
+        "NINA.Sequencer.Container.SequenceRootContainer"
+    )
+    assert _find_first_type(sequence, "ConnectAllEquipment") is not None
+    assert _find_first_type(sequence, "DisconnectAllEquipment") is not None
+
+    target_container = _find_first_type(sequence, "DeepSkyObjectContainer")
+    assert target_container is not None
+    assert target_container["Target"]["TargetName"] == "M13"
+    assert target_container["Target"]["InputCoordinates"]["RAHours"] == 16
+    assert target_container["Target"]["InputCoordinates"]["RAMinutes"] == 41
+    assert target_container["Target"]["InputCoordinates"]["DecDegrees"] == 36
 
     take_exposure = _find_first_type(sequence, "TakeExposure")
-    assert take_exposure["ExposureTime"] == 60.0
-    assert take_exposure["Gain"] == 200
-    assert take_exposure["ExposureCount"] == plan.frames
+    assert take_exposure["ExposureTime"] == 90.0
+    assert take_exposure["Gain"] == 150
+    assert take_exposure["ExposureCount"] == 33
+
+
+def test_next_plan_prefers_practical_auto_catalog_target_over_other(tmp_path: Path):
+    command = PredefinedImagingCommand(
+        raw_text="/nina-plan next 60s gain 200",
+        exposure_seconds=60,
+        gain=200,
+    )
+    targets = {
+        "location": {"tz": "Europe/Berlin"},
+        "picks": [
+            {
+                "name": "IC 4613",
+                "type": "Other",
+                "const": "Her",
+                "ra": "16 37 10",
+                "dec": "+36 07 50",
+                "mag": "15.2",
+                "size": "1.0'",
+                "grade": 96,
+                "best_time_local": "2026-06-18T01:00:00+02:00",
+            },
+            {
+                "name": "M13",
+                "type": "Globular Cluster",
+                "const": "Her",
+                "ra": "16 41 41",
+                "dec": "+36 27 36",
+                "mag": "5.8",
+                "size": "20'",
+                "grade": 88,
+                "best_time_local": "2026-06-18T01:00:00+02:00",
+            },
+        ],
+    }
+
+    plan = build_imaging_plan_from_results(
+        command=command,
+        location={"lat": 50.2, "lon": 8.4, "elev": 660, "tz": "Europe/Berlin"},
+        imaging={"preset_name": "ASI585MC", "focal_mm": 700},
+        forecast=_forecast_fixture(),
+        targets_result=targets,
+        output_dir=tmp_path,
+        created_at=datetime(2026, 6, 17, 20, 0, tzinfo=ZoneInfo("Europe/Berlin")),
+    )
+
+    assert plan.target_name == "M13"
+
+
+def test_next_plan_still_uses_auto_catalog_result_when_no_better_practical_target(
+    tmp_path: Path,
+):
+    command = PredefinedImagingCommand(
+        raw_text="/nina-plan next 60s gain 200",
+        exposure_seconds=60,
+        gain=200,
+    )
+    targets = {
+        "location": {"tz": "Europe/Berlin"},
+        "picks": [
+            {
+                "name": "IC 4613",
+                "type": "Other",
+                "const": "Her",
+                "ra": "16 37 10",
+                "dec": "+36 07 50",
+                "mag": "15.2",
+                "size": "1.0'",
+                "grade": 96,
+                "best_time_local": "2026-06-18T01:00:00+02:00",
+            }
+        ],
+    }
+
+    plan = build_imaging_plan_from_results(
+        command=command,
+        location={"lat": 50.2, "lon": 8.4, "elev": 660, "tz": "Europe/Berlin"},
+        imaging={"preset_name": "ASI585MC", "focal_mm": 700},
+        forecast=_forecast_fixture(),
+        targets_result=targets,
+        output_dir=tmp_path,
+        created_at=datetime(2026, 6, 17, 20, 0, tzinfo=ZoneInfo("Europe/Berlin")),
+    )
+
+    assert plan.target_name == "IC 4613"

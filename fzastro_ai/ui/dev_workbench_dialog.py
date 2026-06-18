@@ -257,6 +257,31 @@ class DevWorkbenchDialog(QWidget):
 
 
 def open_dev_workbench_dialog(parent=None):
+    if parent is not None and hasattr(parent, "open_workspace_tab"):
+        def _clear_reference(_widget=None):
+            try:
+                if getattr(parent, "dev_workbench_dialog", None) is _widget:
+                    setattr(parent, "dev_workbench_dialog", None)
+            except Exception:
+                pass
+
+        def _create_dev_tab():
+            dialog = DevWorkbenchDialog(parent)
+            setattr(parent, "dev_workbench_dialog", dialog)
+            try:
+                dialog.destroyed.connect(lambda *_args: _clear_reference(dialog))
+            except Exception:
+                pass
+            return dialog
+
+        return parent.open_workspace_tab(
+            "dev.workbench",
+            "DEV",
+            _create_dev_tab,
+            tooltip="AI Developer Workbench",
+            on_close=_clear_reference,
+        )
+
     dialog = DevWorkbenchDialog(parent)
     dialog.show()
     # Keep the window alive when opened from a transient local variable.
