@@ -58,11 +58,16 @@ def test_readme_embeds_release_screenshots():
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     screenshot_names = [
         "fzastro-chat-workspace.png",
-        "fzastro-seeing-planner.png",
+        "fzastro-daily-news.png",
+        "fzastro-global-market-pulse.png",
         "fzastro-lookup-m31.png",
         "fzastro-targets-planner.png",
+        "fzastro-seeing-planner.png",
         "fzastro-sun-now.png",
+        "fzastro-solar-map.png",
         "fzastro-nina-control.png",
+        "fzastro-llm-benchmark.png",
+        "fzastro-web-companion.png",
     ]
 
     assert "## Screenshots" in readme

@@ -7,25 +7,37 @@ GitHub repository: https://github.com/Ghostaka1978/FZAstroAI
 
 ## Screenshots
 
+These v2.3.1 captures show the main desktop workspace, polished tool outputs, astronomy planning tabs, N.I.N.A. handoff, benchmarking, and the Web Companion.
+
 <table>
   <tr>
     <td width="50%">
       <img src="docs/screenshots/fzastro-chat-workspace.png" alt="FZAstro AI chat workspace with Apps launcher">
-      <br><sub>Chat workspace with the Apps launcher and compact release chrome.</sub>
+      <br><sub>Main chat workspace with compact tabs, tool shortcuts, telemetry, and Apps launcher.</sub>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/fzastro-seeing-planner.png" alt="SEEING Astro Night Planner">
-      <br><sub>SEEING Astro Night Planner with hourly night rows, cloud, Moon, seeing, and transparency.</sub>
+      <img src="docs/screenshots/fzastro-daily-news.png" alt="Daily News Brief with structured article cards">
+      <br><sub>Daily News Brief with source counts, structured categories, article summaries, and open links.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/fzastro-lookup-m31.png" alt="LOOKUP M31 sky preview and distance details">
-      <br><sub>LOOKUP tab with M31 distance details and sky preview.</sub>
+      <img src="docs/screenshots/fzastro-global-market-pulse.png" alt="Global Market Pulse dashboard">
+      <br><sub>Global Market Pulse with indices, regions, commodities, FX, status chips, and delayed-data notes.</sub>
     </td>
+    <td width="50%">
+      <img src="docs/screenshots/fzastro-lookup-m31.png" alt="LOOKUP M31 sky preview and distance details">
+      <br><sub>LOOKUP tab with M31 distance details, camera framing, and sky preview.</sub>
+    </td>
+  </tr>
+  <tr>
     <td width="50%">
       <img src="docs/screenshots/fzastro-targets-planner.png" alt="TARGETS planner with sky preview and capture controls">
       <br><sub>TARGETS planner with ranked objects, large sky preview, and capture handoff controls.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/fzastro-seeing-planner.png" alt="SEEING Astro Night Planner">
+      <br><sub>SEEING Astro Night Planner with hourly rows, cloud, Moon, seeing, transparency, and dark periods.</sub>
     </td>
   </tr>
   <tr>
@@ -34,8 +46,24 @@ GitHub repository: https://github.com/Ghostaka1978/FZAstroAI
       <br><sub>SUN NOW tab with NASA/SDO solar imagery and metadata.</sub>
     </td>
     <td width="50%">
+      <img src="docs/screenshots/fzastro-solar-map.png" alt="Native Solar Map with live planet positions">
+      <br><sub>SOLAR MAP with native 2D planet positions, orbits, labels, and AU grid.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
       <img src="docs/screenshots/fzastro-nina-control.png" alt="FZAstro Imaging Control N.I.N.A. session cockpit">
       <br><sub>FZAstro Imaging Control for review-first N.I.N.A. session handoff.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/fzastro-llm-benchmark.png" alt="LLM Benchmark dashboard">
+      <br><sub>LLM Benchmark dashboard with telemetry, presets, model/persona selection, and score history.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <img src="docs/screenshots/fzastro-web-companion.png" alt="FZAstro AI Web Companion mobile and LAN interface">
+      <br><sub>Web Companion for LAN/mobile workflows with LOOKUP, Daily News, SEEING, TARGETS, Site Planner, and local model chat.</sub>
     </td>
   </tr>
 </table>
