@@ -1407,6 +1407,17 @@ class FZAstroAI(
         )
         self.dev_workbench_button.setAccessibleName("Open AI Developer Workbench")
 
+        self.nina_control_button = QPushButton("N.I.N.A.")
+        self.nina_control_button.setObjectName("cockpitSkillButton")
+        self.nina_control_button.setProperty("accent", "true")
+        self.nina_control_button.setFixedSize(86, 36)
+        self.nina_control_button.setCursor(Qt.PointingHandCursor)
+        self.nina_control_button.clicked.connect(self.open_nina_control)
+        self.nina_control_button.setToolTip(
+            "Launch and update the bundled FZAstro Imaging control app"
+        )
+        self.nina_control_button.setAccessibleName("Open FZAstro Imaging Control")
+
         self.history_button = self._create_toolbar_button(
             "◷", "historyToggle", "Chat history"
         )
@@ -1516,6 +1527,12 @@ class FZAstroAI(
         self.system_menu_button.setAccessibleName("Open system tools menu")
         self.system_menu_button.setMenu(self.build_system_menu())
 
+        nina_group, nina_group_layout = _create_cockpit_group(
+            "IMG", "cockpitNinaGroup", title_width=36
+        )
+        nina_group.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        nina_group_layout.addWidget(self.nina_control_button, 0, Qt.AlignVCenter)
+
         system_group, system_group_layout = _create_cockpit_group(
             "SYS", "cockpitSystemGroup", title_width=36
         )
@@ -1527,7 +1544,7 @@ class FZAstroAI(
         top_bar_layout.addWidget(runtime_group, 0)
         top_bar_layout.addWidget(web_group, 0)
         top_bar_layout.addWidget(mode_group, 0)
-        # Top-bar IMG / N.I.N.A. shortcut removed; open it from Apps -> N.I.N.A.
+        top_bar_layout.addWidget(nina_group, 0)
         top_bar_layout.addWidget(system_group, 0)
 
         quick_bar = QFrame()

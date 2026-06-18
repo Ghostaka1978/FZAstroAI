@@ -100,8 +100,14 @@ def test_main_app_hosts_tool_windows_in_workspace_tabs():
     assert "workspace_tabs.currentIndex() != 0" in main_layout_text
     assert "setTabsClosable(False)" in workspace_text
     assert "workspaceTabCloseButton" in workspace_text
+    assert "QToolButton()" in workspace_text
+    assert "setIcon(_make_workspace_tab_close_icon" in workspace_text
+    assert "setFixedSize(16, 16)" in workspace_text
+    assert "setAutoRaise(True)" in workspace_text
+    assert "Ã" not in workspace_text
     assert "workspaceTabPage" in workspace_text
     assert "workspaceAppsButton" in workspace_text
+    assert "setFixedSize(76, 26)" in workspace_text
     assert "setCornerWidget" in workspace_text
     assert "def _build_workspace_apps_menu" in workspace_text
     assert 'tabs.addTab(chat_widget, "Chat")' in workspace_text
@@ -134,6 +140,10 @@ def test_workspace_apps_button_opens_key_tabbed_tools():
     assert "_run_workspace_app" in workspace_text
     assert "QMenu(self)" in workspace_text
     assert "QPushButton#workspaceAppsButton" in styles_text
+    assert "min-height: 26px;" in styles_text
+    assert "QPushButton#workspaceAppsButton::menu-indicator" in styles_text
+    assert "QToolButton#workspaceTabCloseButton" in styles_text
+    assert "QTabWidget#workspaceTabs QTabBar::tab:selected" in styles_text
 
 
 def test_major_tool_helpers_open_as_workspace_tabs():

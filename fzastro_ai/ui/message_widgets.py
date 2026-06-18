@@ -2249,8 +2249,8 @@ class MessageWidget(QWidget):
         self.role_label = None
 
         self.message_row = QHBoxLayout()
-        self.message_row.setContentsMargins(0, 1, 0, 1)
-        self.message_row.setSpacing(8)
+        self.message_row.setContentsMargins(0, 2, 0, 2)
+        self.message_row.setSpacing(10)
 
         # Compact identity badges replace the developer-style ">" and "#"
         # markers while keeping user and assistant messages easy to scan.
@@ -2268,7 +2268,7 @@ class MessageWidget(QWidget):
         )
         self.message_badge.setAlignment(Qt.AlignCenter)
         self.message_badge.setFixedSize(
-            48 if self.is_news_message else 40 if self.is_user_message else 32, 22
+            44 if self.is_news_message else 36 if self.is_user_message else 28, 20
         )
         self.message_badge.setToolTip(
             "Your message"
@@ -2279,13 +2279,11 @@ class MessageWidget(QWidget):
         self.content_container = QWidget()
         self.content_container.setObjectName("messageContentContainer")
         self.content_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-        self.content_container.setMaximumWidth(
-            1320 if not self.is_user_message else 1040
-        )
+        self._apply_content_width("")
 
         self.response_layout = QVBoxLayout(self.content_container)
-        self.response_layout.setContentsMargins(14, 11, 14, 12)
-        self.response_layout.setSpacing(8)
+        self.response_layout.setContentsMargins(12, 10, 12, 10)
+        self.response_layout.setSpacing(7)
 
         initial_kind = (
             "news"
@@ -2417,12 +2415,64 @@ class MessageWidget(QWidget):
         if clean_kind in {"stock", "typing"}:
             self.response_layout.setContentsMargins(0, 0, 0, 0)
         else:
-            self.response_layout.setContentsMargins(14, 11, 14, 12)
+            self.response_layout.setContentsMargins(12, 10, 12, 10)
 
         style = self.content_container.style()
         style.unpolish(self.content_container)
         style.polish(self.content_container)
         self.content_container.update()
+
+    def _content_is_wide(self, text="", blocks=None):
+        if self.is_news_message or self.web_articles or self.files:
+            return True
+
+        block_items = list(blocks or []) + list(self.explicit_content_blocks or [])
+        if any(
+            isinstance(
+                block,
+                (
+                    CodeBlock,
+                    ImageBlock,
+                    VideoBlock,
+                    WebArticleBlock,
+                    TableBlock,
+                    ToolResultBlock,
+                    StockQuoteBlock,
+                ),
+            )
+            for block in block_items
+        ):
+            return True
+
+        plain_text = str(text or "")
+        return "```" in plain_text or "\n|" in plain_text
+
+    def _preferred_content_width(self, text="", blocks=None):
+        if self._content_is_wide(text, blocks):
+            return 1160 if not self.is_user_message else 980
+
+        plain_text = re.sub(r"<[^>]+>", " ", str(text or ""))
+        plain_text = re.sub(r"\s+", " ", plain_text).strip()
+        longest_line = max(
+            [len(line.strip()) for line in str(text or "").splitlines()] or [0]
+        )
+        visible_chars = max(len(plain_text), longest_line)
+
+        minimum = 300 if self.is_user_message else 420
+        maximum = 760 if self.is_user_message else 900
+        estimated = int(min(maximum, max(minimum, longest_line * 8 + 112)))
+
+        if visible_chars > 260:
+            estimated = max(estimated, 620 if self.is_user_message else 700)
+        if visible_chars > 700:
+            estimated = max(estimated, maximum)
+
+        return estimated
+
+    def _apply_content_width(self, text="", blocks=None):
+        width = self._preferred_content_width(text, blocks)
+        self.content_container.setMinimumWidth(min(width, 280))
+        self.content_container.setMaximumWidth(width)
 
     def _fade_in_child_widget(self, target_widget, duration=160, start_opacity=0.0):
         try:
@@ -2522,7 +2572,7 @@ class MessageWidget(QWidget):
             timer_label.setObjectName("replyTimerLabel")
             timer_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             timer_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            timer_label.setMinimumWidth(190)
+            timer_label.setMinimumWidth(0)
             timer_label.setFixedHeight(20)
 
             footer_layout.addStretch()
@@ -2675,6 +2725,7 @@ class MessageWidget(QWidget):
         if not self.is_news_message:
             display_answer = clean_latex_plain_text(display_answer)
 
+        self._apply_content_width(display_answer)
         self.stream_view.setText(display_answer)
 
         width = self.stream_view.width()
@@ -3108,9 +3159,7 @@ class MessageWidget(QWidget):
         self.options_button.hide()
 
         self.content_container.setMinimumWidth(0)
-        self.content_container.setMaximumWidth(
-            1320 if not self.is_user_message else 1040
-        )
+        self._apply_content_width(self.text)
         self.content_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self._set_content_kind(self._base_content_kind)
         self._populate_static_response_content()
@@ -3134,6 +3183,7 @@ class MessageWidget(QWidget):
         self._set_content_kind(self._base_content_kind)
 
         if self.explicit_content_blocks:
+            self._apply_content_width(answer or self.text, self.explicit_content_blocks)
             self._render_content_blocks(self.explicit_content_blocks)
 
             if self.response_time is not None:
@@ -3149,6 +3199,7 @@ class MessageWidget(QWidget):
         if quote_payload:
             self._set_content_kind("stock")
             content_blocks.append(StockQuoteBlock(quote_payload))
+            self._apply_content_width(answer, content_blocks)
             self._render_content_blocks(content_blocks)
 
             if self.response_time is not None:
@@ -3171,6 +3222,9 @@ class MessageWidget(QWidget):
             answer = normalize_compacted_markdown(answer)
 
         content_blocks.extend(self._build_answer_content_blocks(answer))
+        self._apply_content_width(
+            answer if not self.is_user_message else self.text, content_blocks
+        )
         self._render_content_blocks(content_blocks)
 
         if self.response_time is not None:
