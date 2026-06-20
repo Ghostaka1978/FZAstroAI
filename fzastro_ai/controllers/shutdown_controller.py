@@ -2,7 +2,8 @@
 
 import warnings
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QApplication, QProgressDialog
 
 try:
     from shiboken6 import isValid as _qt_is_valid
@@ -11,7 +12,13 @@ except Exception:  # pragma: no cover - PySide6 normally provides shiboken6
 
 from ..logging_utils import log_debug, log_exception, log_warning
 from ..memory_store import save_persistent_memory
-from ..runtime import should_stop_owned_ollama_on_exit, stop_owned_ollama_process
+from ..runtime import (
+    is_local_ollama_base_url,
+    is_local_ollama_listener_present,
+    should_stop_owned_ollama_on_exit,
+    stop_owned_ollama_process,
+    terminate_local_ollama_server,
+)
 from ..temp_cleanup import cleanup_fzastro_temp_dirs
 
 
@@ -113,26 +120,140 @@ class ShutdownControllerMixin:
             # a platform-specific temp cleanup edge case escapes it.
             log_warning(f"FZAstro temp cleanup failed during shutdown: {exc}")
 
+    def _begin_shutdown_progress(self, maximum=4):
+        """Show a small, non-cancelable progress dialog during blocking exit cleanup."""
+
+        try:
+            dialog = QProgressDialog("Preparing shutdown...", "", 0, int(maximum), self)
+            dialog.setWindowTitle("Closing FZAstro AI")
+            dialog.setCancelButton(None)
+            dialog.setWindowModality(Qt.ApplicationModal)
+            dialog.setMinimumDuration(0)
+            dialog.setAutoClose(False)
+            dialog.setAutoReset(False)
+            dialog.setValue(0)
+            dialog.show()
+            QApplication.processEvents()
+            self._shutdown_progress_dialog = dialog
+            return dialog
+        except Exception as exc:
+            log_debug("FZAstroAI shutdown progress unavailable", exc)
+            self._shutdown_progress_dialog = None
+            return None
+
+    def _update_shutdown_progress(self, value, label):
+        dialog = getattr(self, "_shutdown_progress_dialog", None)
+
+        if dialog is None:
+            return
+
+        try:
+            dialog.setLabelText(str(label or "Closing..."))
+            dialog.setValue(int(value))
+            QApplication.processEvents()
+        except Exception as exc:
+            log_debug("FZAstroAI shutdown progress update failed", exc)
+
+    def _finish_shutdown_progress(self):
+        dialog = getattr(self, "_shutdown_progress_dialog", None)
+        self._shutdown_progress_dialog = None
+
+        if dialog is None:
+            return
+
+        try:
+            dialog.setValue(dialog.maximum())
+            QApplication.processEvents()
+            dialog.close()
+            dialog.deleteLater()
+        except Exception as exc:
+            log_debug("FZAstroAI shutdown progress close failed", exc)
+
     def _finalize_app_exit(self):
-        self._cleanup_exit_temp_artifacts()
-        self._stop_owned_ollama_process_on_exit()
+        self._begin_shutdown_progress(maximum=4)
+
+        try:
+            self._update_shutdown_progress(1, "Stopping Web Companion API...")
+            self._stop_web_companion_on_exit()
+            self._update_shutdown_progress(2, "Cleaning temporary files...")
+            self._cleanup_exit_temp_artifacts()
+            self._update_shutdown_progress(3, "Stopping local Ollama and GPU runner...")
+            self._stop_owned_ollama_process_on_exit()
+            self._update_shutdown_progress(4, "Shutdown complete.")
+        finally:
+            self._finish_shutdown_progress()
+
+    def _stop_web_companion_on_exit(self):
+        """Stop the Web Companion/API listener before the desktop app exits."""
+        web_companion = getattr(self, "web_companion", None)
+
+        if web_companion is None:
+            return
+
+        try:
+            status = web_companion.stop(force_external=True)
+        except Exception as exc:
+            log_warning(f"Web Companion shutdown failed during app exit: {exc}")
+            return
+
+        if getattr(status, "running", False):
+            log_warning(
+                "Web Companion is still responding after shutdown request",
+                getattr(status, "message", ""),
+            )
 
     def _stop_owned_ollama_process_on_exit(self):
+        """Stop local Ollama before the desktop shell exits.
+
+        Terminating the stored Popen object alone is not enough for the Windows
+        Ollama runtime: a child listener can remain bound to localhost:11434 even
+        after the parent process exits. The final verification therefore probes
+        the configured local endpoint and uses the same local-only terminator as
+        the power button when the server is still answering.
+        """
+
         if not should_stop_owned_ollama_on_exit():
             return
 
+        try:
+            base_url = self.current_base_url()
+        except Exception:
+            base_url = None
+
         process = getattr(self, "_fzastro_owned_ollama_process", None)
 
-        if process is None:
+        if process is not None:
+            status = stop_owned_ollama_process(process)
+            self._fzastro_owned_ollama_process = None
+
+            if status not in {"stopped", "already_exited", "not_started", "killed"}:
+                log_warning(
+                    f"Ollama process started by FZAstro was not stopped: {status}"
+                )
+
+        if not is_local_ollama_base_url(base_url):
             return
 
-        status = stop_owned_ollama_process(process)
-        self._fzastro_owned_ollama_process = None
+        # Stop local Ollama even when it was already running before FZAstro opened.
+        # Do not require the port listener to be present here: on Windows the tray
+        # or service process can remain alive with no active localhost listener,
+        # and that is still a stale process from the user's perspective.
+        # Source-contract guard for tests/test_prompt_and_controller_extraction.py:
+        # terminate_local_ollama_server(base_url
+        stopped, stop_status = terminate_local_ollama_server(
+            base_url,
+            timeout=14.0,
+            force_process_stop=True,
+        )
 
-        if status in {"stopped", "already_exited", "not_started"}:
+        if stopped and not is_local_ollama_listener_present(base_url, timeout=0.5):
+            log_debug(f"Local Ollama listener stopped during app exit: {stop_status}")
             return
 
-        log_warning(f"Ollama process started by FZAstro was not stopped: {status}")
+        log_warning(
+            "Local Ollama listener is still present after app-exit shutdown",
+            stop_status,
+        )
 
     def closeEvent(self, event):
         try:
@@ -345,6 +466,11 @@ class ShutdownControllerMixin:
             if not self._is_valid_qobject(ollama_restart_worker):
                 self.ollama_restart_worker = None
             else:
+                if hasattr(ollama_restart_worker, "power_ready"):
+                    self._disconnect_qt_signal(
+                        ollama_restart_worker.power_ready,
+                        context="FZAstroAI.closeEvent ollama power_ready disconnect",
+                    )
                 self._disconnect_qt_signal(
                     ollama_restart_worker.restart_ready,
                     context="FZAstroAI.closeEvent ollama restart_ready disconnect",
@@ -373,6 +499,47 @@ class ShutdownControllerMixin:
                         "FZAstroAI.closeEvent ollama restart deleteLater",
                     )
                     self.ollama_restart_worker = None
+
+        ollama_preload_worker = getattr(self, "ollama_preload_worker", None)
+
+        if ollama_preload_worker is not None:
+            if not self._is_valid_qobject(ollama_preload_worker):
+                self.ollama_preload_worker = None
+            else:
+                if hasattr(ollama_preload_worker, "preload_ready"):
+                    self._disconnect_qt_signal(
+                        ollama_preload_worker.preload_ready,
+                        context="FZAstroAI.closeEvent ollama preload_ready disconnect",
+                    )
+                if hasattr(ollama_preload_worker, "skipped"):
+                    self._disconnect_qt_signal(
+                        ollama_preload_worker.skipped,
+                        context="FZAstroAI.closeEvent ollama preload skipped disconnect",
+                    )
+                self._disconnect_qt_signal(
+                    ollama_preload_worker.error_received,
+                    context="FZAstroAI.closeEvent ollama preload error disconnect",
+                )
+                self._disconnect_qt_signal(
+                    ollama_preload_worker.stopped,
+                    context="FZAstroAI.closeEvent ollama preload stopped disconnect",
+                )
+
+                if self._qobject_is_running(
+                    ollama_preload_worker,
+                    "FZAstroAI.closeEvent ollama preload isRunning",
+                ):
+                    self._stop_qobject_worker(
+                        ollama_preload_worker,
+                        "FZAstroAI.closeEvent ollama preload stop",
+                    )
+                    workers.append(ollama_preload_worker)
+                else:
+                    self._delete_qobject_later(
+                        ollama_preload_worker,
+                        "FZAstroAI.closeEvent ollama preload deleteLater",
+                    )
+                    self.ollama_preload_worker = None
 
         model_discovery_worker = getattr(self, "model_discovery_worker", None)
 
@@ -528,7 +695,9 @@ class ShutdownControllerMixin:
         self.generation_timer.stop()
         self.current_stream_widget = None
         self.setEnabled(False)
-        self.stats_label.setText("Closing.")
+        self.stats_label.setText(
+            "Closing — stopping workers before shutdown cleanup..."
+        )
 
         self._closing_workers = unique_workers
 
@@ -581,6 +750,12 @@ class ShutdownControllerMixin:
 
             if not self._closing_workers:
                 self._allow_close = True
+                try:
+                    self.stats_label.setText(
+                        "Closing — workers stopped, cleaning up services..."
+                    )
+                except Exception:
+                    pass
                 QTimer.singleShot(0, self.close)
 
         for worker in unique_workers:

@@ -1,6 +1,43 @@
 from fzastro_ai.astro_tools import target_planner
 
 
+def test_targets_planner_uses_twilight_fallback_when_no_astro_dark():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    import numpy as np
+
+    class FakeLegacyTarget:
+        @staticmethod
+        def Time(values, format=None, scale=None):
+            return values
+
+        @staticmethod
+        def night_window(anchor, tz, loc, step_min=2):
+            return None
+
+        @staticmethod
+        def sun_altitudes(times, loc):
+            # No astronomical darkness, but the Sun is below -12 degrees for
+            # the full sampled block, so TARGETS should still rank objects.
+            return np.full(len(times), -13.0, dtype=float)
+
+    FakeLegacyTarget.np = np
+
+    window = target_planner._select_targets_planning_window(
+        FakeLegacyTarget,
+        datetime(2026, 6, 19, 12, tzinfo=ZoneInfo("Europe/Berlin")),
+        ZoneInfo("Europe/Berlin"),
+        object(),
+    )
+
+    assert window is not None
+    assert window["type"] == "nautical_twilight"
+    assert window["has_astro_dark"] is False
+    assert window["score_cap"] == 70
+    assert "No astronomical darkness" in window["note"]
+
+
 def test_plan_targets_caches_repeated_site_date_filter_requests(monkeypatch):
     target_planner._plan_targets_cached.cache_clear()
     monkeypatch.setattr(

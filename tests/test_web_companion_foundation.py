@@ -143,3 +143,19 @@ def test_desktop_web_companion_lan_url_copy_is_exposed():
     assert "URL copied to clipboard" in app
     assert "lan_web_url" in launcher
     assert "detect_lan_ip" in launcher
+
+
+def test_desktop_web_companion_status_uses_color_state():
+    app = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8")
+    styles = (PROJECT_ROOT / "fzastro_ai" / "ui" / "styles.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "set_web_companion_visual_state" in app
+    assert 'setProperty("webState", "off")' in app
+    assert 'widget.setProperty("webState", clean_state)' in app
+    assert 'visual_state = "on" if status.owned else "external"' in app
+    assert 'QPushButton#cockpitWebButton[webState="on"]' in styles
+    assert 'QPushButton#cockpitWebButton[webState="off"]' in styles
+    assert 'QLabel#webArticleBody[webState="on"]' in styles
+    assert 'QLabel#webArticleBody[webState="off"]' in styles

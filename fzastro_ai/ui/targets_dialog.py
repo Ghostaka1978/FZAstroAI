@@ -640,8 +640,17 @@ class TargetsDialog(QDialog):
         dark_end = self._fmt_window_time(result.get("dark_end"))
         duration = self._fmt_minutes(result.get("duration_minutes"))
         moon = result.get("moon") or {}
+        window_label = str(result.get("window_label") or "Astro darkness")
+        window_note = str(result.get("window_note") or "").strip()
+        fallback_note = ""
+        if result.get("fallback_no_astro_dark"):
+            fallback_note = " · NO ASTRO DARK"
+            if result.get("score_cap") is not None:
+                fallback_note += f" · score cap {result.get('score_cap')}"
+        if window_note:
+            fallback_note += f" · {window_note}"
         self.summary_label.setText(
-            f"Astro darkness: {dark_start} → {dark_end} ({duration}) · "
+            f"{window_label}: {dark_start} → {dark_end} ({duration}){fallback_note} · "
             f"Moon: {moon.get('illumination_pct', '—')}% {moon.get('phase', '')} · "
             f"Evaluated: {result.get('evaluated', 0)} · "
             f"Rejected: {result.get('rejected', 0)} · {elapsed:.1f}s"

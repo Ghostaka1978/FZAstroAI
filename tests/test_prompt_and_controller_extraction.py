@@ -39,6 +39,29 @@ def test_shutdown_controller_extracted_from_main_window():
     assert "class ShutdownControllerMixin" in controller_text
     assert "def closeEvent" in controller_text
     assert "save_persistent_memory" in controller_text
+    assert "_stop_web_companion_on_exit" in controller_text
+    assert "web_companion.stop(force_external=True)" in controller_text
+    assert "terminate_local_ollama_server(base_url" in controller_text
+    assert "is_local_ollama_listener_present(base_url" in controller_text
+
+
+def test_ollama_power_button_has_state_colors_and_runtime_labels():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8")
+    controls_text = (PROJECT_ROOT / "fzastro_ai" / "model_controls.py").read_text(
+        encoding="utf-8"
+    )
+    styles_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "styles.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'setObjectName("ollamaPowerButton")' in app_text
+    assert 'button.setProperty("ollamaState", clean_state)' in controls_text
+    assert '"Local Ollama: On"' in controls_text
+    assert '"Local Ollama: Off"' in controls_text
+    assert 'QPushButton#quickRestartOllamaButton[ollamaState="on"]' in styles_text
+    assert 'QPushButton#quickRestartOllamaButton[ollamaState="off"]' in styles_text
+    assert 'QPushButton#ollamaPowerButton[ollamaState="on"]' in styles_text
+    assert 'QPushButton#ollamaPowerButton[ollamaState="off"]' in styles_text
 
 
 def test_document_knowledge_library_was_extracted_from_app_module_source():

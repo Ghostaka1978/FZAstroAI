@@ -69,6 +69,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QProgressDialog,
     QScrollArea,
     QSizePolicy,
     QSlider,
@@ -151,14 +152,20 @@ from .config import (
     startup_model_refresh_enabled,
 )
 from .controllers import AppStateController, ShutdownControllerMixin
-from .logging_utils import log_exception, log_warning
+from .logging_utils import log_debug, log_exception, log_warning
 from .prompts import DEFAULT_CORE_SYSTEM_PROMPT
 from .knowledge_library import DocumentKnowledgeLibrary
 from .runtime import (
     is_local_ollama_base_url,
+    is_local_ollama_listener_present,
     is_ollama_base_url,
+    is_ollama_server_available,
     is_runtime_connection_error,
     make_runtime_client,
+    normalize_ollama_keep_alive_mode,
+    ollama_keep_alive_label,
+    ollama_keep_alive_preloads_model,
+    ollama_keep_alive_value,
     normalize_runtime_api_key,
     normalize_runtime_base_url,
 )
@@ -187,6 +194,7 @@ from .workers import (
     MemoryExtractionWorker,
     ModelDiscoveryWorker,
     OllamaRestartWorker,
+    OllamaPreloadWorker,
     PythonExecutionWorker,
     WebDecisionWorker,
     WebSearchWorker,
@@ -269,8 +277,16 @@ from .model_controls import (
     current_api_key as _current_api_key,
     current_base_url as _current_base_url,
     current_model_name as _current_model_name,
+    current_ollama_keep_alive_label as _current_ollama_keep_alive_label,
+    current_ollama_keep_alive_mode as _current_ollama_keep_alive_mode,
+    current_ollama_keep_alive_value as _current_ollama_keep_alive_value,
+    maybe_preload_ollama_model as _maybe_preload_ollama_model,
+    on_ollama_keep_alive_changed as _on_ollama_keep_alive_changed,
+    populate_ollama_keep_alive_box as _populate_ollama_keep_alive_box,
     refresh_models as _refresh_models,
+    refresh_ollama_power_indicator as _refresh_ollama_power_indicator,
     restart_ollama as _restart_ollama,
+    save_runtime_settings as _save_runtime_settings,
     refresh_workspace_context as _refresh_workspace_context,
     sync_runtime_client as _sync_runtime_client,
 )
@@ -514,8 +530,16 @@ class FZAstroAI(
     current_base_url = _current_base_url
     current_api_key = _current_api_key
     current_model_name = _current_model_name
+    current_ollama_keep_alive_mode = _current_ollama_keep_alive_mode
+    current_ollama_keep_alive_value = _current_ollama_keep_alive_value
+    current_ollama_keep_alive_label = _current_ollama_keep_alive_label
+    populate_ollama_keep_alive_box = _populate_ollama_keep_alive_box
+    on_ollama_keep_alive_changed = _on_ollama_keep_alive_changed
+    maybe_preload_ollama_model = _maybe_preload_ollama_model
+    save_runtime_settings = _save_runtime_settings
     sync_runtime_client = _sync_runtime_client
     refresh_models = _refresh_models
+    refresh_ollama_power_indicator = _refresh_ollama_power_indicator
     restart_ollama = _restart_ollama
 
     def _format_path_for_diagnostics(self, path_value):
@@ -562,8 +586,39 @@ class FZAstroAI(
         self.setMinimumSize(1120, 720)
         apply_window_defaults(self)
 
+        startup_progress = None
+
+        try:
+            startup_progress = QProgressDialog(
+                "Loading FZAstro AI state...", "", 0, 6, self
+            )
+            startup_progress.setWindowTitle("Starting FZAstro AI")
+            startup_progress.setCancelButton(None)
+            startup_progress.setWindowModality(Qt.ApplicationModal)
+            startup_progress.setMinimumDuration(250)
+            startup_progress.setAutoClose(False)
+            startup_progress.setAutoReset(False)
+            startup_progress.setValue(0)
+            startup_progress.show()
+            QApplication.processEvents()
+        except Exception as exc:
+            log_debug("FZAstroAI startup progress unavailable", exc)
+            startup_progress = None
+
+        def _startup_step(value, label):
+            if startup_progress is None:
+                return
+
+            try:
+                startup_progress.setLabelText(str(label or "Starting..."))
+                startup_progress.setValue(int(value))
+                QApplication.processEvents()
+            except Exception as exc:
+                log_debug("FZAstroAI startup progress update failed", exc)
+
         self.app_state_controller = AppStateController()
         app_state = self.app_state_controller.load()
+        _startup_step(1, "Loading settings and saved state...")
 
         self.messages = []
         self.attached_files = []
@@ -635,6 +690,7 @@ class FZAstroAI(
         self.response_char_count = 0
         self.worker = None
         self.ollama_restart_worker = None
+        self.ollama_preload_worker = None
         self.python_worker = None
         self.astro_worker = None
         self.voice_worker = None
@@ -647,6 +703,8 @@ class FZAstroAI(
         self.sidebar_visible = False
         self.web_companion = WebCompanionProcess(port=7860)
         self.web_companion_settings = app_state.web_companion_settings
+        self.runtime_settings = app_state.runtime_settings
+        self.ollama_keep_alive_box = None
         self.web_companion_status_label = None
         self.web_companion_auto_start_checkbox = None
 
@@ -766,6 +824,7 @@ class FZAstroAI(
         )
 
         self.refresh_persistent_memory_list()
+        _startup_step(2, "Preparing memory and knowledge library...")
 
         self.document_knowledge_summary_label = QLabel("")
         self.document_knowledge_summary_label.setObjectName("webArticleBody")
@@ -800,11 +859,20 @@ class FZAstroAI(
         self.refresh_models_button = QPushButton("Refresh Models")
         self.refresh_models_button.clicked.connect(self.refresh_models)
 
-        self.restart_ollama_button = QPushButton("Restart Local Ollama")
+        self.restart_ollama_button = QPushButton("Local Ollama: Checking")
+        self.restart_ollama_button.setObjectName("ollamaPowerButton")
         self.restart_ollama_button.setToolTip(
-            "Stop and restart the local Ollama server, then refresh the model list."
+            "Power local Ollama on or off without doing a stop-start restart cycle."
         )
         self.restart_ollama_button.clicked.connect(self.restart_ollama)
+
+        self.ollama_keep_alive_box = QComboBox()
+        self.ollama_keep_alive_box.setObjectName("ollamaKeepAliveBox")
+        self.ollama_keep_alive_box.setFixedHeight(34)
+        self.populate_ollama_keep_alive_box()
+        self.ollama_keep_alive_box.currentIndexChanged.connect(
+            self.on_ollama_keep_alive_changed
+        )
 
         self.quick_refresh_models_button = self._create_toolbar_button(
             "↻",
@@ -819,14 +887,22 @@ class FZAstroAI(
         self.quick_restart_ollama_button = self._create_toolbar_button(
             "⏻",
             "quickRestartOllamaButton",
-            "Restart local Ollama server",
+            "Start or stop local Ollama server",
             width=36,
             height=36,
         )
         self.quick_restart_ollama_button.clicked.connect(self.restart_ollama)
         self.quick_restart_ollama_button.setAccessibleName(
-            "Restart local Ollama server"
+            "Start or stop local Ollama server"
         )
+        _startup_step(3, "Building runtime and Ollama controls...")
+
+        self.ollama_status_timer = QTimer(self)
+        self.ollama_status_timer.setInterval(5000)
+        self.ollama_status_timer.timeout.connect(
+            lambda: self.refresh_ollama_power_indicator(probe=True)
+        )
+        self.ollama_status_timer.start()
 
         self.model_box = QComboBox()
         self.model_box.setObjectName("quickModelBox")
@@ -863,6 +939,7 @@ class FZAstroAI(
 
         self.web_companion_button = QPushButton("WEB UI")
         self.web_companion_button.setObjectName("cockpitWebButton")
+        self.web_companion_button.setProperty("webState", "off")
         self.web_companion_button.setFixedSize(76, 36)
         self.web_companion_button.setCursor(Qt.PointingHandCursor)
         self.web_companion_button.setToolTip(
@@ -910,6 +987,11 @@ class FZAstroAI(
         runtime_layout.addWidget(api_key_caption)
         runtime_layout.addWidget(self.api_key_input)
 
+        keep_alive_caption = QLabel("Model keep-warm")
+        keep_alive_caption.setObjectName("fieldCaption")
+        runtime_layout.addWidget(keep_alive_caption)
+        runtime_layout.addWidget(self.ollama_keep_alive_box)
+
         runtime_layout.addWidget(self.refresh_models_button)
         runtime_layout.addWidget(self.restart_ollama_button)
 
@@ -932,6 +1014,7 @@ class FZAstroAI(
 
         self.web_companion_status_label = QLabel("Web Companion is stopped.")
         self.web_companion_status_label.setObjectName("webArticleBody")
+        self.web_companion_status_label.setProperty("webState", "off")
         self.web_companion_status_label.setWordWrap(True)
         web_layout.addWidget(self.web_companion_status_label)
 
@@ -950,6 +1033,7 @@ class FZAstroAI(
         web_layout.addWidget(self.web_companion_auto_start_checkbox)
 
         self.web_companion_start_button = QPushButton("Start LAN Web Server")
+        self.web_companion_start_button.setProperty("webState", "off")
         self.web_companion_start_button.clicked.connect(
             self.start_web_companion_local_from_sidebar
         )
@@ -1042,9 +1126,9 @@ class FZAstroAI(
         self.dev_workbench_button.setCursor(Qt.PointingHandCursor)
         self.dev_workbench_button.clicked.connect(self.open_dev_workbench)
         self.dev_workbench_button.setToolTip(
-            "Open the AI Developer Workbench for scanning, context, plans, and checks"
+            "Open the Developer Agent Mode for scanning, planning, patch preview, and validation"
         )
-        self.dev_workbench_button.setAccessibleName("Open AI Developer Workbench")
+        self.dev_workbench_button.setAccessibleName("Open Developer Agent Mode")
 
         self.history_button = self._create_toolbar_button(
             "◷", "historyToggle", "Chat history"
@@ -1123,6 +1207,14 @@ class FZAstroAI(
             self.quick_restart_ollama_button, 0, Qt.AlignVCenter
         )
 
+        self.profile_menu_button = QPushButton("P ▾")
+        self.profile_menu_button.setObjectName("cockpitProfileMenuButton")
+        self.profile_menu_button.setFixedSize(58, 36)
+        self.profile_menu_button.setCursor(Qt.PointingHandCursor)
+        self.profile_menu_button.setToolTip("Open calibration profile menu.")
+        self.profile_menu_button.setAccessibleName("Open calibration profile menu")
+        self.profile_menu_button.setMenu(self.build_top_mode_menu())
+
         self.mode_menu_button = QPushButton("Mode ▾")
         self.mode_menu_button.setObjectName("cockpitModeButton")
         self.mode_menu_button.setFixedSize(104, 36)
@@ -1136,6 +1228,7 @@ class FZAstroAI(
         mode_group, mode_group_layout = _create_cockpit_group(
             "MODE", "cockpitModeGroup", title_width=44
         )
+        mode_group_layout.addWidget(self.profile_menu_button, 0, Qt.AlignVCenter)
         mode_group_layout.addWidget(self.mode_menu_button, 0, Qt.AlignVCenter)
 
         self.system_menu_button = QPushButton("Menu ▾")
@@ -1390,7 +1483,12 @@ class FZAstroAI(
         astro_bar_layout.addWidget(self.astro_solar_button)
         astro_bar_layout.addStretch(1)
 
+        _startup_step(4, "Building workspace and toolbars...")
+
         self.model_box.currentTextChanged.connect(self.refresh_workspace_context)
+        self.model_box.currentTextChanged.connect(
+            lambda *_args: self.maybe_preload_ollama_model("model changed")
+        )
         self.web_box.currentTextChanged.connect(self.refresh_workspace_context)
         self.sync_runtime_client()
         self.refresh_workspace_context()
@@ -1825,6 +1923,7 @@ class FZAstroAI(
         self.history_scroll.setWidget(self.history_widget)
         history_panel_layout.addWidget(self.history_scroll, 1)
         self.render_history()
+        _startup_step(5, "Restoring chat workspace and history...")
         root_layout.addWidget(self.sidebar)
         root_layout.addWidget(main, 1)
         root_layout.addWidget(self.history_panel)
@@ -1832,6 +1931,14 @@ class FZAstroAI(
         self.setCentralWidget(root)
         self.apply_styles()
         self.update_web_companion_sidebar()
+        _startup_step(6, "Startup complete.")
+        if startup_progress is not None:
+            try:
+                startup_progress.close()
+                startup_progress.deleteLater()
+            except Exception as exc:
+                log_debug("FZAstroAI startup progress close failed", exc)
+
         if self.web_companion_settings.get("auto_start_desktop"):
             QTimer.singleShot(750, self.start_web_companion_background)
         self.maybe_auto_check_nina_updates()
@@ -1935,6 +2042,58 @@ class FZAstroAI(
 
         return menu
 
+    def _repolish_web_companion_widget(self, widget):
+        try:
+            style = widget.style()
+            style.unpolish(widget)
+            style.polish(widget)
+            widget.update()
+        except Exception:
+            pass
+
+    def set_web_companion_visual_state(self, state):
+        clean_state = str(state or "checking").strip().casefold()
+
+        if clean_state not in {"on", "off", "checking", "external"}:
+            clean_state = "checking"
+
+        self._web_companion_visual_state = clean_state
+
+        labels = {
+            "on": "WEB ✓",
+            "off": "WEB UI",
+            "checking": "WEB …",
+            "external": "WEB EXT",
+        }
+
+        accessible_names = {
+            "on": "Web Companion is running.",
+            "off": "Web Companion is stopped.",
+            "checking": "Checking Web Companion status.",
+            "external": "Web Companion is running from an external process.",
+        }
+
+        for attr_name in (
+            "web_companion_button",
+            "web_companion_status_label",
+            "web_companion_start_button",
+        ):
+            widget = getattr(self, attr_name, None)
+
+            if widget is None:
+                continue
+
+            try:
+                widget.setProperty("webState", clean_state)
+
+                if attr_name == "web_companion_button":
+                    widget.setText(labels[clean_state])
+                    widget.setAccessibleName(accessible_names[clean_state])
+
+                self._repolish_web_companion_widget(widget)
+            except Exception:
+                pass
+
     def start_web_companion_local_from_sidebar(self):
         status = self.start_web_companion_background()
         if not status.running:
@@ -1942,7 +2101,12 @@ class FZAstroAI(
         return status
 
     def start_web_companion_background(self):
-        status = self.web_companion.start(lan=True, replace_external=True)
+        self.set_web_companion_visual_state("checking")
+        status = self.web_companion.start(
+            lan=True,
+            replace_external=True,
+            ollama_keep_alive=self.current_ollama_keep_alive_value(),
+        )
         self.update_web_companion_button(status)
         if not status.running:
             log_warning("Web Companion local start failed", status.message)
@@ -1969,10 +2133,12 @@ class FZAstroAI(
             )
             return
 
+        self.set_web_companion_visual_state("checking")
         status = self.web_companion.start(
             lan=True,
             token=token,
             replace_external=True,
+            ollama_keep_alive=self.current_ollama_keep_alive_value(),
         )
         self.update_web_companion_button(status)
 
@@ -1990,6 +2156,7 @@ class FZAstroAI(
             QMessageBox.warning(self, "Web Companion", status.message)
 
     def stop_web_companion_background(self):
+        self.set_web_companion_visual_state("checking")
         status = self.web_companion.stop(force_external=True)
         self.update_web_companion_button(status)
         if status.running:
@@ -2037,12 +2204,14 @@ class FZAstroAI(
         if status is None:
             status = self.web_companion.status()
 
-        if getattr(self, "web_companion_button", None) is not None:
-            if status.running:
-                self.web_companion_button.setText("WEB ✓")
-            else:
-                self.web_companion_button.setText("WEB UI")
+        if status.running:
+            visual_state = "on" if status.owned else "external"
+        else:
+            visual_state = "off"
 
+        self.set_web_companion_visual_state(visual_state)
+
+        if getattr(self, "web_companion_button", None) is not None:
             self.web_companion_button.setToolTip(status.message + "\n" + status.url)
 
         self.update_web_companion_sidebar(status)
@@ -2088,9 +2257,13 @@ class FZAstroAI(
                     "Stop the stale/manual server on this port and start "
                     "a desktop-owned LAN server."
                 )
+            elif status.running:
+                start_button.setText("Web Companion: Running")
+                start_button.setEnabled(False)
+                start_button.setToolTip("Web Companion is already running.")
             else:
                 start_button.setText("Start LAN Web Server")
-                start_button.setEnabled(not status.running)
+                start_button.setEnabled(True)
                 start_button.setToolTip(
                     "Start the desktop-owned Web Companion LAN server."
                 )
@@ -3595,9 +3768,9 @@ class FZAstroAI(
     def build_composer_skills_menu(self):
         menu = QMenu(self)
 
-        dev_action = QAction("⚙ Developer Workbench", self)
+        dev_action = QAction("⚙ Developer Agent Mode", self)
         dev_action.setToolTip(
-            "Open the AI Developer Workbench for scanning, context, plans, and checks."
+            "Open the Developer Agent Mode for scanning, planning, patch preview, and validation."
         )
         dev_action.triggered.connect(lambda checked=False: self.open_dev_workbench())
         menu.addAction(dev_action)
@@ -4543,7 +4716,7 @@ class FZAstroAI(
             f"Local Ollama endpoint: {'yes' if is_local_ollama else 'no'}",
             f"Ollama ownership: {owned_status}",
             f"Auto-start Ollama: {os.environ.get('FZASTRO_AUTO_START_OLLAMA', '1')}",
-            f"Stop owned Ollama on exit: {os.environ.get('FZASTRO_STOP_OLLAMA_ON_EXIT', '0')}",
+            f"Stop owned Ollama on exit: {os.environ.get('FZASTRO_STOP_OLLAMA_ON_EXIT', '1')}",
             "",
             f"GPU: {gpu_text}",
             f"System: {system_text}",
@@ -5245,7 +5418,9 @@ class FZAstroAI(
                 wait_state = "waiting for first token"
 
             if elapsed >= 35:
-                wait_state += " • use Stop, then Restart Ollama if it remains stuck"
+                wait_state += (
+                    " • use Stop, then power Ollama off/on if it remains stuck"
+                )
 
             next_log_at = float(getattr(self, "_next_no_token_log_at", 0.0) or 0.0)
 

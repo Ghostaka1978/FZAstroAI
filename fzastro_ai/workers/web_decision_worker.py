@@ -7,6 +7,7 @@ from ..config import RUNTIME_DECISION_TIMEOUT_SECONDS
 from ..llm import build_chat_request_params
 from ..logging_utils import log_exception, log_warning
 from ..runtime import (
+    apply_ollama_model_keep_alive,
     format_runtime_model_unavailable_message,
     is_runtime_connection_error,
     is_runtime_model_not_found_error,
@@ -46,6 +47,7 @@ class ToolDecisionWorker(QThread):
         conversation_context="",
         base_url=None,
         api_key=None,
+        keep_alive=None,
     ):
         super().__init__()
         self.user_text = user_text
@@ -54,6 +56,7 @@ class ToolDecisionWorker(QThread):
         self.conversation_context = conversation_context
         self.base_url = normalize_runtime_base_url(base_url)
         self.api_key = normalize_runtime_api_key(api_key)
+        self.keep_alive = keep_alive
         self.stop_requested = False
 
     def stop(self):
@@ -151,6 +154,8 @@ class ToolDecisionWorker(QThread):
             },
         }
 
+        request_completed = False
+
         try:
             decision_client = make_runtime_client(
                 self.base_url, self.api_key, timeout=RUNTIME_DECISION_TIMEOUT_SECONDS
@@ -165,6 +170,7 @@ class ToolDecisionWorker(QThread):
                 base_url=self.base_url,
                 stream=False,
                 response_format=response_format,
+                keep_alive=self.keep_alive,
             )
 
             try:
@@ -182,6 +188,8 @@ class ToolDecisionWorker(QThread):
                 log_warning("WebDecisionWorker.run response_format retry", exc)
                 request_params.pop("response_format", None)
                 response = decision_client.chat.completions.create(**request_params)
+
+            request_completed = True
 
             if self.should_stop():
                 self.stopped.emit()
@@ -227,6 +235,23 @@ class ToolDecisionWorker(QThread):
                 self.stopped.emit()
             else:
                 self.error_received.emit(user_error)
+        finally:
+            if request_completed:
+                apply_result = apply_ollama_model_keep_alive(
+                    self.base_url,
+                    self.model,
+                    self.keep_alive,
+                    timeout=4.0,
+                )
+                if apply_result.status not in {
+                    "applied",
+                    "provider_default",
+                    "not_ollama",
+                }:
+                    log_warning(
+                        "WebDecisionWorker.run Ollama keep-alive apply skipped",
+                        f"{apply_result.status}: {apply_result.message}",
+                    )
 
 
 # Backward-compatible name retained for older imports and tests.

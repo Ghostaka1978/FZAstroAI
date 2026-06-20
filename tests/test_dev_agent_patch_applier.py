@@ -75,3 +75,36 @@ def test_changed_paths_from_patch_rejects_absolute_or_drive_paths():
 def test_create_patch_snapshot_rejects_unsafe_changed_paths(tmp_path: Path):
     with pytest.raises(PatchPathError):
         create_patch_snapshot(tmp_path, ("../outside.py",), patch_text="patch")
+
+
+from fzastro_ai.dev_agent.patch_applier import preflight_patch_with_git
+
+
+def test_preflight_patch_with_git_accepts_valid_dev_null_new_file(tmp_path: Path):
+    patch = """--- /dev/null
++++ b/tests/test_mini_token_launcher.py
+@@ -0,0 +1,2 @@
++def test_ok():
++    assert True
+"""
+
+    result = preflight_patch_with_git(tmp_path, patch)
+
+    assert result.ok is True
+    assert result.applied_paths == ("tests/test_mini_token_launcher.py",)
+    assert not (tmp_path / "tests" / "test_mini_token_launcher.py").exists()
+
+
+def test_preflight_patch_with_git_rejects_corrupt_new_file_hunk(tmp_path: Path):
+    patch = """--- /dev/null
++++ b/tests/test_mini_token_launcher.py
+@@ -0,0 +1,26 @@
++def test_ok():
++    assert True
+"""
+
+    result = preflight_patch_with_git(tmp_path, patch)
+
+    assert result.ok is False
+    assert result.failed_paths == ("tests/test_mini_token_launcher.py",)
+    assert "corrupt patch" in (result.stderr + result.message).lower()

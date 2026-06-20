@@ -119,3 +119,27 @@ def test_build_chat_request_params_rejects_unknown_profile():
             profile="unknown",
             base_url="http://localhost:11434/v1",
         )
+
+
+def test_build_chat_request_params_adds_ollama_keep_alive():
+    params = build_chat_request_params(
+        model="qwen3:6.35b",
+        messages=[{"role": "user", "content": "hello"}],
+        profile="chat",
+        base_url="http://localhost:11434/v1",
+        keep_alive="60m",
+    )
+
+    assert params["extra_body"]["keep_alive"] == "60m"
+
+
+def test_build_chat_request_params_does_not_send_keep_alive_to_remote_provider():
+    params = build_chat_request_params(
+        model="cloud-model",
+        messages=[{"role": "user", "content": "hello"}],
+        profile="chat",
+        base_url="https://api.example.com/v1",
+        keep_alive="60m",
+    )
+
+    assert "extra_body" not in params

@@ -1493,6 +1493,7 @@ class WebNewsActionsMixin:
             vision_request=is_visual_follow_up,
             base_url=self.current_base_url(),
             api_key=self.current_api_key(),
+            keep_alive=self.current_ollama_keep_alive_value(),
         )
 
         self.worker.token_received.connect(self.update_streaming_message)
@@ -1552,6 +1553,7 @@ class WebNewsActionsMixin:
             conversation_context=self.build_recent_conversation_context(),
             base_url=self.current_base_url(),
             api_key=self.current_api_key(),
+            keep_alive=self.current_ollama_keep_alive_value(),
         )
 
         self.decision_worker.decision_ready.connect(self.handle_web_decision)

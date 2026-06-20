@@ -134,3 +134,93 @@ def test_model_selector_can_display_unavailable_provider_without_losing_model_id
     assert "status_message=status_message" in model_controls_text
     assert "selector_enabled=False" in model_controls_text
     assert "current_model_name = _current_model_name" in app_text
+
+
+def test_model_refresh_does_not_auto_start_local_ollama():
+    worker_text = (
+        PROJECT_ROOT / "fzastro_ai" / "workers" / "model_discovery_worker.py"
+    ).read_text(encoding="utf-8-sig")
+    model_controls_text = (PROJECT_ROOT / "fzastro_ai" / "model_controls.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "start_ollama_server_if_available" not in worker_text
+    assert "should_auto_start_ollama" not in worker_text
+    assert "Model refresh is intentionally read-only" in worker_text
+    assert "is_local_ollama_listener_present" in worker_text
+    assert (
+        "not app_module.is_local_ollama_listener_present(base_url)"
+        in model_controls_text
+    )
+    assert (
+        "running = app_module.is_local_ollama_listener_present" in model_controls_text
+    )
+    assert "running = app_module.is_ollama_server_available" not in model_controls_text
+    assert "OllamaRestartWorker" in model_controls_text
+
+
+def test_web_model_refresh_does_not_auto_start_local_ollama():
+    server_text = (
+        PROJECT_ROOT / "fzastro_ai" / "web_companion" / "server.py"
+    ).read_text(encoding="utf-8-sig")
+    maybe_start_body = server_text.split("def _maybe_start_local_ollama", 1)[1].split(
+        "_IMAGE_SUFFIXES", 1
+    )[0]
+
+    assert "start_ollama_server_if_available" not in maybe_start_body
+    assert "should_auto_start_ollama" not in maybe_start_body
+    assert "is_ollama_server_available" not in maybe_start_body
+    assert "is_local_ollama_listener_present" in maybe_start_body
+    assert "read-only status probe" in maybe_start_body
+    assert "desktop power button" in maybe_start_body
+
+
+def test_ollama_keep_alive_request_body_is_supported():
+    request_builder = (
+        PROJECT_ROOT / "fzastro_ai" / "llm" / "request_builder.py"
+    ).read_text(encoding="utf-8-sig")
+    chat_worker = (
+        PROJECT_ROOT / "fzastro_ai" / "workers" / "chat_worker.py"
+    ).read_text(encoding="utf-8-sig")
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+
+    assert '"keep_alive"' in request_builder
+    assert "normalize_ollama_keep_alive_value" in request_builder
+    assert "self.keep_alive" in chat_worker
+    assert "apply_ollama_model_keep_alive" in chat_worker
+    assert "preload_ollama_model" in (
+        PROJECT_ROOT / "fzastro_ai" / "runtime.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "OllamaPreloadWorker" in (
+        PROJECT_ROOT / "fzastro_ai" / "workers" / "__init__.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "ollama_keep_alive_box" in app_text
+    assert "current_ollama_keep_alive_value" in app_text
+    assert "ollama_keep_alive_preloads_model" in app_text
+
+
+def test_profile_menu_closed_state_uses_compact_icon_display():
+    profile_text = (PROJECT_ROOT / "fzastro_ai" / "calibration_profiles.py").read_text(
+        encoding="utf-8-sig"
+    )
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+
+    assert "{profile.get('icon')" in profile_text
+    assert "{profile['name']} v" not in profile_text
+    assert 'QPushButton("P ▾")' in app_text
+    assert "QProgressDialog" in app_text
+
+
+def test_shutdown_progress_and_llama_runner_cleanup_are_supported():
+    shutdown_text = (
+        PROJECT_ROOT / "fzastro_ai" / "controllers" / "shutdown_controller.py"
+    ).read_text(encoding="utf-8-sig")
+    runtime_text = (PROJECT_ROOT / "fzastro_ai" / "runtime.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "QProgressDialog" in shutdown_text
+    assert "Stopping local Ollama and GPU runner" in shutdown_text
+    assert "llama-server.exe" in runtime_text
+    assert "is_local_ollama_process_present" in runtime_text
+    assert "require_process_stop=force_process_stop" in runtime_text

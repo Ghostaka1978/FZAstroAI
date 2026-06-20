@@ -145,7 +145,7 @@ class WorkspaceTabsMixin:
             menu,
             "DEV",
             "open_dev_workbench",
-            "AI Developer Workbench",
+            "Developer Agent Mode",
         )
         self._add_workspace_app_action(
             menu,

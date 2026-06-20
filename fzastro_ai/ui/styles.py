@@ -1522,6 +1522,48 @@ def get_main_stylesheet():
                 color: #ffffff;
             }
 
+            QPushButton#quickRestartOllamaButton[ollamaState="on"],
+            QPushButton#ollamaPowerButton[ollamaState="on"] {
+                background: #12351f;
+                border-color: #22c55e;
+                color: #bbf7d0;
+            }
+
+            QPushButton#quickRestartOllamaButton[ollamaState="on"]:hover,
+            QPushButton#ollamaPowerButton[ollamaState="on"]:hover {
+                background: #16452a;
+                border-color: #4ade80;
+                color: #ecfdf5;
+            }
+
+            QPushButton#quickRestartOllamaButton[ollamaState="off"],
+            QPushButton#ollamaPowerButton[ollamaState="off"] {
+                background: #3a1518;
+                border-color: #ef4444;
+                color: #fecaca;
+            }
+
+            QPushButton#quickRestartOllamaButton[ollamaState="off"]:hover,
+            QPushButton#ollamaPowerButton[ollamaState="off"]:hover {
+                background: #4a1b20;
+                border-color: #f87171;
+                color: #fff1f2;
+            }
+
+            QPushButton#quickRestartOllamaButton[ollamaState="checking"],
+            QPushButton#ollamaPowerButton[ollamaState="checking"] {
+                background: #332713;
+                border-color: #f59e0b;
+                color: #fde68a;
+            }
+
+            QPushButton#quickRestartOllamaButton[ollamaState="unavailable"],
+            QPushButton#ollamaPowerButton[ollamaState="unavailable"] {
+                background: #171923;
+                border-color: #475569;
+                color: #94a3b8;
+            }
+
             QComboBox#quickModelBox,
             QComboBox#quickWebBox {
                 background: #0c1219;
@@ -2151,6 +2193,86 @@ def get_main_stylesheet():
                 background: #0d1117;
                 border-color: #58a6ff;
             }
+
+
+            QPushButton#cockpitWebButton[webState="on"],
+            QPushButton[webState="on"] {
+                background: #12351f;
+                border-color: #22c55e;
+                color: #bbf7d0;
+            }
+
+            QPushButton#cockpitWebButton[webState="on"]:hover,
+            QPushButton[webState="on"]:hover {
+                background: #16452a;
+                border-color: #4ade80;
+                color: #ecfdf5;
+            }
+
+            QPushButton#cockpitWebButton[webState="on"]:disabled,
+            QPushButton[webState="on"]:disabled {
+                background: #12351f;
+                border-color: #22c55e;
+                color: #bbf7d0;
+            }
+
+            QPushButton#cockpitWebButton[webState="off"],
+            QPushButton[webState="off"] {
+                background: #3a1518;
+                border-color: #ef4444;
+                color: #fecaca;
+            }
+
+            QPushButton#cockpitWebButton[webState="off"]:hover,
+            QPushButton[webState="off"]:hover {
+                background: #4a1b20;
+                border-color: #f87171;
+                color: #fff1f2;
+            }
+
+            QPushButton#cockpitWebButton[webState="checking"],
+            QPushButton#cockpitWebButton[webState="external"],
+            QPushButton[webState="checking"],
+            QPushButton[webState="external"] {
+                background: #332713;
+                border-color: #f59e0b;
+                color: #fde68a;
+            }
+
+            QPushButton#cockpitWebButton[webState="checking"]:hover,
+            QPushButton#cockpitWebButton[webState="external"]:hover,
+            QPushButton[webState="checking"]:hover,
+            QPushButton[webState="external"]:hover {
+                background: #433414;
+                border-color: #fbbf24;
+                color: #fffbeb;
+            }
+
+            QLabel#webArticleBody[webState="on"] {
+                background: #0b2515;
+                color: #bbf7d0;
+                border: 1px solid #22c55e;
+                border-radius: 8px;
+                padding: 8px 10px;
+            }
+
+            QLabel#webArticleBody[webState="off"] {
+                background: #2a1114;
+                color: #fecaca;
+                border: 1px solid #ef4444;
+                border-radius: 8px;
+                padding: 8px 10px;
+            }
+
+            QLabel#webArticleBody[webState="checking"],
+            QLabel#webArticleBody[webState="external"] {
+                background: #261d0d;
+                color: #fde68a;
+                border: 1px solid #f59e0b;
+                border-radius: 8px;
+                padding: 8px 10px;
+            }
+
             /* End Codex dark overlay (FZAstro) */
 
 

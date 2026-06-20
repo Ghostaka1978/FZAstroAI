@@ -11,8 +11,12 @@ from .astropy_runtime import configure_astropy_runtime
 
 configure_astropy_runtime()
 
-from astropy import units as u
-from astropy.coordinates import EarthLocation
+try:
+    from astropy import units as u
+    from astropy.coordinates import EarthLocation
+except Exception:  # pragma: no cover - exercised only in thin/non-astro envs
+    u = None
+    EarthLocation = None
 
 from .target_catalog import catalog_stats, default_catalog_db_path, load_catalog_rows
 
@@ -80,6 +84,137 @@ def _target_plan_cache_key(
         None if max_mag is None else round(_safe_float(max_mag, 0.0), 3),
         _catalog_cache_token(),
     )
+
+
+def _missing_astropy_result() -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": "TARGETS requires Astropy. Install the astronomy dependencies and run the planner again.",
+        "picks": [],
+        "catalog": _safe_catalog_stats(),
+    }
+
+
+def _safe_catalog_stats() -> dict[str, Any]:
+    try:
+        return catalog_stats()
+    except Exception as exc:
+        return {"available": False, "error": str(exc)}
+
+
+def _longest_sun_altitude_window(
+    legacy_target: Any,
+    anchor_local_noon: datetime,
+    tz: ZoneInfo,
+    loc: Any,
+    *,
+    max_sun_altitude: float,
+    step_min: int = 2,
+) -> tuple[datetime, datetime] | None:
+    """Return the longest block whose Sun altitude is below *max_sun_altitude*.
+
+    TARGETS used to require true astronomical darkness (Sun < -18 degrees).
+    That hides every target during high-summer/no-dark seasons.  The fallback
+    windows below keep the target ranking useful while clearly marking the
+    result as a reduced-quality twilight/night plan.
+    """
+    start_local = anchor_local_noon
+    end_local = start_local + timedelta(days=1)
+    np = legacy_target.np
+    secs = np.arange(
+        int(start_local.astimezone(timezone.utc).timestamp()),
+        int(end_local.astimezone(timezone.utc).timestamp()),
+        max(1, int(step_min)) * 60,
+        dtype=np.int64,
+    )
+    if secs.size == 0:
+        return None
+
+    times = legacy_target.Time(secs, format="unix", scale="utc")
+    alt = legacy_target.sun_altitudes(times, loc)
+    mask = alt < float(max_sun_altitude)
+    if not np.any(mask):
+        return None
+
+    idx = np.flatnonzero(mask)
+    gaps = np.flatnonzero(np.diff(idx) > 1)
+    starts = np.r_[0, gaps + 1]
+    ends = np.r_[gaps, len(idx) - 1]
+    lengths = ends - starts + 1
+    block = int(np.nanargmax(lengths))
+    i0 = idx[starts[block]]
+    i1 = idx[ends[block]]
+    return (
+        datetime.fromtimestamp(int(secs[i0]), tz=tz),
+        datetime.fromtimestamp(int(secs[i1]), tz=tz),
+    )
+
+
+def _select_targets_planning_window(
+    legacy_target: Any,
+    anchor: datetime,
+    tz: ZoneInfo,
+    loc: Any,
+) -> dict[str, Any] | None:
+    """Pick astronomical darkness first, then progressively darker fallbacks."""
+    anchors = (anchor, anchor + timedelta(days=1))
+    for candidate_anchor in anchors:
+        window = legacy_target.night_window(candidate_anchor, tz, loc, step_min=2)
+        if window is not None:
+            return {
+                "start": window[0],
+                "end": window[1],
+                "type": "astronomical_darkness",
+                "label": "Astronomical darkness",
+                "has_astro_dark": True,
+                "note": "True astronomical darkness is available.",
+                "score_cap": None,
+            }
+
+    fallback_specs = (
+        (
+            -12.0,
+            "nautical_twilight",
+            "Nautical twilight fallback",
+            "No astronomical darkness is available; using the darkest nautical-twilight window.",
+            70,
+        ),
+        (
+            -6.0,
+            "civil_twilight",
+            "Civil twilight fallback",
+            "No astronomical or nautical darkness is available; using the darkest civil-twilight window.",
+            50,
+        ),
+        (
+            0.0,
+            "sun_below_horizon",
+            "Below-horizon fallback",
+            "No true twilight darkness is available; using the longest Sun-below-horizon window.",
+            35,
+        ),
+    )
+    for threshold, window_type, label, note, score_cap in fallback_specs:
+        for candidate_anchor in anchors:
+            window = _longest_sun_altitude_window(
+                legacy_target,
+                candidate_anchor,
+                tz,
+                loc,
+                max_sun_altitude=threshold,
+                step_min=2,
+            )
+            if window is not None:
+                return {
+                    "start": window[0],
+                    "end": window[1],
+                    "type": window_type,
+                    "label": label,
+                    "has_astro_dark": False,
+                    "note": note,
+                    "score_cap": score_cap,
+                }
+    return None
 
 
 @lru_cache(maxsize=32)
@@ -168,6 +303,9 @@ def _plan_targets_uncached(
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Plan the best astrophotography targets for one astronomical night."""
+    if u is None or EarthLocation is None:
+        return _missing_astropy_result()
+
     from .fzastro import target as legacy_target
 
     lat = _safe_float(location.get("lat"), 50.2459)
@@ -196,7 +334,7 @@ def _plan_targets_uncached(
             "cancelled": True,
             "error": "TARGETS calculation stopped.",
             "picks": [],
-            "catalog": catalog_stats(),
+            "catalog": _safe_catalog_stats(),
         }
 
     if stopped():
@@ -211,20 +349,17 @@ def _plan_targets_uncached(
     else:
         anchor = legacy_target.local_noon(datetime.now(tz))
 
-    window = legacy_target.night_window(anchor, tz, loc, step_min=2)
-    if window is None:
-        window = legacy_target.night_window(
-            anchor + timedelta(days=1), tz, loc, step_min=2
-        )
-    if window is None:
+    planning_window = _select_targets_planning_window(legacy_target, anchor, tz, loc)
+    if planning_window is None:
         return {
             "ok": False,
-            "error": "No astronomical darkness for this date/location.",
+            "error": "No usable night/twilight window for this date/location.",
             "picks": [],
-            "catalog": catalog_stats(),
+            "catalog": _safe_catalog_stats(),
         }
 
-    dark_start, dark_end = window
+    dark_start = planning_window["start"]
+    dark_end = planning_window["end"]
     legacy_target.REF_HOUR_LOCAL = legacy_target._ref_hour_local(dark_start, dark_end)
 
     rows = load_catalog_rows(
@@ -278,6 +413,12 @@ def _plan_targets_uncached(
         ):
             rejected += 1
             continue
+        score_cap = planning_window.get("score_cap")
+        if score_cap is not None and pick.grade is not None:
+            try:
+                pick.grade = min(int(pick.grade), int(score_cap))
+            except Exception:
+                pass
         picks.append(pick)
 
     picks.sort(key=lambda item: item.grade, reverse=True)
@@ -296,6 +437,12 @@ def _plan_targets_uncached(
         "dark_start": dark_start.isoformat(),
         "dark_end": dark_end.isoformat(),
         "duration_minutes": duration_min,
+        "window_type": planning_window.get("type"),
+        "window_label": planning_window.get("label"),
+        "window_note": planning_window.get("note"),
+        "has_astro_dark": bool(planning_window.get("has_astro_dark")),
+        "fallback_no_astro_dark": not bool(planning_window.get("has_astro_dark")),
+        "score_cap": planning_window.get("score_cap"),
         "moon": {
             "illumination_pct": int(round(float(illum) * 100.0)),
             "phase": phase_name,
@@ -312,7 +459,7 @@ def _plan_targets_uncached(
             "min_size_arcmin": float(min_size_arcmin or 0.0),
             "max_mag": max_mag,
         },
-        "catalog": catalog_stats(),
+        "catalog": _safe_catalog_stats(),
         "evaluated": len(rows),
         "rejected": rejected,
         "prefiltered_by_alt": prefiltered_by_alt,

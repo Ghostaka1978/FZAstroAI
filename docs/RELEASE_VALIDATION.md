@@ -189,16 +189,30 @@ Confirm **SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP** work 
 - Confirm the web UI shows the control-panel, hidden advanced runtime area, Daily News Brief, and Astro Tools toolbar.
 - Confirm `with_image: true`, `/api/news/daily`, `/api/assets/file`, and image asset serving work.
 
-### AI Developer Workbench
+### Developer Agent Mode
 
 - Click **DEV** in the quick actions bar.
-- Scan the project root.
+- Scan the project root. Close and reopen DEV, then confirm the last valid project root is restored without browsing again.
 - Enter a coding request and build context + plan.
+- Confirm the main **Agent Workspace** shows the plan, and that **Evidence** opens as a resizable right-side drawer with its own scroll area instead of expanding downward into the timeline.
+- Confirm **Advanced Diagnostics** opens as the same resizable right-side drawer, replaces the Evidence drawer when selected, contains Tool Log, Context, Patch Diff, Validation, and Report panes, and can be widened/narrowed by dragging the splitter handle. Runtime/model endpoint text and the visible Steering Prompt should not appear inside the drawer.
 - Confirm selected files and plan are relevant.
+- Use **Ask / Reply** on a broad read-only task such as `Deep analyse my app for risks` and confirm the Agent Workspace first shows read-only audit coverage across multiple app areas before producing a final report.
+- Confirm Review Only can execute safe inspection tools, but cannot apply patches, run build scripts, or execute unsafe commands.
+- Confirm the Agent Workspace streams progressively, renders Markdown headings/lists/tables, and the main UI remains responsive.
+- While the agent is active, confirm the status/telemetry strip and progress bar update and **Stop Agent** requests cancellation without closing the app.
+- Enter steering guidance such as `focus on shutdown risks` and confirm it is queued/applied to the next agent step or next Ask/Reply.
+- When the model asks a follow-up question, type the answer in the task box, click **Ask / Reply** again, and confirm the conversation continues instead of restarting from scratch.
+- Ask a follow-up that requires a tool, for example `Inspect the full Web Companion launcher token logic and confirm whether the default LAN token is a real risk. Do not patch yet.` Confirm the chat shows the read-only tool result and then a final conclusion, not only `Tool read_file ... ok`.
 - Run compile check.
 - Run pytest or a targeted test group.
-- Confirm failures are summarized rather than silently ignored.
-- Confirm patch work remains review-first and backed up.
+- Confirm failures and invalid model tool requests, such as an empty `search_text` query, are summarized/recovered in the Agent Workspace rather than silently looping until timeout.
+
+- Confirm a patch proposal appears as an inline workspace card, while the raw diff is still available under **Advanced Diagnostics -> Patch Diff**.
+- Confirm validation results appear as inline workspace cards, while full command output remains under **Advanced Diagnostics -> Validation**. On a generic Python test folder, Compile should run `compileall -q .` from the selected folder and then pytest from that same folder when tests exist, or report a clean pytest skip when none exist.
+- Confirm malformed patch diffs are rejected during Preview/Apply preflight with an inline recovery card and no Apply confirmation dialog.
+- Confirm Ask/Reply copies submitted text into the Agent Workspace and clears the task/reply composer for the next message.
+- Confirm patch work remains review-first, backed up, and approval-gated. Also confirm a unified diff that creates a new file with `/dev/null` can be previewed and applied, and that an already-applied implementation hunk with a remaining test-file hunk applies the remaining file instead of failing with a vague “no files changed” dialog. Optionally use **Ask / Reply** when the configured model endpoint is already available; confirm the app does not auto-start Ollama.
 
 ## 6. Git release commands
 
@@ -220,3 +234,22 @@ git push origin v2.3.1
 
 
 See also: `docs/SCRIPTS.md` for the consolidated PowerShell script folder layout.
+
+
+Developer Agent update: broad analysis requests such as `analyse all Python files` now build a project-audit index of every scanned `.py` file while keeping deep-read excerpts bounded.
+
+## Developer Agent Tool Loop Smoke Check
+
+- Run `python -m pytest -q tests/test_dev_agent_action_executor_and_loop.py`.
+- Verify broad audit requests can index all Python files.
+- Verify `3 · Ask / Reply` shows tool-progress lines, not raw JSON tool blocks, and that follow-up replies keep conversation history.
+- Verify reasoning fields from streaming providers are not rendered in the agent chat.
+
+
+### Developer Agent UX polish
+
+- Developer Agent remembers the last valid project root and restores it on reopen.
+- The cockpit shows a progress bar plus telemetry/status while scanning, planning, streaming, patching, and validating.
+- Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
+- Web Companion/LAN token/security tasks are routed to launcher/server/app/test files instead of unrelated UI files.
+- Invalid empty tool requests stop with actionable guidance instead of looping until timeout.

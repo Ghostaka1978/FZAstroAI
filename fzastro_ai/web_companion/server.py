@@ -40,16 +40,16 @@ from ..assistant_text import normalize_assistant_link_markup
 from ..logging_utils import log_exception, log_warning
 from ..routing.tool_router import detect_deterministic_tool_plan
 from ..runtime import (
+    apply_ollama_model_keep_alive,
     format_runtime_model_unavailable_message,
     is_local_ollama_base_url,
-    is_ollama_server_available,
+    is_local_ollama_listener_present,
     is_runtime_connection_error,
     is_runtime_model_not_found_error,
     make_runtime_client,
+    default_ollama_keep_alive_value,
     normalize_runtime_api_key,
     normalize_runtime_base_url,
-    should_auto_start_ollama,
-    start_ollama_server_if_available,
 )
 
 _EMBEDDED_WEB_COMPANION_INDEX_HTML_B64 = (
@@ -729,6 +729,7 @@ class ChatRequest(BaseModel):
     think_enabled: bool = True
     num_predict: int = Field(default=4096, ge=64, le=32768)
     stream_reasoning: bool = False
+    keep_alive: str | None = None
 
 
 class AstroLookupRequest(BaseModel):
@@ -818,7 +819,32 @@ def _chat_request_params(payload: ChatRequest, *, stream: bool) -> dict[str, Any
         top_p=float(payload.top_p),
         think_enabled=bool(payload.think_enabled),
         num_predict=int(payload.num_predict),
+        keep_alive=(
+            payload.keep_alive
+            if payload.keep_alive is not None
+            else default_ollama_keep_alive_value()
+        ),
     )
+
+
+def _apply_chat_keep_alive(payload: ChatRequest):
+    keep_alive = (
+        payload.keep_alive
+        if payload.keep_alive is not None
+        else default_ollama_keep_alive_value()
+    )
+    result = apply_ollama_model_keep_alive(
+        normalize_runtime_base_url(payload.base_url),
+        payload.model,
+        keep_alive,
+        timeout=4.0,
+    )
+    if result.status not in {"applied", "provider_default", "not_ollama"}:
+        log_warning(
+            "Web companion Ollama keep-alive apply skipped",
+            f"{result.status}: {result.message}",
+        )
+    return result
 
 
 def _last_user_text(payload: ChatRequest) -> str:
@@ -1625,26 +1651,26 @@ def _format_web_targets_result(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _maybe_start_local_ollama(base_url: str) -> dict[str, Any]:
+    # Historical name retained for compatibility inside this module. The
+    # function is now a read-only status probe: Web refresh/chat endpoints must
+    # not launch Ollama behind the user's back. Use the desktop power button to
+    # start or stop the local server.
     if not is_local_ollama_base_url(base_url):
         return {"attempted": False, "available": False, "message": "not local Ollama"}
 
-    if is_ollama_server_available(base_url, timeout=0.8):
-        return {"attempted": False, "available": True, "message": "Ollama is running."}
-
-    if not should_auto_start_ollama():
+    if not is_local_ollama_listener_present(base_url):
         return {
             "attempted": False,
             "available": False,
-            "message": "Ollama is not running and auto-start is disabled.",
+            "status": "offline",
+            "message": "Ollama is offline. Start it with the desktop power button.",
         }
 
-    result = start_ollama_server_if_available(base_url, wait_seconds=8.0)
     return {
-        "attempted": bool(result.attempted_start),
-        "available": bool(result.available),
-        "status": result.status,
-        "message": result.message,
-        "executable": result.executable,
+        "attempted": False,
+        "available": True,
+        "status": "listener_present",
+        "message": "Ollama listener is present.",
     }
 
 
@@ -1787,13 +1813,16 @@ def _create_app_impl():
     @app.get("/api/status", dependencies=[Depends(require_token)])
     async def status_endpoint():
         base_url = normalize_runtime_base_url(BASE_URL)
-        ollama_available = is_ollama_server_available(base_url, timeout=0.8)
+        local_ollama = is_local_ollama_base_url(base_url)
+        ollama_available = (
+            is_local_ollama_listener_present(base_url) if local_ollama else False
+        )
         return {
             "app": APP_NAME,
             "label": APP_VERSION_LABEL,
             "default_model": DEFAULT_MODEL_NAME,
             "base_url": base_url,
-            "local_ollama": is_local_ollama_base_url(base_url),
+            "local_ollama": local_ollama,
             "ollama_available": ollama_available,
             "auth_required": bool(_web_token()),
             "lan_enabled": _public_network_enabled(),
@@ -1802,7 +1831,19 @@ def _create_app_impl():
     @app.get("/api/models", dependencies=[Depends(require_token)])
     async def models_endpoint(base_url: str | None = None, api_key: str | None = None):
         clean_base_url = normalize_runtime_base_url(base_url)
-        _maybe_start_local_ollama(clean_base_url)
+        start_info = _maybe_start_local_ollama(clean_base_url)
+
+        if is_local_ollama_base_url(clean_base_url) and not start_info.get("available"):
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "models": [DEFAULT_MODEL_NAME],
+                    "error": start_info.get(
+                        "message",
+                        "Ollama is offline. Start it with the desktop power button.",
+                    ),
+                },
+            )
 
         try:
             client = make_runtime_client(clean_base_url, api_key, timeout=12.0)
@@ -1842,7 +1883,16 @@ def _create_app_impl():
             return direct_response
 
         clean_base_url = normalize_runtime_base_url(payload.base_url)
-        _maybe_start_local_ollama(clean_base_url)
+        start_info = _maybe_start_local_ollama(clean_base_url)
+
+        if is_local_ollama_base_url(clean_base_url) and not start_info.get("available"):
+            raise HTTPException(
+                status_code=503,
+                detail=start_info.get(
+                    "message",
+                    "Ollama is offline. Start it with the desktop power button.",
+                ),
+            )
 
         try:
             client = _runtime_client_for(payload)
@@ -1851,6 +1901,7 @@ def _create_app_impl():
                 **_chat_request_params(payload, stream=False),
             )
             content = response.choices[0].message.content if response.choices else ""
+            await run_in_threadpool(_apply_chat_keep_alive, payload)
             return {
                 "text": normalize_assistant_link_markup(content or ""),
                 "model": payload.model,
@@ -1892,7 +1943,23 @@ def _create_app_impl():
 
             clean_base_url = normalize_runtime_base_url(payload.base_url)
             start_info = _maybe_start_local_ollama(clean_base_url)
-            yield _sse("status", {"message": start_info.get("message", "Starting")})
+            yield _sse(
+                "status", {"message": start_info.get("message", "Checking provider")}
+            )
+
+            if is_local_ollama_base_url(clean_base_url) and not start_info.get(
+                "available"
+            ):
+                yield _sse(
+                    "error",
+                    {
+                        "message": start_info.get(
+                            "message",
+                            "Ollama is offline. Start it with the desktop power button.",
+                        )
+                    },
+                )
+                return
 
             full_text = ""
             reasoning_text = ""
@@ -1916,6 +1983,7 @@ def _create_app_impl():
                         full_text += content
                         yield _sse("token", {"text": content})
 
+                _apply_chat_keep_alive(payload)
                 yield _sse(
                     "done",
                     {

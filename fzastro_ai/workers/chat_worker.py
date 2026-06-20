@@ -12,6 +12,7 @@ from ..llm import (
 )
 from ..logging_utils import log_debug, log_exception, log_warning
 from ..runtime import (
+    apply_ollama_model_keep_alive,
     format_runtime_model_unavailable_message,
     is_ollama_base_url,
     is_runtime_model_not_found_error,
@@ -37,12 +38,14 @@ class ChatWorker(QThread):
         vision_request=False,
         base_url=None,
         api_key=None,
+        keep_alive=None,
     ):
         super().__init__()
         self.messages = messages
         self.model = model
         self.base_url = normalize_runtime_base_url(base_url)
         self.api_key = normalize_runtime_api_key(api_key)
+        self.keep_alive = keep_alive
         self.think_enabled = bool(think_enabled)
         self.emit_interval = max(0.03, float(emit_interval))
         self.num_predict = max(64, int(num_predict))
@@ -93,6 +96,8 @@ class ChatWorker(QThread):
 
             return response_text
 
+        stream_opened = False
+
         try:
             request_started_at = time.perf_counter()
             log_debug(
@@ -111,6 +116,7 @@ class ChatWorker(QThread):
                 stream=True,
                 think_enabled=self.think_enabled,
                 num_predict=self.num_predict,
+                keep_alive=self.keep_alive,
             )
 
             request_timeout = (
@@ -126,6 +132,7 @@ class ChatWorker(QThread):
                 self.base_url, self.api_key, timeout=request_timeout
             )
             self.stream = chat_client.chat.completions.create(**request_params)
+            stream_opened = True
             log_debug(
                 "ChatWorker.run stream opened",
                 f"model={self.model}, elapsed={time.perf_counter() - request_started_at:.2f}s",
@@ -248,3 +255,25 @@ class ChatWorker(QThread):
                 pass
 
             self.stream = None
+
+            if stream_opened:
+                apply_result = apply_ollama_model_keep_alive(
+                    self.base_url,
+                    self.model,
+                    self.keep_alive,
+                    timeout=4.0,
+                )
+                if apply_result.status not in {
+                    "applied",
+                    "provider_default",
+                    "not_ollama",
+                }:
+                    log_warning(
+                        "ChatWorker.run Ollama keep-alive apply skipped",
+                        f"{apply_result.status}: {apply_result.message}",
+                    )
+                elif apply_result.applied:
+                    log_debug(
+                        "ChatWorker.run Ollama keep-alive applied",
+                        apply_result.message,
+                    )

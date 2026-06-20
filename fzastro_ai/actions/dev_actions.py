@@ -4,7 +4,7 @@ from ..ui.dev_workbench_dialog import open_dev_workbench_dialog
 
 
 class DevActionsMixin:
-    """Main-window action hooks for the AI Developer Workbench."""
+    """Main-window action hooks for the Developer Agent Mode."""
 
     def open_dev_workbench(self):
         open_dev_workbench_dialog(self)

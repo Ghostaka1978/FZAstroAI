@@ -46,6 +46,9 @@ RUNTIME_DECISION_TIMEOUT_SECONDS = env_float(
 RUNTIME_MEMORY_TIMEOUT_SECONDS = env_float(
     "FZASTRO_MEMORY_TIMEOUT_SECONDS", 300.0, minimum=5.0
 )
+RUNTIME_OLLAMA_KEEP_ALIVE_MODE = (
+    os.environ.get("FZASTRO_OLLAMA_KEEP_ALIVE_MODE", "30m").strip().casefold() or "30m"
+)
 _APP_DIR_OVERRIDE = os.environ.get("FZASTRO_APP_DIR")
 APP_DIR = (
     Path(_APP_DIR_OVERRIDE).expanduser()

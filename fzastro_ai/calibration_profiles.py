@@ -129,7 +129,14 @@ def apply_calibration_profile(self, profile_key, announce=True):
         self.calibration_status_label.setText(f"Active calibration: {profile['name']}")
 
     if hasattr(self, "mode_menu_button"):
-        self.mode_menu_button.setText(f"{profile['name']} v")
+        self.mode_menu_button.setText(f"{profile.get('icon') or profile['name'][:1]} ▾")
+        self.mode_menu_button.setToolTip(
+            f"Active calibration: {profile['name']}\n"
+            "Click to open the full assistant mode/profile menu."
+        )
+        self.mode_menu_button.setAccessibleName(
+            f"Open assistant mode menu. Active calibration: {profile['name']}"
+        )
         self.mode_menu_button.setMenu(self.build_top_mode_menu())
 
     self.refresh_system_prompt_summary()
@@ -159,7 +166,14 @@ def mark_custom_calibration(self):
         self.calibration_status_label.setText("Active calibration: Custom")
 
     if hasattr(self, "mode_menu_button"):
-        self.mode_menu_button.setText("Custom v")
+        self.mode_menu_button.setText("* ▾")
+        self.mode_menu_button.setToolTip(
+            "Active calibration: Custom\n"
+            "Click to open the full assistant mode/profile menu."
+        )
+        self.mode_menu_button.setAccessibleName(
+            "Open assistant mode menu. Active calibration: Custom"
+        )
         self.mode_menu_button.setMenu(self.build_top_mode_menu())
 
     self.refresh_system_prompt_summary()

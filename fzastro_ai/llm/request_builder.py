@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..runtime import is_ollama_base_url, normalize_runtime_base_url
+from ..runtime import (
+    is_ollama_base_url,
+    normalize_ollama_keep_alive_value,
+    normalize_runtime_base_url,
+)
 from .profiles import GenerationProfile, get_generation_profile
 
 
@@ -42,6 +46,7 @@ def build_chat_request_params(
     repeat_penalty=None,
     repeat_last_n=None,
     max_tokens=None,
+    keep_alive=None,
     extra_params: dict[str, Any] | None = None,
 ):
     """Build provider-appropriate chat completion parameters.
@@ -93,6 +98,9 @@ def build_chat_request_params(
         extra_body: dict[str, Any] = {}
         _set_if_not_none(extra_body, "think", resolved_profile.think)
         _set_if_not_none(extra_body, "top_k", resolved_profile.top_k)
+        _set_if_not_none(
+            extra_body, "keep_alive", normalize_ollama_keep_alive_value(keep_alive)
+        )
 
         if options:
             extra_body["options"] = options

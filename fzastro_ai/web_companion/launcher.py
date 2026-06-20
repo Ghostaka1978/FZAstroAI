@@ -169,8 +169,37 @@ def find_web_companion_listener_pids(port: int = DEFAULT_WEB_PORT) -> set[int]:
     return {pid for pid in pids if pid > 0 and pid != current_pid}
 
 
+def _pid_exists(pid: int) -> bool:
+    if pid <= 0:
+        return False
+
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+
+
+def _wait_for_pid_exit(pid: int, timeout: float = 2.0) -> bool:
+    deadline = time.monotonic() + max(0.1, float(timeout or 2.0))
+    while time.monotonic() < deadline:
+        if not _pid_exists(pid):
+            return True
+        time.sleep(0.1)
+    return not _pid_exists(pid)
+
+
 def terminate_listener_pids(pids: set[int]) -> tuple[set[int], set[int]]:
-    """Terminate listener PIDs. Returns (terminated, failed)."""
+    """Terminate listener PIDs. Returns (terminated, failed).
+
+    Windows uses taskkill /F because the desktop app must leave the Web
+    Companion port offline after exit. POSIX first tries SIGTERM, then escalates
+    to SIGKILL if the listener is still alive after a short grace period.
+    """
     terminated: set[int] = set()
     failed: set[int] = set()
     for pid in sorted(pids):
@@ -190,6 +219,11 @@ def terminate_listener_pids(pids: set[int]) -> tuple[set[int], set[int]]:
                     )
             else:
                 os.kill(pid, signal.SIGTERM)
+                if not _wait_for_pid_exit(pid, timeout=2.0):
+                    os.kill(pid, signal.SIGKILL)
+                    if not _wait_for_pid_exit(pid, timeout=1.0):
+                        failed.add(pid)
+                        continue
                 terminated.add(pid)
         except ProcessLookupError:
             terminated.add(pid)
@@ -304,6 +338,7 @@ class WebCompanionProcess:
         lan: bool = True,
         token: str = "",
         replace_external: bool = False,
+        ollama_keep_alive: str | None = None,
     ) -> WebCompanionStatus:
         """Start the Web Companion.
 
@@ -340,6 +375,9 @@ class WebCompanionProcess:
         self.lan = True
         env = os.environ.copy()
         env["FZASTRO_WEB_PORT"] = str(self.port)
+        clean_keep_alive = str(ollama_keep_alive or "").strip()
+        if clean_keep_alive:
+            env["FZASTRO_OLLAMA_KEEP_ALIVE"] = clean_keep_alive
 
         if getattr(sys, "frozen", False):
             args = [
@@ -461,6 +499,48 @@ class WebCompanionProcess:
             time.sleep(0.2)
         return not is_web_companion_available(self.port)
 
+    def _stop_external_listener(self) -> WebCompanionStatus:
+        pids = find_web_companion_listener_pids(self.port)
+        if not pids:
+            return WebCompanionStatus(
+                running=True,
+                owned=False,
+                url=self.lan_url,
+                message=(
+                    "Web Companion is running externally, but the desktop app "
+                    "could not find the listener PID for this port. Close the "
+                    "manual server or free the port, then start LAN mode again."
+                ),
+                pid=None,
+                lan=True,
+            )
+
+        terminated, failed = terminate_listener_pids(pids)
+        stopped = self._wait_until_stopped()
+        if stopped:
+            pid_list = ", ".join(str(pid) for pid in sorted(terminated or pids))
+            return WebCompanionStatus(
+                running=False,
+                owned=False,
+                url=self.local_url,
+                message=f"Stopped Web Companion process(es): {pid_list}.",
+                pid=next(iter(sorted(terminated or pids)), None),
+                lan=False,
+            )
+
+        failed_list = ", ".join(str(pid) for pid in sorted(failed or pids))
+        return WebCompanionStatus(
+            running=True,
+            owned=False,
+            url=self.lan_url,
+            message=(
+                "Tried to stop the Web Companion process, but the "
+                f"health endpoint is still responding. PID(s): {failed_list}."
+            ),
+            pid=next(iter(sorted(failed or pids)), None),
+            lan=True,
+        )
+
     def stop(self, *, force_external: bool = True) -> WebCompanionStatus:
         if not self.is_owned_running():
             if is_web_companion_available(self.port):
@@ -474,49 +554,7 @@ class WebCompanionProcess:
                         lan=True,
                     )
 
-                pids = find_web_companion_listener_pids(self.port)
-                if not pids:
-                    return WebCompanionStatus(
-                        running=True,
-                        owned=False,
-                        url=self.lan_url,
-                        message=(
-                            "Web Companion is running externally, but the desktop app "
-                            "could not find the listener PID for this port. Close the "
-                            "manual server or free the port, then start LAN mode again."
-                        ),
-                        pid=None,
-                        lan=True,
-                    )
-
-                terminated, failed = terminate_listener_pids(pids)
-                stopped = self._wait_until_stopped()
-                if stopped:
-                    pid_list = ", ".join(str(pid) for pid in sorted(terminated or pids))
-                    return WebCompanionStatus(
-                        running=False,
-                        owned=False,
-                        url=self.local_url,
-                        message=(
-                            "Stopped external Web Companion process(es): "
-                            f"{pid_list}."
-                        ),
-                        pid=next(iter(sorted(terminated or pids)), None),
-                        lan=False,
-                    )
-
-                failed_list = ", ".join(str(pid) for pid in sorted(failed or pids))
-                return WebCompanionStatus(
-                    running=True,
-                    owned=False,
-                    url=self.lan_url,
-                    message=(
-                        "Tried to stop the external Web Companion process, but the "
-                        f"health endpoint is still responding. PID(s): {failed_list}."
-                    ),
-                    pid=next(iter(sorted(failed or pids)), None),
-                    lan=True,
-                )
+                return self._stop_external_listener()
             return self.status()
 
         assert self.process is not None
@@ -529,14 +567,35 @@ class WebCompanionProcess:
             self.process.wait(timeout=3.0)
 
         self.process = None
-        self._wait_until_stopped(timeout=2.0)
+
+        if self._wait_until_stopped(timeout=2.0):
+            return WebCompanionStatus(
+                running=False,
+                owned=False,
+                url=self.local_url,
+                message=f"Stopped Web Companion process {pid}.",
+                pid=pid,
+                lan=False,
+            )
+
+        if force_external:
+            status = self._stop_external_listener()
+            if not status.running:
+                status.message = (
+                    f"Stopped Web Companion process {pid}; " + status.message
+                )
+            return status
+
         return WebCompanionStatus(
-            running=False,
+            running=True,
             owned=False,
-            url=self.local_url,
-            message=f"Stopped Web Companion process {pid}.",
+            url=self.lan_url,
+            message=(
+                f"Stopped desktop-owned Web Companion process {pid}, but "
+                "the health endpoint is still responding on the same port."
+            ),
             pid=pid,
-            lan=False,
+            lan=True,
         )
 
     def to_dict(self) -> dict[str, Any]:

@@ -44,7 +44,7 @@ def open_about_window(parent):
         subtitle = QLabel(
             "Imaging Production local AI workstation for chat, documents, web "
             "research, Python execution, memory, LLM benchmarking, the Astro Tools "
-            "Suite, FZAstro Imaging/N.I.N.A. planning, Web Companion, and AI Developer Workbench."
+            "Suite, FZAstro Imaging/N.I.N.A. planning, Web Companion, and Developer Agent Mode."
         )
         subtitle.setObjectName("helpDialogSubtitle")
         subtitle.setWordWrap(True)
@@ -80,7 +80,7 @@ Imaging Production scope:
 - SEEING Astro Night Planner with cloud-aware scoring, astronomical-dark prioritization, Moon periods, and Bortle-aware top-bar tint
 - LOOKUP distance-ladder details for parallax, Gaia proxy, NED-D, and Hubble estimates where available
 - Optional distance-ladder calculation visibility via FZASTRO_USE_DISTANCE_LADDER=1
-- AI Developer Workbench for project scanning, coding context, visible plans, compile checks, pytest checks, and safe patch workflows
+- Developer Agent Mode for project scanning, focused coding context, safety modes, patch preview/apply, compile/pytest presets, and final engineering reports
 - LLM Benchmark Dashboard with telemetry, Run All Presets, Delete Selected, history, compare, and persona/calibration controls
 - Source tags that identify whether answers come from local knowledge, web, files, Python, memory, app actions, or model reasoning
 - Persistent memory with review/search tools

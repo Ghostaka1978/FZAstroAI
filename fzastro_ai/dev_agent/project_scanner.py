@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -26,11 +27,15 @@ DEFAULT_IGNORE_DIRS = {
     ".mypy_cache",
     ".pytest_cache",
     ".ruff_cache",
+    ".fzastro_ai_patches",
     ".tox",
     ".venv",
     "AppData",
+    "bundled_apps",
+    "backups",
     "build",
     "dist",
+    "external",
     "htmlcov",
     "logs",
     "node_modules",
@@ -49,8 +54,17 @@ GENERATED_SUFFIXES = (
     ".pyc",
     ".pyo",
     ".bak",
+    ".cache",
+    ".db",
+    ".dll",
+    ".exe",
+    ".log",
     ".orig",
     ".rej",
+    ".sqlite",
+    ".sqlite3",
+    ".tmp",
+    ".zip",
 )
 
 BACKUP_MARKERS = (
@@ -72,6 +86,7 @@ class ProjectFile:
     role: str
     symbols: tuple[str, ...] = field(default_factory=tuple)
     imports: tuple[str, ...] = field(default_factory=tuple)
+    modified: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,7 +129,12 @@ def _should_ignore_path(path: Path, root: Path) -> bool:
         relative = path
 
     parts = set(relative.parts)
-    if parts.intersection(DEFAULT_IGNORE_DIRS):
+    lower_parts = {str(part).lower() for part in relative.parts}
+    if parts.intersection(DEFAULT_IGNORE_DIRS) or lower_parts.intersection(
+        DEFAULT_IGNORE_DIRS
+    ):
+        return True
+    if any(part.startswith(".fzastro_ai_patches") for part in lower_parts):
         return True
 
     name = path.name
@@ -193,6 +213,34 @@ def _extract_python_symbols(
     )
 
 
+def _git_modified_paths(root: Path) -> set[str]:
+    """Return project-relative files with local git changes, if git is available."""
+
+    try:
+        completed = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except Exception:
+        return set()
+    if completed.returncode != 0:
+        return set()
+
+    modified: set[str] = set()
+    for line in completed.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        raw = line[3:].strip()
+        if " -> " in raw:
+            raw = raw.split(" -> ", 1)[1].strip()
+        if raw:
+            modified.add(raw.replace("\\", "/"))
+    return modified
+
+
 def iter_project_files(
     root: Path | str,
     *,
@@ -203,6 +251,7 @@ def iter_project_files(
 
     root_path = Path(root).resolve()
     allowed = set(extensions or DEFAULT_SOURCE_EXTENSIONS)
+    modified_paths = _git_modified_paths(root_path)
 
     for current_root, dir_names, file_names in os.walk(root_path):
         current = Path(current_root)
@@ -242,6 +291,7 @@ def iter_project_files(
                 role=_classify_file(relative),
                 symbols=symbols,
                 imports=imports,
+                modified=relative in modified_paths,
             )
 
 
@@ -258,6 +308,7 @@ def scan_project(
     ignored_count = 0
     oversized_count = 0
     allowed = set(extensions or DEFAULT_SOURCE_EXTENSIONS)
+    modified_paths = _git_modified_paths(root_path)
 
     for current_root, dir_names, file_names in os.walk(root_path):
         current = Path(current_root)
@@ -300,6 +351,7 @@ def scan_project(
                     role=_classify_file(relative),
                     symbols=symbols,
                     imports=imports,
+                    modified=relative in modified_paths,
                 )
             )
 

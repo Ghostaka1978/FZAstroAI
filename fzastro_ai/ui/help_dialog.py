@@ -156,7 +156,7 @@ Use the desktop Web Companion controls or run:
 
 Open the LAN URL from an iPad/phone/other device on the same network. LAN mode uses `FZASTRO_WEB_TOKEN`; do not expose it directly to the public internet.
 
-## 11. AI Developer Workbench
+## 11. Developer Agent Mode
 
 Click **DEV** in the quick actions bar.
 
@@ -165,13 +165,14 @@ Use it to:
 - Scan the project
 - Select relevant files
 - Build a context package
-- Generate a visible implementation plan
-- Run compile checks
-- Run pytest checks
+- Generate a visible implementation plan with safety boundaries
+- Preview unified diffs before any edit
+- Apply approved patches with rollback snapshots
+- Run compile checks and pytest presets
 - Analyze failures
-- Prepare safe patch workflows
+- Build a final engineering report
 
-Stage 1 is review-first: it helps prepare and validate coding work, not silently rewrite the project.
+The MVP remains approval-first: it does not silently rewrite the project, claim file inspection without reads, or claim tests passed without validation output.
 
 ## 12. Useful commands
 
@@ -211,7 +212,7 @@ def open_help_cheat_sheet_dialog(parent):
         "Imaging Production guide for chat, models, web, news, market quotes, documents, "
         "PDF page images/text, memory, history, attachments, Python execution, "
         "LLM benchmarking, tests, Web Companion, tabbed Astro tools, "
-        "FZAstro Imaging/N.I.N.A. planning, AI Developer Workbench, root deploy, Git release tags, "
+        "FZAstro Imaging/N.I.N.A. planning, Developer Agent Mode, root deploy, Git release tags, "
         "and distance-ladder lookup details."
     )
     subtitle.setObjectName("helpDialogSubtitle")
