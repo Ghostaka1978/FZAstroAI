@@ -16,6 +16,7 @@ import subprocess
 from typing import Mapping, Sequence
 
 from ..config import API_KEY, APP_DIR, BASE_URL, DEFAULT_MODEL_NAME
+from .openclaude_settings import OPENCLAUDE_SETTINGS_FILE
 
 OPENCLAUDE_NPM_PACKAGE = "@gitlawb/openclaude@latest"
 OPENCLAUDE_STATE_DIR = APP_DIR / "openclaude"
@@ -49,6 +50,7 @@ class OpenClaudeLaunchConfig:
     model: str = DEFAULT_MODEL_NAME
     base_url: str = BASE_URL
     api_key: str = API_KEY
+    git_api_token: str = ""
     install_if_missing: bool = False
 
 
@@ -63,6 +65,23 @@ class OpenClaudeLaunchResult:
     status: OpenClaudeToolStatus
     safe_prompt: str
     prompt_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class OpenClaudeWorkspaceAudit:
+    """Workspace boundary details used before launching OpenClaude."""
+
+    root: Path
+    git_root: Path | None = None
+    nested_git_roots: tuple[Path, ...] = ()
+
+    @property
+    def has_git_repo(self) -> bool:
+        return self.git_root is not None
+
+    @property
+    def boundary(self) -> Path:
+        return self.root
 
 
 class OpenClaudeBridgeError(RuntimeError):
@@ -186,21 +205,140 @@ def looks_like_fzastro_source_root(path: Path | str) -> bool:
     )
 
 
-def validate_openclaude_project_root(path: Path | str) -> Path:
-    """Validate that OpenClaude has a real workspace folder.
+def _has_git_marker(path: Path) -> bool:
+    marker = path / ".git"
+    return marker.exists()
 
-    OpenClaude is now the visible workspace agent.  FZAstro no longer blocks
-    non-FZAstro folders here: the selected folder is the user's active coding
-    workspace, and OpenClaude can create/edit files, run Python or shell
-    commands, inspect git, and report results inside that workspace.  FZAstro
-    still detects FZAstro source markers separately so prompts can be more
-    specific when the workspace is the app source tree.
+
+def _find_nearest_git_marker(path: Path) -> Path | None:
+    current = path
+    for candidate in (current, *current.parents):
+        if _has_git_marker(candidate):
+            return candidate.resolve()
+    return None
+
+
+def _path_depth(root: Path, path: Path) -> int:
+    try:
+        return len(path.resolve().relative_to(root.resolve()).parts)
+    except ValueError:
+        return 0
+
+
+def _find_nested_git_roots(root: Path, *, max_results: int = 8) -> tuple[Path, ...]:
+    """Return nested Git workspaces below root without following broad trees forever."""
+
+    nested: list[Path] = []
+    ignore_names = {
+        ".git",
+        ".hg",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tox",
+        ".venv",
+        "AppData",
+        "backups",
+        "build",
+        "bundled_apps",
+        "dist",
+        "external",
+        "htmlcov",
+        "logs",
+        "node_modules",
+        "__pycache__",
+    }
+    try:
+        walker = os.walk(root)
+        next(walker)  # skip root; root/.git is the selected workspace marker
+    except StopIteration:
+        return ()
+
+    for current_root, dir_names, _file_names in walker:
+        current = Path(current_root)
+        dir_names[:] = [name for name in dir_names if name not in ignore_names]
+        if _path_depth(root, current) > 8:
+            dir_names[:] = []
+            continue
+        if _has_git_marker(current):
+            nested.append(current.resolve())
+            dir_names[:] = []
+            if len(nested) >= max_results:
+                break
+    return tuple(nested)
+
+
+def audit_openclaude_project_root(path: Path | str) -> OpenClaudeWorkspaceAudit:
+    """Validate that OpenClaude cannot accidentally bind to a different repo.
+
+    A selected folder is accepted only as its own workspace boundary.  If it is a
+    subfolder of another Git checkout, Git would normally walk upward and expose
+    the parent repository.  If it is a broad folder containing nested Git
+    projects, source scanning could mix unrelated projects.  Both cases are
+    blocked before OpenClaude starts.
     """
 
     root = Path(path).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise OpenClaudeBridgeError(f"Workspace folder does not exist: {root}")
-    return root
+
+    nearest_git = _find_nearest_git_marker(root)
+    if nearest_git is not None and nearest_git != root:
+        raise OpenClaudeBridgeError(
+            "Workspace is inside another Git checkout. "
+            f"Selected: {root}. Parent repo: {nearest_git}. "
+            "Select the repo root or a separate test clone before starting OpenClaude."
+        )
+
+    nested_git_roots = _find_nested_git_roots(root)
+    if nested_git_roots and nearest_git is None:
+        preview = ", ".join(str(item) for item in nested_git_roots[:3])
+        more = (
+            ""
+            if len(nested_git_roots) <= 3
+            else f" and {len(nested_git_roots) - 3} more"
+        )
+        raise OpenClaudeBridgeError(
+            "Workspace contains nested Git projects but is not itself a Git repo. "
+            f"Selected: {root}. Nested repos: {preview}{more}. "
+            "Select exactly one project folder before starting OpenClaude."
+        )
+
+    return OpenClaudeWorkspaceAudit(
+        root=root,
+        git_root=nearest_git,
+        nested_git_roots=nested_git_roots,
+    )
+
+
+def validate_openclaude_project_root(path: Path | str) -> Path:
+    """Validate and normalize the selected OpenClaude workspace folder."""
+
+    return audit_openclaude_project_root(path).root
+
+
+def openclaude_workspace_isolation_lines(path: Path | str) -> tuple[str, ...]:
+    """Return explicit UI diagnostics for the selected workspace boundary.
+
+    This is intentionally separate from Git status.  The Session panel should make
+    it obvious whether OpenClaude is constrained to exactly the selected folder,
+    instead of only showing ordinary repository details.
+    """
+
+    audit = audit_openclaude_project_root(path)
+    lines = [
+        "Workspace isolation: active ✓",
+        f"Workspace boundary: {audit.boundary}",
+        f"Git ceiling: {audit.boundary.parent}",
+    ]
+    if audit.nested_git_roots:
+        lines.append(
+            "Nested Git workspaces: ignored by scanner / not scanned "
+            f"({len(audit.nested_git_roots)} detected)"
+        )
+    else:
+        lines.append("Nested Git workspaces: none detected")
+    return tuple(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -219,13 +357,36 @@ def build_openclaude_environment(config: OpenClaudeLaunchConfig) -> dict[str, st
     model = str(config.model or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME
     base_url = str(config.base_url or BASE_URL).strip() or BASE_URL
     api_key = str(config.api_key or API_KEY).strip() or API_KEY
-    return {
+    git_api_token = str(config.git_api_token or "").strip()
+    root = validate_openclaude_project_root(config.project_root)
+    env = {
         "CLAUDE_CODE_USE_OPENAI": "1",
         "OPENAI_BASE_URL": base_url,
         "OPENAI_MODEL": model,
         "OPENAI_API_KEY": api_key,
-        "FZASTRO_PROJECT_ROOT": str(Path(config.project_root).expanduser().resolve()),
+        "FZASTRO_OPENCLAUDE_SETTINGS_FILE": str(OPENCLAUDE_SETTINGS_FILE),
+        "FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE": str(OPENCLAUDE_SETTINGS_FILE),
+        "FZASTRO_PROJECT_ROOT": str(root),
+        "OPENCLAUDE_WORKSPACE_ROOT": str(root),
+        "FZASTRO_WORKSPACE_BOUNDARY": str(root),
+        # Prevent Git from walking above the selected workspace and binding to a
+        # parent checkout when OpenClaude runs git commands from this terminal.
+        "GIT_CEILING_DIRECTORIES": str(root.parent),
+        # Keep OpenClaude's Git process isolated from machine-wide credential
+        # helpers.  Repository API access is supplied with GH_TOKEN/GITHUB_TOKEN
+        # from AppData; raw git operations should fail explicitly instead of
+        # silently using credentials from a different local checkout or global
+        # Git configuration.
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "credential.helper",
+        "GIT_CONFIG_VALUE_0": "",
     }
+    if git_api_token:
+        env["GITHUB_TOKEN"] = git_api_token
+        env["GH_TOKEN"] = git_api_token
+    return env
 
 
 def _mode_intent(mode: str) -> str:
@@ -275,9 +436,14 @@ def build_openclaude_project_context(
             "",
             "## Workspace",
             f"- Project root: `{root}`",
+            f"- Workspace boundary: `{env_map['FZASTRO_WORKSPACE_BOUNDARY']}`",
+            f"- Git ceiling directory: `{env_map['GIT_CEILING_DIRECTORIES']}`",
             f"- Workspace type: `{'FZAstro source checkout' if looks_like_fzastro_source_root(root) else 'generic workspace'}`",
+            "- Treat this folder as a hard boundary. Do not read, summarize, modify, or infer details from sibling/parent projects.",
             "- Normal app runtime remains direct Ollama/OpenAI-compatible API access.",
             "- OpenClaude is the interactive workspace agent for coding, file creation, shell/Python commands, tests, and git work.",
+            "- Git repository API tokens are supplied only through process environment from AppData settings, never through this context file.",
+            "- Git credential helpers from system/global Git config are disabled for this terminal; use the stored Git API token or explicit user confirmation for repository operations.",
             "",
             "## Runtime",
             "- Provider style: Ollama/OpenAI-compatible",
@@ -336,6 +502,8 @@ def ensure_openclaude_agents_file(
             "- Inspect relevant files before editing.",
             "- Prefer small, reviewable patches over broad rewrites.",
             "- Do not modify unrelated files.",
+            "- Stay inside the selected workspace root. Do not inspect sibling or parent projects.",
+            "- If git output appears to reference files outside this workspace, stop and ask the user to reselect the project root.",
             "- Run appropriate validation after code changes when practical.",
             "- For Python changes in FZAstro AI, prefer:",
             "  - `python -m compileall -q main.py fzastro_ai tests`",
@@ -402,6 +570,7 @@ def build_openclaude_task_prompt(
             context_text,
             "",
             "Use the selected workspace as the source of truth. Do not guess file contents.",
+            "The selected workspace is a hard safety boundary. Do not inspect sibling folders, parent folders, or other Git checkouts.",
             "Interact normally as a coding agent: inspect files, create files, edit files, run Python/shell/tests/scripts, and inspect or update git according to the user task and AGENTS.md rules.",
             "Report the concrete commands you ran and the observed results. Do not claim tests passed unless you actually ran them.",
             "Avoid real astronomy hardware/N.I.N.A. actions unless FZAstro exposes an explicit safe tool for that action.",
@@ -447,14 +616,47 @@ def build_openclaude_launcher_script(config: OpenClaudeLaunchConfig) -> str:
         "}",
         "",
     ]
+    # Keep real API keys out of the generated launcher script.  The embedded
+    # terminal receives OPENAI_API_KEY in memory through its process environment,
+    # while external fallback terminals read the same key from the local AppData
+    # settings file.
     for key, value in env.items():
+        if key in {"OPENAI_API_KEY", "GITHUB_TOKEN", "GH_TOKEN"}:
+            continue
         lines.append(f"$env:{key} = {powershell_single_quote(value)}")
     lines.extend(
         [
             "",
+            "$settingsFile = $env:FZASTRO_OPENCLAUDE_SETTINGS_FILE",
+            "if (-not $settingsFile) { $settingsFile = $env:FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE }",
+            "if ($settingsFile -and (Test-Path -LiteralPath $settingsFile)) {",
+            "    try {",
+            "        $apiSettings = Get-Content -LiteralPath $settingsFile -Raw | ConvertFrom-Json",
+            "        if ($apiSettings.api_key) { $env:OPENAI_API_KEY = [string]$apiSettings.api_key }",
+            "        if ($apiSettings.git_api_token) {",
+            "            $env:GITHUB_TOKEN = [string]$apiSettings.git_api_token",
+            "            $env:GH_TOKEN = [string]$apiSettings.git_api_token",
+            "        }",
+            "    } catch {",
+            "        Write-Host 'OpenClaude local settings could not be read; using inherited/default model key and no stored Git token.' -ForegroundColor Yellow",
+            "    }",
+            "}",
+            f"if (-not $env:OPENAI_API_KEY) {{ $env:OPENAI_API_KEY = {powershell_single_quote(API_KEY)} }}",
+            "",
             f"$installIfMissing = {install_flag}",
             "$projectRoot = $env:FZASTRO_PROJECT_ROOT",
-            "Set-Location -LiteralPath $projectRoot",
+            "$resolvedProjectRoot = (Resolve-Path -LiteralPath $projectRoot).ProviderPath",
+            "if ($resolvedProjectRoot -ne $env:FZASTRO_WORKSPACE_BOUNDARY) {",
+            "    Write-Host 'OpenClaude workspace boundary mismatch. Start blocked.' -ForegroundColor Red",
+            "    Read-Host 'Press Enter to close' | Out-Null",
+            "    exit 5",
+            "}",
+            "Set-Location -LiteralPath $resolvedProjectRoot",
+            "if ((Get-Location).ProviderPath -ne $resolvedProjectRoot) {",
+            "    Write-Host 'OpenClaude did not start inside the selected workspace. Start blocked.' -ForegroundColor Red",
+            "    Read-Host 'Press Enter to close' | Out-Null",
+            "    exit 6",
+            "}",
             "",
             "$nodeCommand = Get-Command node -ErrorAction SilentlyContinue",
             "if (-not $nodeCommand) {",
@@ -499,6 +701,7 @@ def write_openclaude_launcher(config: OpenClaudeLaunchConfig) -> Path:
         model=config.model,
         base_url=config.base_url,
         api_key=config.api_key,
+        git_api_token=config.git_api_token,
         install_if_missing=config.install_if_missing,
     )
     OPENCLAUDE_STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -596,6 +799,7 @@ def format_openclaude_status_markdown(
             f"**Project:** `{root_text}` ({source_state})",
             f"**Model:** `{env_map['OPENAI_MODEL']}`",
             f"**Endpoint:** `{env_map['OPENAI_BASE_URL']}`",
+            f"**Git API token:** `{'configured / hidden' if env_map.get('GITHUB_TOKEN') else 'not configured'}`",
             "",
             "## Tool paths",
             f"- Node: `{status.node_path or 'not found'}`",

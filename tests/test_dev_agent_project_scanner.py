@@ -37,3 +37,19 @@ def test_scan_project_extracts_python_symbols(tmp_path: Path):
     assert "Worker" in file.symbols
     assert "run" in file.symbols
     assert "os" in file.imports
+
+
+def test_scan_project_ignores_nested_git_workspace(tmp_path: Path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "fzastro_ai").mkdir()
+    (tmp_path / "fzastro_ai" / "app.py").write_text("print('main')\n", encoding="utf-8")
+    nested = tmp_path / "other_project"
+    nested.mkdir()
+    (nested / ".git").mkdir()
+    (nested / "secret.py").write_text("TOKEN = 'do-not-index'\n", encoding="utf-8")
+
+    scan = scan_project(tmp_path)
+    paths = {item.path for item in scan.files}
+
+    assert "fzastro_ai/app.py" in paths
+    assert "other_project/secret.py" not in paths

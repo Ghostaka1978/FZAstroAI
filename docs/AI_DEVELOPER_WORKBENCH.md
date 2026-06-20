@@ -27,9 +27,11 @@ Those controls belonged to the earlier internal testbed. The production UX is a 
 
 ## Workspace and git awareness
 
-Session makes the selected workspace explicit before OpenClaude starts. This is important because OpenClaude can create files, edit files, run Python/tests/scripts, and use git in that folder. Session shows the selected path, whether it is a git repository, branch, remote, dirty/clean state, API endpoint/model, hidden API-key status, AGENTS.md status, and terminal frontend status.
+Session makes the selected workspace explicit before OpenClaude starts. This is important because OpenClaude can create files, edit files, run Python/tests/scripts, and use git in that folder. Session is scrollable so long diagnostics remain reachable; it shows the selected path, workspace boundary, git ceiling, full git root path, branch, selected-clone remote, dirty/clean state, API endpoint/model, hidden Git API token status, AGENTS.md status, and terminal frontend state.
 
-FZAstro does not store or display raw GitHub tokens. Prefer Git Credential Manager, Windows Credential Manager, or environment variables such as `GITHUB_TOKEN` when the user wants git/network authentication available to OpenClaude.
+The **Git API Token** field is for repository API access, not the model endpoint. FZAstro stores that token only under `AppData\Roaming\FZAstroAI\openclaude\openclaude_settings.json`, exposes it to the OpenClaude process as `GITHUB_TOKEN`/`GH_TOKEN`, and never writes it to the selected workspace, `AGENTS.md`, generated context, terminal diagnostics, or launcher script. The visible environment uses `FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE`, not the misleading old `FZASTRO_OPENCLAUDE_API_KEY_FILE` name. OpenClaude Git commands also run with `GIT_CEILING_DIRECTORIES`, `GIT_TERMINAL_PROMPT=0`, `GIT_CONFIG_NOSYSTEM=1`, and an empty `credential.helper` override so the terminal does not silently use machine/global Git credentials from another checkout.
+
+Git identity shown in Session comes only from the selected workspace `.git/config`. If a test clone still shows the production remote, that means the selected clone's own `origin` points at the same GitHub repository; it does not mean FZAstro queried a parent or sibling checkout.
 
 ## Project rules
 
@@ -87,14 +89,14 @@ The intended interaction is Codex-style:
 4. click **Start** if OpenClaude is not already running,
 5. type directly into the embedded terminal exactly as in the standalone OpenClaude CLI.
 
-The Session tab is setup-only. The Claude Terminal tab owns the active controls:
+The Session tab is setup/status-only. The Claude Terminal tab stays clean and owns only live terminal controls:
 
-- **Status** checks Node.js, npm, OpenClaude, the selected model/endpoint, selected workspace, and Windows ConPTY/pywinpty readiness.
-- **Start / Restart** starts or restarts OpenClaude inside the selected workspace.
+- **Start** starts OpenClaude inside the selected workspace.
+- **Restart** restarts OpenClaude when it is already running.
 - **Stop** requests terminal cancellation.
 - **Clear** clears the visible terminal buffer.
-- **Status** checks Node.js, npm, OpenClaude, the selected model/endpoint, selected workspace, and Windows ConPTY/pywinpty readiness.
-- **Tools** are kept on the Session tab for patch preview/apply, compile, tests, final report, copy task, patch ZIP export, and new chat.
+
+There is no separate **Status** button in the terminal header. Diagnostics are refreshed in Session so status text cannot pollute the OpenClaude terminal transcript. Session also reports the active terminal start settings and warns when the running process is stale after a workspace/model/endpoint/Git-token change.
 
 There is no separate FZAstro chat box in the OpenClaude screen. The terminal is the input. Commands such as `/help`, normal coding requests, shell instructions, and OpenClaude shortcuts are typed directly into the terminal renderer.
 
@@ -220,7 +222,7 @@ Next stages are controlled auto-fix loops, deeper persistent memory/rule editing
 
 ### Single-workspace layout
 
-OpenClaude normal workflow now uses a compact two-tab workspace: **Session** for setup/details and **Claude Terminal** for direct interaction. The main app model bar and embedded terminal are the user-facing controls. Validation is project-aware, so generic Python folders run from their selected root instead of inheriting FZAstro-specific commands.
+OpenClaude normal workflow now uses a compact two-tab workspace: **Session** for setup/details and **Claude Terminal** for direct interaction. The main app model bar and embedded terminal are the user-facing controls. Session includes the terminal state, workspace boundary, git identity source, and stale-process warning; the terminal header no longer includes a diagnostic status action that can write into the active TUI. Validation is project-aware, so generic Python folders run from their selected root instead of inheriting FZAstro-specific commands.
 
 ### Next-action workflow controls
 
@@ -229,4 +231,4 @@ The workflow now keeps one primary visible path: type directly in **Claude Termi
 
 ### OpenClaude session cleanup
 
-Session is setup/status only: workspace, provider/environment, git state, AGENTS.md, and terminal frontend/backend readiness. Patch/test/report controls from the old DEV testbed are not exposed in Session; normal work happens directly in the Claude Terminal. Dirty git checkouts are shown with a warning so live workspace changes are visible before using OpenClaude.
+Session is setup/status only and scrollable: workspace, provider/environment, Git API token storage state, git state, AGENTS.md, terminal frontend/backend readiness, and terminal running/stopped state. Patch/test/report controls from the old DEV testbed are not exposed in Session; normal work happens directly in the Claude Terminal. Dirty git checkouts are shown with a warning so live workspace changes are visible before using OpenClaude.

@@ -6,10 +6,12 @@ import pytest
 from fzastro_ai.dev_agent.openclaude_bridge import (
     OpenClaudeBridgeError,
     OpenClaudeLaunchConfig,
+    audit_openclaude_project_root,
     build_openclaude_environment,
     build_openclaude_launcher_script,
     build_openclaude_project_context,
     build_openclaude_task_prompt,
+    openclaude_workspace_isolation_lines,
     get_openclaude_tool_status,
     launch_openclaude_companion,
     looks_like_fzastro_source_root,
@@ -43,7 +45,18 @@ def test_openclaude_environment_uses_selected_runtime(tmp_path):
     assert env["OPENAI_MODEL"] == "rafw007/qwen3-coder:latest"
     assert env["OPENAI_BASE_URL"] == "http://localhost:11434/v1"
     assert env["OPENAI_API_KEY"] == "ollama"
+    assert "FZASTRO_OPENCLAUDE_API_KEY_FILE" not in env
+    assert env["FZASTRO_OPENCLAUDE_SETTINGS_FILE"].endswith("openclaude_settings.json")
+    assert env["FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE"].endswith("openclaude_settings.json")
     assert env["FZASTRO_PROJECT_ROOT"] == str(root.resolve())
+    assert env["OPENCLAUDE_WORKSPACE_ROOT"] == str(root.resolve())
+    assert env["FZASTRO_WORKSPACE_BOUNDARY"] == str(root.resolve())
+    assert env["GIT_CEILING_DIRECTORIES"] == str(root.resolve().parent)
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert env["GIT_CONFIG_NOSYSTEM"] == "1"
+    assert env["GIT_CONFIG_COUNT"] == "1"
+    assert env["GIT_CONFIG_KEY_0"] == "credential.helper"
+    assert env["GIT_CONFIG_VALUE_0"] == ""
 
 
 def test_project_root_validation_accepts_real_workspace_folder(tmp_path):
@@ -62,6 +75,54 @@ def test_project_root_validation_accepts_real_workspace_folder(tmp_path):
     missing = tmp_path / "missing"
     with pytest.raises(OpenClaudeBridgeError, match="Workspace folder does not exist"):
         validate_openclaude_project_root(missing)
+
+
+
+
+def test_openclaude_workspace_audit_blocks_parent_git_checkout_leak(tmp_path):
+    parent_repo = tmp_path / "parent-repo"
+    selected = parent_repo / "subproject"
+    selected.mkdir(parents=True)
+    (parent_repo / ".git").mkdir()
+
+    with pytest.raises(OpenClaudeBridgeError, match="inside another Git checkout"):
+        audit_openclaude_project_root(selected)
+
+    with pytest.raises(OpenClaudeBridgeError, match="inside another Git checkout"):
+        validate_openclaude_project_root(selected)
+
+
+def test_openclaude_workspace_audit_blocks_broad_folder_with_nested_repos(tmp_path):
+    broad = tmp_path / "Dropbox"
+    nested = broad / "ProjectA"
+    nested.mkdir(parents=True)
+    (nested / ".git").mkdir()
+
+    with pytest.raises(OpenClaudeBridgeError, match="contains nested Git projects"):
+        audit_openclaude_project_root(broad)
+
+
+def test_openclaude_workspace_audit_allows_exact_repo_root(tmp_path):
+    root = make_fzastro_root(tmp_path)
+    (root / ".git").mkdir()
+
+    audit = audit_openclaude_project_root(root)
+
+    assert audit.root == root.resolve()
+    assert audit.git_root == root.resolve()
+    assert audit.nested_git_roots == ()
+
+
+def test_openclaude_workspace_isolation_lines_are_explicit(tmp_path):
+    root = make_fzastro_root(tmp_path)
+    (root / ".git").mkdir()
+
+    lines = openclaude_workspace_isolation_lines(root)
+
+    assert lines[0] == "Workspace isolation: active ✓"
+    assert f"Workspace boundary: {root.resolve()}" in lines
+    assert f"Git ceiling: {root.resolve().parent}" in lines
+    assert "Nested Git workspaces: none detected" in lines
 
 
 def test_tool_status_finds_commands_from_path(tmp_path):
@@ -101,7 +162,7 @@ def test_powershell_launcher_script_is_deploy_aware(tmp_path):
         project_root=root,
         model="qwen's coder",
         base_url="http://localhost:11434/v1",
-        api_key="ollama",
+        api_key="sk-secret-not-in-script",
         install_if_missing=True,
     )
 
@@ -109,10 +170,20 @@ def test_powershell_launcher_script_is_deploy_aware(tmp_path):
 
     assert "$env:CLAUDE_CODE_USE_OPENAI = '1'" in script
     assert "$env:OPENAI_MODEL = 'qwen''s coder'" in script
+    assert "sk-secret-not-in-script" not in script
+    assert "FZASTRO_OPENCLAUDE_API_KEY_FILE" not in script
+    assert "FZASTRO_OPENCLAUDE_SETTINGS_FILE" in script
+    assert "FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE" in script
+    assert "ConvertFrom-Json" in script
     assert "C:\\Program Files\\nodejs" in script
     assert "Join-Path $env:APPDATA 'npm'" in script
     assert "install -g @gitlawb/openclaude@latest" in script
-    assert "Set-Location -LiteralPath $projectRoot" in script
+    assert "Set-Location -LiteralPath $resolvedProjectRoot" in script
+    assert "$env:GIT_CEILING_DIRECTORIES" in script
+    assert "$env:GIT_TERMINAL_PROMPT = '0'" in script
+    assert "$env:GIT_CONFIG_NOSYSTEM = '1'" in script
+    assert "$env:GIT_CONFIG_KEY_0 = 'credential.helper'" in script
+    assert "workspace boundary mismatch" in script.lower()
 
 
 def test_powershell_single_quote_escapes_quotes():
@@ -150,6 +221,7 @@ def test_openclaude_task_prompt_uses_user_task_and_patch_mode():
     assert "Improve OpenClaude timeout labels" in prompt
     assert "patch work is allowed" in prompt
     assert "Do not claim tests passed" in prompt
+    assert "hard safety boundary" in prompt
 
 
 def test_launcher_script_starts_openclaude_without_prompt_preamble(tmp_path):
@@ -181,6 +253,9 @@ def test_openclaude_project_context_contains_workspace_guidance(tmp_path):
     assert "Workspace Capabilities" in context
     assert "run Python and shell commands" in context
     assert "FZAstro source checkout" in context
+    assert "Workspace boundary" in context
+    assert "Do not read, summarize, modify, or infer details from sibling/parent projects" in context
+    assert "Git credential helpers from system/global Git config are disabled" in context
 
 
 def test_openclaude_task_prompt_references_workspace_artifacts(tmp_path):
@@ -200,3 +275,37 @@ def test_openclaude_task_prompt_references_workspace_artifacts(tmp_path):
     assert "latest_openclaude_output.log" in prompt
     assert "latest_diff.patch" in prompt
     assert "latest_report.md" in prompt
+
+
+def test_openclaude_environment_supplies_git_api_token_only_when_configured(tmp_path):
+    root = make_fzastro_root(tmp_path)
+    config = OpenClaudeLaunchConfig(
+        project_root=root,
+        model="qwen3:32b",
+        base_url="http://localhost:11434/v1",
+        api_key="ollama",
+        git_api_token="github_pat_repo_secret",
+    )
+
+    env = build_openclaude_environment(config)
+
+    assert env["GITHUB_TOKEN"] == "github_pat_repo_secret"
+    assert env["GH_TOKEN"] == "github_pat_repo_secret"
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+
+
+def test_launcher_script_reads_git_api_token_without_embedding_secret(tmp_path):
+    root = make_fzastro_root(tmp_path)
+    config = OpenClaudeLaunchConfig(
+        project_root=root,
+        api_key="sk-model-secret",
+        git_api_token="github_pat_secret_not_in_script",
+    )
+
+    script = build_openclaude_launcher_script(config)
+
+    assert "github_pat_secret_not_in_script" not in script
+    assert "sk-model-secret" not in script
+    assert "$env:GITHUB_TOKEN = [string]$apiSettings.git_api_token" in script
+    assert "$env:GH_TOKEN = [string]$apiSettings.git_api_token" in script
+    assert "$env:GIT_TERMINAL_PROMPT = '0'" in script

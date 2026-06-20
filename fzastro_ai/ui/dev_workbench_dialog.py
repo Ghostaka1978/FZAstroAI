@@ -32,6 +32,15 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import API_KEY, BASE_URL, DEFAULT_MODEL_NAME
+from ..dev_agent.openclaude_settings import (
+    clear_openclaude_api_key,
+    clear_openclaude_git_api_token,
+    load_openclaude_api_settings,
+    openclaude_api_key_state,
+    openclaude_git_token_state,
+    save_openclaude_api_key,
+    save_openclaude_git_api_token,
+)
 from ..dev_agent import DevAgentSession
 from ..dev_agent.memory import (
     load_developer_agent_memory,
@@ -46,8 +55,9 @@ from ..dev_agent.llm_client import (
 from ..dev_agent.openclaude_bridge import (
     OpenClaudeBridgeError,
     OpenClaudeLaunchConfig,
+    audit_openclaude_project_root,
+    openclaude_workspace_isolation_lines,
     build_openclaude_task_prompt,
-    format_openclaude_status_markdown,
     launch_openclaude_companion,
     openclaude_artifact_paths,
     safe_first_prompt,
@@ -58,7 +68,6 @@ from ..dev_agent.openclaude_bridge import (
 from ..dev_agent.openclaude_embedded_terminal import (
     build_openclaude_embedded_command,
     command_to_cmdline,
-    format_embedded_terminal_status,
     get_embedded_terminal_support,
 )
 from .openclaude_terminal_widget import OpenClaudeTerminalWidget
@@ -427,6 +436,7 @@ class DevWorkbenchDialog(QWidget):
         apply_window_defaults(self)
 
         self.project_root = self._initial_project_root(project_root)
+        self.openclaude_api_settings = load_openclaude_api_settings()
         self.session = DevAgentSession(self.project_root)
         self.latest_prompt_package = ""
         self.latest_system_prompt = ""
@@ -456,6 +466,7 @@ class DevWorkbenchDialog(QWidget):
         self._openclaude_prompt_echo_lines: set[str] = set()
         self._openclaude_prompt_echo_notice_shown = False
         self._openclaude_spinner_notice_shown = False
+        self._openclaude_launch_snapshot: dict[str, str] | None = None
         self._agent_run_id = 0
         self._retired_agent_runs: list[tuple[int, QThread, _DevAgentWorker]] = []
         self._agent_stop_requested = False
@@ -554,6 +565,31 @@ class DevWorkbenchDialog(QWidget):
         top_row.addStretch(1)
         config_layout.addLayout(top_row)
 
+        api_row = QHBoxLayout()
+        api_row.addWidget(QLabel("Git API Token:"))
+        self.openclaude_git_api_token_input = QLineEdit()
+        self.openclaude_git_api_token_input.setEchoMode(QLineEdit.Password)
+        self.openclaude_git_api_token_input.setPlaceholderText(
+            "GitHub/Git API token for repository operations; saved under AppData, not the workspace"
+        )
+        self.openclaude_git_api_token_input.setMinimumWidth(420)
+        if self.openclaude_api_settings.has_git_api_token:
+            self.openclaude_git_api_token_input.setText(self.openclaude_api_settings.git_api_token)
+        api_row.addWidget(self.openclaude_git_api_token_input, 1)
+        self.openclaude_save_api_button = QPushButton("Save Git API Token")
+        self.openclaude_save_api_button.clicked.connect(self.save_openclaude_api_key)
+        api_row.addWidget(self.openclaude_save_api_button)
+        self.openclaude_clear_api_button = QPushButton("Clear")
+        self.openclaude_clear_api_button.clicked.connect(self.clear_openclaude_api_key)
+        api_row.addWidget(self.openclaude_clear_api_button)
+        api_row.addStretch(1)
+        config_layout.addLayout(api_row)
+
+        self.openclaude_api_status_label = QLabel("")
+        self.openclaude_api_status_label.setObjectName("sidebarFooter")
+        self.openclaude_api_status_label.setWordWrap(True)
+        config_layout.addWidget(self.openclaude_api_status_label)
+
         # OpenClaude now owns edit/review behavior inside its terminal. These
         # hidden defaults are retained only for compatibility with older helper
         # methods and project-rule generation. They are not part of the visible UI.
@@ -569,6 +605,7 @@ class DevWorkbenchDialog(QWidget):
         self.session_details_label = QLabel("")
         self.session_details_label.setObjectName("sidebarFooter")
         self.session_details_label.setWordWrap(True)
+        self.session_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         config_layout.addWidget(self.session_details_label)
 
         # Runtime/model details are owned by the main FZAstro top bar. OpenClaude keeps
@@ -687,8 +724,9 @@ class DevWorkbenchDialog(QWidget):
         self.copy_prompt_button.setVisible(False)
         self.copy_context_button = QPushButton("Copy Context")
         self.copy_context_button.clicked.connect(self.copy_context_package)
-        self.openclaude_status_button = QPushButton("Status")
+        self.openclaude_status_button = QPushButton("Refresh Session")
         self.openclaude_status_button.clicked.connect(self.check_openclaude_companion)
+        self.openclaude_status_button.setVisible(False)
         self.openclaude_launch_button = QPushButton("Start / Restart")
         self.openclaude_launch_button.clicked.connect(
             self.restart_embedded_openclaude_terminal
@@ -720,7 +758,6 @@ class DevWorkbenchDialog(QWidget):
         primary_row = QHBoxLayout()
         primary_row.setSpacing(8)
         for button in (
-            self.openclaude_status_button,
             self.openclaude_launch_button,
         ):
             button.setCursor(Qt.PointingHandCursor)
@@ -759,7 +796,6 @@ class DevWorkbenchDialog(QWidget):
             self.fast_tests_button,
             self.feature_tests_button,
             self.full_pytest_button,
-            self.openclaude_status_button,
             self.openclaude_launch_button,
             self.openclaude_send_task_button,
             self.openclaude_stop_button,
@@ -780,7 +816,6 @@ class DevWorkbenchDialog(QWidget):
             self.final_report_button,
         )
         self.utility_buttons = (
-            self.openclaude_status_button,
             self.openclaude_send_task_button,
             self.openclaude_stop_button,
             self.openclaude_clear_button,
@@ -802,7 +837,17 @@ class DevWorkbenchDialog(QWidget):
         # Do not keep the session controls as a permanent top card. They are
         # added to the workspace tabs below so the live terminal/timeline can
         # use the vertical space while configuration stays one click away.
-        self.session_config_panel = config_box
+        # The diagnostics can grow well beyond the visible tab height, so the
+        # Session tab owns a real scroll area instead of clipping lower lines.
+        self.session_config_content = config_box
+        self.session_config_scroll = QScrollArea()
+        self.session_config_scroll.setObjectName("openClaudeSessionScroll")
+        self.session_config_scroll.setWidgetResizable(True)
+        self.session_config_scroll.setFrameShape(QFrame.NoFrame)
+        self.session_config_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.session_config_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.session_config_scroll.setWidget(config_box)
+        self.session_config_panel = self.session_config_scroll
 
         workspace_box = QFrame()
         workspace_box.setObjectName("settingsCard")
@@ -859,7 +904,6 @@ class DevWorkbenchDialog(QWidget):
         terminal_layout.setSpacing(4)
         terminal_header = QHBoxLayout()
         terminal_header.addStretch(1)
-        terminal_header.addWidget(self.openclaude_status_button)
         terminal_header.addWidget(self.openclaude_launch_button)
         terminal_header.addWidget(self.openclaude_stop_button)
         terminal_header.addWidget(self.openclaude_clear_button)
@@ -1048,7 +1092,85 @@ class DevWorkbenchDialog(QWidget):
 
         return self.model_input.text().strip() or DEFAULT_MODEL_NAME
 
+    def _reload_openclaude_api_settings(self):
+        self.openclaude_api_settings = load_openclaude_api_settings()
+        return self.openclaude_api_settings
+
+    def _openclaude_typed_git_api_token(self) -> str:
+        field = getattr(self, "openclaude_git_api_token_input", None)
+        if field is None:
+            return ""
+        try:
+            return str(field.text() or "").strip()
+        except Exception:
+            return ""
+
+    def _active_openclaude_api_key(self, fallback_api_key: str = API_KEY) -> str:
+        settings = self._reload_openclaude_api_settings()
+        if settings.has_api_key:
+            return settings.api_key
+        return str(fallback_api_key or API_KEY)
+
+    def _active_openclaude_git_api_token(self) -> str:
+        typed = self._openclaude_typed_git_api_token()
+        if typed:
+            return typed
+        settings = self._reload_openclaude_api_settings()
+        if settings.has_git_api_token:
+            return settings.git_api_token
+        return ""
+
+    def _update_openclaude_api_status(self) -> None:
+        label = getattr(self, "openclaude_api_status_label", None)
+        if label is None:
+            return
+        settings = self._reload_openclaude_api_settings()
+        git_state = openclaude_git_token_state(settings)
+        if settings.has_git_api_token:
+            label.setText(
+                "Git API token storage: saved locally under AppData / hidden. "
+                "Used only as GITHUB_TOKEN/GH_TOKEN for repository operations; not written to the workspace, AGENTS.md, project context, launcher script, or git output."
+            )
+        else:
+            label.setText(
+                f"Git API token storage: not saved locally ({git_state}). "
+                "OpenClaude can still use existing system git credentials if configured."
+            )
+
+    def save_openclaude_api_key(self, checked: bool = False, *, silent: bool = False) -> bool:
+        key = self._openclaude_typed_git_api_token()
+        if not key:
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    "OpenClaude Git API Token",
+                    "Enter a GitHub/Git API token first, or use Clear to remove the saved token.",
+                )
+            self._update_openclaude_api_status()
+            return False
+        self.openclaude_api_settings = save_openclaude_git_api_token(key)
+        self._update_openclaude_api_status()
+        self._refresh_session_details()
+        if not silent:
+            self._log(
+                "Saved OpenClaude Git API token in local AppData settings; value remains hidden."
+            )
+            self._set_next_step("OpenClaude Git API token saved locally; restart terminal to use it.")
+        return True
+
+    def clear_openclaude_api_key(self, checked: bool = False):
+        self.openclaude_api_settings = clear_openclaude_git_api_token()
+        try:
+            self.openclaude_git_api_token_input.clear()
+        except Exception:
+            pass
+        self._update_openclaude_api_status()
+        self._refresh_session_details()
+        self._log("Cleared the saved OpenClaude Git API token from local AppData settings.")
+        self._set_next_step("OpenClaude Git API token cleared; system git credentials can still be used.")
+
     def _main_app_runtime_config(self) -> RuntimeAgentConfig:
+        fallback_api_key = str(self._call_runtime("current_api_key", API_KEY))
         return RuntimeAgentConfig(
             model=self._model_from_runtime_owner(),
             base_url=str(
@@ -1056,7 +1178,7 @@ class DevWorkbenchDialog(QWidget):
                     "current_base_url", self.base_url_input.text().strip() or BASE_URL
                 )
             ),
-            api_key=str(self._call_runtime("current_api_key", API_KEY)),
+            api_key=self._active_openclaude_api_key(fallback_api_key),
             keep_alive=self._call_runtime("current_ollama_keep_alive_value", None),
             timeout_seconds=self._agent_http_timeout_seconds,
             num_ctx=8192,
@@ -1074,9 +1196,12 @@ class DevWorkbenchDialog(QWidget):
         """Run a small read-only git command for Session diagnostics."""
 
         try:
+            env = dict(os.environ)
+            env["GIT_CEILING_DIRECTORIES"] = str(Path(root).resolve().parent)
             completed = subprocess.run(
                 ["git", *args],
                 cwd=str(root),
+                env=env,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -1097,22 +1222,42 @@ class DevWorkbenchDialog(QWidget):
         # Hide credentials if a remote was configured as https://token@host/...
         return re.sub(r"(https?://)([^/@]+)@", r"\1***@", text)
 
+    def _same_filesystem_path(self, left: Path | str, right: Path | str) -> bool:
+        try:
+            return Path(left).resolve() == Path(right).resolve()
+        except Exception:
+            return os.path.normcase(os.path.abspath(str(left))) == os.path.normcase(
+                os.path.abspath(str(right))
+            )
+
     def _workspace_git_summary_lines(self, root: Path) -> list[str]:
-        ok, top = self._run_git_command(root, "rev-parse", "--show-toplevel")
+        try:
+            audit = audit_openclaude_project_root(root)
+        except OpenClaudeBridgeError as exc:
+            return ["Workspace isolation: blocked", str(exc)]
+
+        ok, top = self._run_git_command(audit.root, "rev-parse", "--show-toplevel")
         if not ok:
             return ["Git repo: not detected"]
+        git_top = Path(top).expanduser()
+        if not self._same_filesystem_path(git_top, audit.root):
+            return [
+                "Workspace isolation: blocked",
+                f"Git resolved outside selected workspace: {git_top}",
+                f"Selected workspace boundary: {audit.root}",
+            ]
 
-        ok_branch, branch = self._run_git_command(root, "branch", "--show-current")
+        ok_branch, branch = self._run_git_command(audit.root, "branch", "--show-current")
         if not ok_branch or not branch:
             ok_branch, branch = self._run_git_command(
-                root, "rev-parse", "--short", "HEAD"
+                audit.root, "rev-parse", "--short", "HEAD"
             )
         branch = branch or "unknown"
 
-        ok_remote, remote = self._run_git_command(root, "remote", "get-url", "origin")
+        ok_remote, remote = self._run_git_command(audit.root, "remote", "get-url", "origin")
         remote = self._redact_git_remote(remote if ok_remote else "none")
 
-        ok_status, status = self._run_git_command(root, "status", "--short")
+        ok_status, status = self._run_git_command(audit.root, "status", "--short")
         if ok_status and status:
             changed = len([line for line in status.splitlines() if line.strip()])
             dirty = f"⚠ dirty · {changed} changed path(s)"
@@ -1122,20 +1267,31 @@ class DevWorkbenchDialog(QWidget):
             dirty = "unknown"
 
         auth_bits = []
+        settings = self._reload_openclaude_api_settings()
+        if settings.has_git_api_token:
+            auth_bits.append("AppData Git API token stored / hidden")
         if os.environ.get("GITHUB_TOKEN"):
-            auth_bits.append("GITHUB_TOKEN present")
+            auth_bits.append("process GITHUB_TOKEN present")
         if os.environ.get("GH_TOKEN"):
-            auth_bits.append("GH_TOKEN present")
+            auth_bits.append("process GH_TOKEN present")
         if not auth_bits:
-            auth_bits.append("system git credentials / not inspected")
+            auth_bits.append(
+                "no FZAstro Git API token; system credentials are not inspected and prompts are disabled"
+            )
 
-        return [
-            f"Git repo: {Path(top).name if top else 'detected'}",
-            f"Git branch: {branch}",
-            f"Git remote: {remote}",
-            f"Git status: {dirty}",
-            f"Git auth: {', '.join(auth_bits)}",
-        ]
+        lines = list(openclaude_workspace_isolation_lines(audit.root))
+        lines.extend(
+            [
+                f"Git root path: {git_top.resolve()} · verified inside selected workspace",
+                "Git identity source: selected workspace .git/config only",
+                "Git parent/sibling repos: not queried",
+                f"Git branch: {branch}",
+                f"Git remote from selected clone: {remote}",
+                f"Git status: {dirty}",
+                f"Git auth: {', '.join(auth_bits)}",
+            ]
+        )
+        return lines
 
     def _workspace_git_summary(self, root: Path) -> str:
         return " · ".join(self._workspace_git_summary_lines(root))
@@ -1155,13 +1311,12 @@ class DevWorkbenchDialog(QWidget):
             "not initialized",
         )
         exists = root.exists() and root.is_dir()
-        api_key = str(runtime.api_key or "")
-        if not api_key:
-            api_state = "OPENAI_API_KEY: not set"
-        elif api_key == API_KEY:
-            api_state = "OPENAI_API_KEY: using configured default / hidden"
-        else:
-            api_state = "OPENAI_API_KEY: set / hidden"
+        settings = self._reload_openclaude_api_settings()
+        api_state = openclaude_api_key_state(
+            settings,
+            fallback_api_key=str(self._call_runtime("current_api_key", API_KEY)),
+        )
+        git_state = openclaude_git_token_state(settings)
         details = [
             f"Workspace: {root} {'✓' if exists else 'not found'}",
             "Workspace warning: OpenClaude works directly in this folder. Use a test clone if you do not want the live checkout edited.",
@@ -1171,9 +1326,53 @@ class DevWorkbenchDialog(QWidget):
             f"OPENAI_BASE_URL={runtime.base_url or BASE_URL}",
             f"OPENAI_MODEL={runtime.model or DEFAULT_MODEL_NAME}",
             api_state,
+            "OPENAI_API_KEY purpose: model endpoint only",
+            f"GITHUB_TOKEN={'stored locally for Git API / hidden' if settings.has_git_api_token else 'not set by FZAstro'}",
+            f"GH_TOKEN={'mirrors stored Git API token / hidden' if settings.has_git_api_token else 'not set by FZAstro'}",
+            f"FZASTRO_OPENCLAUDE_SETTINGS_FILE={settings.path}",
+            f"FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE={settings.path}",
+            "Git API token file: AppData only / hidden / not scanned",
             f"FZASTRO_PROJECT_ROOT={root}",
+            f"OPENCLAUDE_WORKSPACE_ROOT={root}",
+            f"FZASTRO_WORKSPACE_BOUNDARY={root}",
+            f"GIT_CEILING_DIRECTORIES={root.resolve().parent if exists else root.parent}",
+            "GIT_TERMINAL_PROMPT=0",
+            "GIT_CONFIG_NOSYSTEM=1",
+            "GIT_CONFIG credential.helper=disabled for OpenClaude terminal",
+            "Git credential safety: repository API token only; no interactive/system credential prompts",
+            f"OpenClaude terminal state: {'running' if getattr(self, '_openclaude_terminal_running', False) else 'stopped'}",
             "",
         ]
+        snapshot = getattr(self, "_openclaude_launch_snapshot", None)
+        if getattr(self, "_openclaude_terminal_running", False) and snapshot:
+            details.extend([
+                "Active OpenClaude terminal:",
+                f"Started: {snapshot.get('started_at', 'unknown')}",
+                f"Workspace at start: {snapshot.get('project_root', 'unknown')}",
+                f"Model at start: {snapshot.get('model', 'unknown')}",
+                f"Endpoint at start: {snapshot.get('base_url', 'unknown')}",
+                f"Git token at start: {snapshot.get('git_token_state', 'unknown')}",
+            ])
+            current_git_state = "stored" if settings.has_git_api_token else "not stored"
+            stale_reasons = []
+            if str(snapshot.get('project_root', '')) != str(root):
+                stale_reasons.append("workspace changed")
+            if str(snapshot.get('model', '')) != str(runtime.model or DEFAULT_MODEL_NAME):
+                stale_reasons.append("model changed")
+            if str(snapshot.get('base_url', '')) != str(runtime.base_url or BASE_URL):
+                stale_reasons.append("endpoint changed")
+            if str(snapshot.get('git_token_state', '')) != current_git_state:
+                stale_reasons.append("Git token changed")
+            if stale_reasons:
+                details.append(
+                    "Restart required: running OpenClaude was launched with older settings ("
+                    + ", ".join(stale_reasons)
+                    + ")."
+                )
+            else:
+                details.append("Running settings: current")
+            details.append("")
+
         if exists:
             details.extend(self._workspace_git_summary_lines(root))
         else:
@@ -1192,30 +1391,30 @@ class DevWorkbenchDialog(QWidget):
             self.runtime_status_label.setText(self._runtime_summary())
         except Exception as exc:
             self.runtime_status_label.setText(f"Runtime unavailable ({exc})")
+        self._update_openclaude_api_status()
         self._refresh_session_details()
 
     def _openclaude_launch_config(
         self, *, install_if_missing: bool = False
     ) -> OpenClaudeLaunchConfig:
+        if self._openclaude_typed_git_api_token():
+            self.save_openclaude_api_key(silent=True)
         runtime = self._main_app_runtime_config()
         return OpenClaudeLaunchConfig(
             project_root=Path(self.root_input.text().strip()).expanduser(),
             model=str(runtime.model or DEFAULT_MODEL_NAME),
             base_url=str(runtime.base_url or BASE_URL),
             api_key=str(runtime.api_key or API_KEY),
+            git_api_token=self._active_openclaude_git_api_token(),
             install_if_missing=install_if_missing,
         )
 
     def check_openclaude_companion(self):
         self._refresh_root()
-        config = self._openclaude_launch_config()
-        self._append_workspace_card(
-            format_openclaude_status_markdown(config)
-            + "\n\n---\n\n"
-            + format_embedded_terminal_status(config)
-        )
+        self._refresh_session_details()
+        self.workspace_tabs.setCurrentWidget(self.session_config_panel)
         self._log(
-            "Checked OpenClaude companion and embedded terminal status. No files changed."
+            "Refreshed OpenClaude Session diagnostics. No terminal output or files changed."
         )
 
     def _openclaude_task_prompt(self) -> str:
@@ -1396,6 +1595,7 @@ class DevWorkbenchDialog(QWidget):
         self._openclaude_terminal_running = bool(running)
         self._update_action_buttons()
         self._update_openclaude_composer_buttons()
+        self._refresh_session_details()
 
     def _update_openclaude_composer_buttons(self):
         if not hasattr(self, "openclaude_launch_button"):
@@ -1455,6 +1655,16 @@ class DevWorkbenchDialog(QWidget):
         )
         self._log("Copied structured OpenClaude task prompt to clipboard.")
 
+    def _record_openclaude_launch_snapshot(self, config: OpenClaudeLaunchConfig) -> None:
+        git_token_state = "stored" if str(config.git_api_token or "").strip() else "not stored"
+        self._openclaude_launch_snapshot = {
+            "started_at": time.strftime("%H:%M:%S"),
+            "project_root": str(Path(config.project_root).expanduser()),
+            "model": str(config.model or DEFAULT_MODEL_NAME),
+            "base_url": str(config.base_url or BASE_URL),
+            "git_token_state": git_token_state,
+        }
+
     def restart_embedded_openclaude_terminal(self):
         """Start OpenClaude as a direct embedded terminal session.
 
@@ -1501,6 +1711,7 @@ class DevWorkbenchDialog(QWidget):
             return
 
         config = self._openclaude_launch_config(install_if_missing=False)
+        self._record_openclaude_launch_snapshot(config)
         try:
             ensure_openclaude_agents_file(
                 config,
@@ -1584,6 +1795,7 @@ class DevWorkbenchDialog(QWidget):
             f"{message}\n\n"
             "Check setup/build/deploy if the embedded ConPTY backend is unstable on this machine."
         )
+        self._openclaude_launch_snapshot = None
         self._set_openclaude_terminal_running(False)
         self._set_agent_status("OpenClaude error")
         self._set_progress(None, "error")
@@ -1593,6 +1805,7 @@ class DevWorkbenchDialog(QWidget):
         self._append_openclaude_terminal_output(
             "\n[fzastro] OpenClaude exited. Press Start to open a new terminal session.\n"
         )
+        self._openclaude_launch_snapshot = None
         self._set_openclaude_terminal_running(False)
         self._set_agent_status("OpenClaude stopped")
         self._reset_progress_idle()
@@ -1601,6 +1814,7 @@ class DevWorkbenchDialog(QWidget):
     def _clear_openclaude_terminal_thread(self):
         self.openclaude_thread = None
         self.openclaude_worker = None
+        self._openclaude_launch_snapshot = None
         self._set_openclaude_terminal_running(False)
 
     def _is_raw_openclaude_command(self, text: str) -> bool:
@@ -1676,7 +1890,7 @@ class DevWorkbenchDialog(QWidget):
             self._append_workspace_card(
                 "# OpenClaude Fallback Not Started\n\n"
                 f"{exc}\n\n"
-                "Use **Status** for diagnostics, or select the real source checkout in the Project field."
+                "Review the Session tab diagnostics, or select the real source checkout in the Project field."
             )
             self._log(f"OpenClaude external terminal launch blocked: {exc}")
             return
@@ -1751,13 +1965,13 @@ class DevWorkbenchDialog(QWidget):
             token in normalized
             for token in ("error", "failed", "unavailable", "blocked", "stopped")
         ):
-            text = "● Stopped"
-            background = "#3a1116"
-            foreground = "#ff8f9b"
-            border = "#9f2835"
+            text = "Start"
+            background = "#111820"
+            foreground = "#d6e4f5"
+            border = "#2a3644"
             tooltip = "OpenClaude is stopped or unavailable. Click to start a new terminal session."
         elif any(token in normalized for token in ("start", "launch", "stopping")):
-            text = "● Starting"
+            text = "Starting..."
             background = "#332509"
             foreground = "#ffd479"
             border = "#8a6a1f"
@@ -1776,7 +1990,7 @@ class DevWorkbenchDialog(QWidget):
                 "done",
             )
         ):
-            text = "● Running"
+            text = "Restart"
             background = "#0f2d1b"
             foreground = "#7ee787"
             border = "#267a3d"
@@ -2220,6 +2434,8 @@ class DevWorkbenchDialog(QWidget):
 
         tooltips = {
             self.openclaude_status_button: "Check Node.js, npm, OpenClaude, selected model, endpoint, project workspace, and embedded ConPTY backend.",
+            getattr(self, "openclaude_save_api_button", None): "Save the OpenClaude Git API token under FZAstro AppData. The value is hidden and not written to the project workspace.",
+            getattr(self, "openclaude_clear_api_button", None): "Remove the saved OpenClaude Git API token from FZAstro AppData.",
             self.openclaude_launch_button: "Start or restart the embedded OpenClaude terminal in the selected workspace.",
             self.openclaude_send_task_button: "Hidden compatibility action; normal OpenClaude input goes directly through the terminal.",
             self.openclaude_stop_button: "Stop the embedded OpenClaude terminal session.",

@@ -149,6 +149,18 @@ def _should_ignore_path(path: Path, root: Path) -> bool:
     return any(marker in lower_name for marker in BACKUP_MARKERS)
 
 
+def _is_nested_git_workspace(path: Path, root: Path) -> bool:
+    """Return True when path is another Git checkout inside this scan root."""
+
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    if not relative.parts:
+        return False
+    return (path / ".git").exists()
+
+
 def _classify_file(relative_path: str) -> str:
     lower = relative_path.lower()
     name = Path(relative_path).name.lower()
@@ -216,10 +228,22 @@ def _extract_python_symbols(
 def _git_modified_paths(root: Path) -> set[str]:
     """Return project-relative files with local git changes, if git is available."""
 
+    root = root.resolve()
+    # Never let Git walk upward into a parent checkout when the selected scan
+    # root is a subfolder.  Mixed-repository status can leak or confuse unrelated
+    # project details.
+    if not (root / ".git").exists() and any(
+        (parent / ".git").exists() for parent in root.parents
+    ):
+        return set()
+
     try:
+        env = dict(os.environ)
+        env["GIT_CEILING_DIRECTORIES"] = str(root.parent)
         completed = subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=normal"],
             cwd=root,
+            env=env,
             text=True,
             capture_output=True,
             timeout=10,
@@ -259,6 +283,7 @@ def iter_project_files(
             directory
             for directory in dir_names
             if not _should_ignore_path(current / directory, root_path)
+            and not _is_nested_git_workspace(current / directory, root_path)
         ]
 
         for file_name in sorted(file_names):
@@ -314,7 +339,10 @@ def scan_project(
         current = Path(current_root)
         kept_dirs = []
         for directory in dir_names:
-            if _should_ignore_path(current / directory, root_path):
+            directory_path = current / directory
+            if _should_ignore_path(
+                directory_path, root_path
+            ) or _is_nested_git_workspace(directory_path, root_path):
                 ignored_count += 1
             else:
                 kept_dirs.append(directory)
