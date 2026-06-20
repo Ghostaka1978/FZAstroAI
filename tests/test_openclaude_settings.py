@@ -12,7 +12,9 @@ from fzastro_ai.dev_agent.openclaude_settings import (
 def test_openclaude_api_key_saves_outside_workspace(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    settings_file = tmp_path / "appdata" / "FZAstroAI" / "openclaude" / "openclaude_settings.json"
+    settings_file = (
+        tmp_path / "appdata" / "FZAstroAI" / "openclaude" / "openclaude_settings.json"
+    )
 
     saved = save_openclaude_api_key("sk-test-secret", settings_file=settings_file)
     loaded = load_openclaude_api_settings(settings_file=settings_file)
@@ -61,11 +63,15 @@ def test_openclaude_api_key_state_never_exposes_value(tmp_path):
 def test_openclaude_git_api_token_saves_outside_workspace(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    settings_file = tmp_path / "appdata" / "FZAstroAI" / "openclaude" / "openclaude_settings.json"
+    settings_file = (
+        tmp_path / "appdata" / "FZAstroAI" / "openclaude" / "openclaude_settings.json"
+    )
 
     from fzastro_ai.dev_agent.openclaude_settings import save_openclaude_git_api_token
 
-    saved = save_openclaude_git_api_token("github_pat_secret", settings_file=settings_file)
+    saved = save_openclaude_git_api_token(
+        "github_pat_secret", settings_file=settings_file
+    )
     loaded = load_openclaude_api_settings(settings_file=settings_file)
 
     assert saved.has_git_api_token
@@ -82,7 +88,9 @@ def test_openclaude_git_token_state_never_exposes_value(tmp_path):
     )
 
     settings_file = tmp_path / "settings.json"
-    settings = save_openclaude_git_api_token("github_pat_visible_bug", settings_file=settings_file)
+    settings = save_openclaude_git_api_token(
+        "github_pat_visible_bug", settings_file=settings_file
+    )
 
     state = openclaude_git_token_state(settings)
 

@@ -48,16 +48,25 @@ def test_session_warns_when_running_terminal_settings_are_stale():
     source = dev_workbench_source()
 
     assert "_openclaude_launch_snapshot" in source
-    assert "Restart required: running OpenClaude was launched with older settings" in source
+    assert (
+        "Restart required: running OpenClaude was launched with older settings"
+        in source
+    )
     assert "Running settings: current" in source
 
 
 def test_session_tab_uses_scroll_area_for_long_diagnostics():
     source = dev_workbench_source()
 
-    assert 'self.session_config_scroll = QScrollArea()' in source
-    assert 'self.session_config_scroll.setWidgetResizable(True)' in source
-    assert 'self.session_config_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)' in source
-    assert 'self.session_config_scroll.setWidget(config_box)' in source
-    assert 'self.session_config_panel = self.session_config_scroll' in source
-    assert 'self.session_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)' in source
+    assert "self.session_config_scroll = QScrollArea()" in source
+    assert "self.session_config_scroll.setWidgetResizable(True)" in source
+    assert (
+        "self.session_config_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)"
+        in source
+    )
+    assert "self.session_config_scroll.setWidget(config_box)" in source
+    assert "self.session_config_panel = self.session_config_scroll" in source
+    assert (
+        "self.session_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)"
+        in source
+    )

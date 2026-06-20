@@ -77,8 +77,6 @@ def test_project_root_validation_accepts_real_workspace_folder(tmp_path):
         validate_openclaude_project_root(missing)
 
 
-
-
 def test_openclaude_workspace_audit_blocks_parent_git_checkout_leak(tmp_path):
     parent_repo = tmp_path / "parent-repo"
     selected = parent_repo / "subproject"
@@ -254,8 +252,13 @@ def test_openclaude_project_context_contains_workspace_guidance(tmp_path):
     assert "run Python and shell commands" in context
     assert "FZAstro source checkout" in context
     assert "Workspace boundary" in context
-    assert "Do not read, summarize, modify, or infer details from sibling/parent projects" in context
-    assert "Git credential helpers from system/global Git config are disabled" in context
+    assert (
+        "Do not read, summarize, modify, or infer details from sibling/parent projects"
+        in context
+    )
+    assert (
+        "Git credential helpers from system/global Git config are disabled" in context
+    )
 
 
 def test_openclaude_task_prompt_references_workspace_artifacts(tmp_path):
