@@ -34,6 +34,8 @@
   let fitAddon = null;
   let fallback = document.getElementById('fallback');
   let terminalNode = document.getElementById('terminal');
+  let xtermAutoFollow = true;
+  let fallbackAutoFollow = true;
 
   function notifyReady(mode) {
     if (bridge && bridge.frontendReady) {
@@ -47,24 +49,72 @@
     }
   }
 
+  function fallbackAtBottom() {
+    return fallback.scrollTop + fallback.clientHeight >= fallback.scrollHeight - 4;
+  }
+
+  function writeFallback(text) {
+    const follow = fallbackAutoFollow || fallbackAtBottom();
+    fallback.textContent += String(text || '');
+    if (follow) {
+      fallback.scrollTop = fallback.scrollHeight;
+      fallbackAutoFollow = true;
+    }
+  }
+
+  function copyTextToClipboard(text) {
+    const payload = String(text || '');
+    if (!payload) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(payload).catch(function () {});
+      return;
+    }
+    const area = document.createElement('textarea');
+    area.value = payload;
+    area.setAttribute('readonly', 'readonly');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(area);
+  }
+
+  function installFallbackPaste() {
+    fallback.addEventListener('paste', function (event) {
+      const text = event.clipboardData ? event.clipboardData.getData('text/plain') : '';
+      if (text) {
+        if (term && term.paste) { term.paste(text); } else { sendToPython(text); }
+        event.preventDefault();
+      }
+    });
+  }
+
   function installFallback() {
     terminalNode.style.display = 'none';
     fallback.style.display = 'block';
-    fallback.textContent += '[fzastro] xterm.js assets not found; using basic terminal transcript fallback.\n';
+    writeFallback('[fzastro] xterm.js assets not found; using basic terminal transcript fallback.\n');
+    fallback.addEventListener('scroll', function () {
+      fallbackAutoFollow = fallbackAtBottom();
+    });
+    installFallbackPaste();
     fallback.addEventListener('keydown', function (event) {
       if (event.ctrlKey && event.key.toLowerCase() === 'c') { sendToPython('\x03'); event.preventDefault(); return; }
+      if (event.ctrlKey && event.key.toLowerCase() === 'v') { return; }
       if (event.key === 'Enter') { sendToPython('\r'); event.preventDefault(); return; }
       if (event.key === 'Backspace') { sendToPython('\x7f'); event.preventDefault(); return; }
       if (event.key === 'Tab') { sendToPython('\t'); event.preventDefault(); return; }
       if (event.key.length === 1 && !event.metaKey && !event.altKey) { sendToPython(event.key); event.preventDefault(); }
     });
-    window.fztermWrite = function (text) {
-      fallback.textContent += String(text || '');
-      fallback.scrollTop = fallback.scrollHeight;
-    };
-    window.fztermClear = function () { fallback.textContent = ''; };
+    window.fztermWrite = writeFallback;
+    window.fztermClear = function () { fallback.textContent = ''; fallbackAutoFollow = true; };
     window.fztermFocus = function () { fallback.focus(); };
     window.fztermFit = function () {};
+    window.fztermPasteText = function (text) { sendToPython(String(text || '')); fallback.focus(); };
+    window.fztermScrollPageUp = function () { fallbackAutoFollow = false; fallback.scrollTop = Math.max(0, fallback.scrollTop - fallback.clientHeight); fallback.focus(); };
+    window.fztermScrollPageDown = function () { fallback.scrollTop = Math.min(fallback.scrollHeight, fallback.scrollTop + fallback.clientHeight); fallbackAutoFollow = fallbackAtBottom(); fallback.focus(); };
+    window.fztermScrollBottom = function () { fallback.scrollTop = fallback.scrollHeight; fallbackAutoFollow = true; fallback.focus(); };
+    window.fztermCopySelection = function () { copyTextToClipboard(window.getSelection ? window.getSelection().toString() : ''); };
     fallback.focus();
     notifyReady('basic-dom-fallback');
   }
@@ -75,14 +125,36 @@
     }
   }
 
-  function fitAndReport() {
+  function isXtermAtBottom() {
+    if (!term || !term.buffer || !term.buffer.active) return true;
+    const buffer = term.buffer.active;
+    return buffer.viewportY >= buffer.baseY - 1;
+  }
+
+  function fitAndReport(forceFollow) {
+    const follow = Boolean(forceFollow) || xtermAutoFollow || isXtermAtBottom();
     if (fitAddon) {
       try { fitAddon.fit(); } catch (e) {}
     }
     reportSize();
-    if (term) {
-      try { term.scrollToBottom(); term.focus(); } catch (e) {}
+    if (term && follow) {
+      try { term.scrollToBottom(); } catch(e) {}
+      xtermAutoFollow = true;
     }
+    if (term && forceFollow) {
+      try { term.focus(); } catch (e) {}
+    }
+  }
+
+  function installXtermPasteHandlers() {
+    const pasteTarget = (term && term.element) ? term.element : terminalNode;
+    pasteTarget.addEventListener('paste', function (event) {
+      const text = event.clipboardData ? event.clipboardData.getData('text/plain') : '';
+      if (text) {
+        if (term && term.paste) { term.paste(text); } else { sendToPython(text); }
+        event.preventDefault();
+      }
+    });
   }
 
   function installXterm() {
@@ -95,7 +167,7 @@
     term = new Terminal({
       cursorBlink: true,
       convertEol: false,
-      scrollback: 10000,
+      scrollback: 20000,
       fontFamily: 'Cascadia Mono, Consolas, Liberation Mono, monospace',
       fontSize: 13,
       lineHeight: 1.1,
@@ -119,36 +191,57 @@
       term.loadAddon(fitAddon);
     }
     term.open(terminalNode);
-    fitAndReport();
-    window.setTimeout(fitAndReport, 50);
-    window.setTimeout(fitAndReport, 250);
-    window.setTimeout(fitAndReport, 750);
+    fitAndReport(true);
+    window.setTimeout(function () { fitAndReport(true); }, 50);
+    window.setTimeout(function () { fitAndReport(true); }, 250);
+    window.setTimeout(function () { fitAndReport(true); }, 750);
     term.onData(function (data) { sendToPython(data); });
+    if (term.onScroll) {
+      term.onScroll(function () { xtermAutoFollow = isXtermAtBottom(); });
+    }
     term.onResize(function (size) {
       if (bridge && bridge.resizeTerminal) bridge.resizeTerminal(size.cols, size.rows);
     });
+    installXtermPasteHandlers();
     if (window.ResizeObserver) {
-      const resizeObserver = new ResizeObserver(function () { fitAndReport(); });
+      const resizeObserver = new ResizeObserver(function () { fitAndReport(false); });
       resizeObserver.observe(terminalNode);
       resizeObserver.observe(document.body);
     }
-    window.addEventListener('resize', fitAndReport);
-    window.fztermWrite = function (text) { term.write(String(text || ''), function () { try { term.scrollToBottom(); } catch(e) {} }); };
-    window.fztermClear = function () { term.clear(); };
+    window.addEventListener('resize', function () { fitAndReport(false); });
+    window.fztermWrite = function (text) {
+      const follow = xtermAutoFollow || isXtermAtBottom();
+      term.write(String(text || ''), function () {
+        if (follow) {
+          try { term.scrollToBottom(); } catch(e) {}
+          xtermAutoFollow = true;
+        }
+      });
+    };
+    window.fztermClear = function () { term.clear(); xtermAutoFollow = true; };
     window.fztermFocus = function () { term.focus(); };
-    window.fztermFit = fitAndReport;
+    window.fztermFit = function () { fitAndReport(false); };
+    window.fztermPasteText = function (text) { const payload = String(text || ''); if (term.paste) { term.paste(payload); } else { sendToPython(payload); } term.focus(); };
+    window.fztermScrollPageUp = function () { term.scrollPages(-1); xtermAutoFollow = false; term.focus(); };
+    window.fztermScrollPageDown = function () { term.scrollPages(1); xtermAutoFollow = isXtermAtBottom(); term.focus(); };
+    window.fztermScrollBottom = function () { term.scrollToBottom(); xtermAutoFollow = true; term.focus(); };
+    window.fztermCopySelection = function () { copyTextToClipboard(term.getSelection ? term.getSelection() : ''); term.focus(); };
     term.focus();
     notifyReady('xterm.js');
   }
 
   window.fztermWrite = function (text) {
     fallback.style.display = 'block';
-    fallback.textContent += String(text || '');
-    fallback.scrollTop = fallback.scrollHeight;
+    writeFallback(text);
   };
-  window.fztermClear = function () { fallback.textContent = ''; };
+  window.fztermClear = function () { fallback.textContent = ''; fallbackAutoFollow = true; };
   window.fztermFocus = function () { fallback.focus(); };
   window.fztermFit = function () {};
+  window.fztermPasteText = function (text) { sendToPython(String(text || '')); fallback.focus(); };
+  window.fztermScrollPageUp = function () { fallbackAutoFollow = false; fallback.scrollTop = Math.max(0, fallback.scrollTop - fallback.clientHeight); fallback.focus(); };
+  window.fztermScrollPageDown = function () { fallback.scrollTop = Math.min(fallback.scrollHeight, fallback.scrollTop + fallback.clientHeight); fallbackAutoFollow = fallbackAtBottom(); fallback.focus(); };
+  window.fztermScrollBottom = function () { fallback.scrollTop = fallback.scrollHeight; fallbackAutoFollow = true; fallback.focus(); };
+  window.fztermCopySelection = function () { copyTextToClipboard(window.getSelection ? window.getSelection().toString() : ''); };
 
   if (typeof QWebChannel === 'undefined') {
     installFallback();

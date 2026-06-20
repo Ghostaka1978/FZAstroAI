@@ -15,7 +15,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QFont, QTextCursor
-from PySide6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractSlider, QPlainTextEdit, QVBoxLayout, QWidget
 
 try:  # Optional: PySide6 Addons / WebEngine may not be installed in all test envs.
     from PySide6.QtWebChannel import QWebChannel
@@ -169,9 +169,79 @@ class OpenClaudeTerminalWidget(QWidget):
             self._run_js(f"window.fztermWrite({json.dumps(payload)});")
             return
         if self._text_view is not None:
+            scroll_bar = self._text_view.verticalScrollBar()
+            old_value = scroll_bar.value()
+            follow = old_value >= max(0, scroll_bar.maximum() - 2)
+            edit_cursor = QTextCursor(self._text_view.document())
+            edit_cursor.movePosition(QTextCursor.End)
+            edit_cursor.insertText(payload)
+            if follow:
+                self._text_view.moveCursor(QTextCursor.End)
+            else:
+                # Keep the user's scrollback position instead of forcing the
+                # transcript back to the live tail on every PTY chunk.
+                scroll_bar.setValue(old_value)
+
+    def paste_text(self, text: str) -> None:
+        """Paste clipboard text into the interactive terminal session."""
+
+        payload = str(text or "")
+        if not payload:
+            return
+        if self._web_view is not None and self._web_ready:
+            self._run_js(f"window.fztermPasteText({json.dumps(payload)});")
+            return
+        self.input_received.emit(payload)
+
+    def scroll_page_up(self) -> None:
+        """Move the visible terminal scrollback up by one page."""
+
+        if self._web_view is not None and self._web_ready:
+            self._run_js("window.fztermScrollPageUp();")
+            return
+        if self._text_view is not None:
+            self._text_view.verticalScrollBar().triggerAction(
+                QAbstractSlider.SliderPageStepSub
+            )
+
+    def scroll_page_down(self) -> None:
+        """Move the visible terminal scrollback down by one page."""
+
+        if self._web_view is not None and self._web_ready:
+            self._run_js("window.fztermScrollPageDown();")
+            return
+        if self._text_view is not None:
+            self._text_view.verticalScrollBar().triggerAction(
+                QAbstractSlider.SliderPageStepAdd
+            )
+
+    def scroll_to_bottom(self) -> None:
+        """Resume live follow mode at the end of the terminal output."""
+
+        if self._web_view is not None and self._web_ready:
+            self._run_js("window.fztermScrollBottom();")
+            return
+        if self._text_view is not None:
             self._text_view.moveCursor(QTextCursor.End)
-            self._text_view.insertPlainText(payload)
-            self._text_view.moveCursor(QTextCursor.End)
+
+    def copy_selection(self) -> None:
+        """Copy selected terminal text where the active frontend supports it."""
+
+        if self._web_view is not None and self._web_ready:
+            self._run_js("window.fztermCopySelection();")
+            return
+        if self._text_view is not None:
+            self._text_view.copy()
+
+    def save_screenshot(self, path: Path) -> bool:
+        """Save a PNG capture of the visible terminal widget."""
+
+        target = Path(path).expanduser()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        pixmap = self.grab()
+        if pixmap.isNull():
+            return False
+        return bool(pixmap.save(str(target), "PNG"))
 
     def clear(self) -> None:  # noqa: A003 - Qt-like widget method name
         self._pending_output.clear()

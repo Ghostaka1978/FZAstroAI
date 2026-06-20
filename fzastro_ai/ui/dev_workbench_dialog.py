@@ -746,6 +746,22 @@ class DevWorkbenchDialog(QWidget):
         self.openclaude_clear_button.clicked.connect(
             self.clear_openclaude_terminal_output
         )
+        self.openclaude_paste_button = QPushButton("Paste")
+        self.openclaude_paste_button.clicked.connect(
+            self.paste_clipboard_into_openclaude_terminal
+        )
+        self.openclaude_page_up_button = QPushButton("Page Up")
+        self.openclaude_page_up_button.clicked.connect(
+            lambda: self.openclaude_terminal_output.scroll_page_up()
+        )
+        self.openclaude_bottom_button = QPushButton("Bottom")
+        self.openclaude_bottom_button.clicked.connect(
+            lambda: self.openclaude_terminal_output.scroll_to_bottom()
+        )
+        self.openclaude_screenshot_button = QPushButton("Screenshot")
+        self.openclaude_screenshot_button.clicked.connect(
+            self.save_openclaude_terminal_screenshot
+        )
         self.openclaude_external_button = QPushButton("Hidden Fallback")
         self.openclaude_external_button.clicked.connect(
             self.open_openclaude_external_terminal
@@ -800,6 +816,10 @@ class DevWorkbenchDialog(QWidget):
             self.openclaude_send_task_button,
             self.openclaude_stop_button,
             self.openclaude_clear_button,
+            self.openclaude_paste_button,
+            self.openclaude_page_up_button,
+            self.openclaude_bottom_button,
+            self.openclaude_screenshot_button,
             self.openclaude_external_button,
             self.openclaude_prompt_button,
             self.export_patch_button,
@@ -819,6 +839,10 @@ class DevWorkbenchDialog(QWidget):
             self.openclaude_send_task_button,
             self.openclaude_stop_button,
             self.openclaude_clear_button,
+            self.openclaude_paste_button,
+            self.openclaude_page_up_button,
+            self.openclaude_bottom_button,
+            self.openclaude_screenshot_button,
             self.openclaude_prompt_button,
             self.export_patch_button,
             self.reset_chat_button,
@@ -904,6 +928,10 @@ class DevWorkbenchDialog(QWidget):
         terminal_layout.setSpacing(4)
         terminal_header = QHBoxLayout()
         terminal_header.addStretch(1)
+        terminal_header.addWidget(self.openclaude_paste_button)
+        terminal_header.addWidget(self.openclaude_page_up_button)
+        terminal_header.addWidget(self.openclaude_bottom_button)
+        terminal_header.addWidget(self.openclaude_screenshot_button)
         terminal_header.addWidget(self.openclaude_launch_button)
         terminal_header.addWidget(self.openclaude_stop_button)
         terminal_header.addWidget(self.openclaude_clear_button)
@@ -926,6 +954,10 @@ class DevWorkbenchDialog(QWidget):
         self.openclaude_stop_button.setEnabled(False)
         self.openclaude_send_task_button.setEnabled(False)
         self.openclaude_clear_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_paste_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_page_up_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_bottom_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_screenshot_button.setCursor(Qt.PointingHandCursor)
         self.workspace_tabs.addTab(self.openclaude_terminal_frame, "Claude Terminal")
         self.workspace_tabs.setCurrentWidget(self.openclaude_terminal_frame)
 
@@ -1627,12 +1659,68 @@ class DevWorkbenchDialog(QWidget):
             self.openclaude_send_task_button.setEnabled(False)
             self.openclaude_stop_button.setEnabled(running)
             self.openclaude_clear_button.setEnabled(True)
+            self.openclaude_paste_button.setEnabled(running)
+            self.openclaude_page_up_button.setEnabled(True)
+            self.openclaude_bottom_button.setEnabled(True)
+            self.openclaude_screenshot_button.setEnabled(True)
         except Exception:
             pass
 
     def clear_openclaude_terminal_output(self):
         if hasattr(self, "openclaude_terminal_output"):
             self.openclaude_terminal_output.clear()
+
+    def paste_clipboard_into_openclaude_terminal(self):
+        text = QGuiApplication.clipboard().text()
+        if not text:
+            self._set_agent_status("Clipboard is empty")
+            return
+        if self.openclaude_worker is None:
+            self._append_openclaude_terminal_output(
+                "\n[fzastro] OpenClaude is not running. Press Start / Restart before pasting into the terminal.\n"
+            )
+            self._set_agent_status("OpenClaude terminal not running")
+            return
+        self.openclaude_terminal_output.paste_text(text)
+        self._set_agent_status("Pasted clipboard into OpenClaude terminal")
+        self._log("Pasted clipboard text into OpenClaude terminal.")
+
+    def save_openclaude_terminal_screenshot(self):
+        if not hasattr(self, "openclaude_terminal_output"):
+            return
+        default_name = time.strftime("fzastro_openclaude_terminal_%Y%m%d_%H%M%S.png")
+        default_path = Path.home() / "Pictures" / default_name
+        selected, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save OpenClaude Terminal Screenshot",
+            str(default_path),
+            "PNG Images (*.png)",
+        )
+        if not selected:
+            return
+        target = Path(selected)
+        if target.suffix.casefold() != ".png":
+            target = target.with_suffix(".png")
+        try:
+            ok = self.openclaude_terminal_output.save_screenshot(target)
+        except Exception as exc:
+            QMessageBox.warning(
+                self, "OpenClaude Screenshot", f"Could not save screenshot: {exc}"
+            )
+            return
+        if not ok:
+            QMessageBox.warning(
+                self,
+                "OpenClaude Screenshot",
+                "Could not capture the terminal screenshot.",
+            )
+            return
+        QGuiApplication.clipboard().setText(str(target))
+        self._set_agent_status("OpenClaude screenshot saved")
+        self._log(f"Saved OpenClaude terminal screenshot: {target}")
+        self._append_openclaude_terminal_output(
+            f"\n[fzastro] Terminal screenshot saved: {target}\n"
+        )
 
     def run_selected_dev_action(self):
         action = str(self.dev_action_combo.currentData() or "")
@@ -2445,6 +2533,10 @@ class DevWorkbenchDialog(QWidget):
             enabled[self.openclaude_send_task_button] = False
             enabled[self.openclaude_stop_button] = bool(openclaude_running)
             enabled[self.openclaude_clear_button] = True
+            enabled[self.openclaude_paste_button] = bool(openclaude_running)
+            enabled[self.openclaude_page_up_button] = True
+            enabled[self.openclaude_bottom_button] = True
+            enabled[self.openclaude_screenshot_button] = True
             enabled[self.final_report_button] = bool(
                 has_context
                 or has_patch
@@ -2464,6 +2556,10 @@ class DevWorkbenchDialog(QWidget):
             self.openclaude_send_task_button: "Hidden compatibility action; normal OpenClaude input goes directly through the terminal.",
             self.openclaude_stop_button: "Stop the embedded OpenClaude terminal session.",
             self.openclaude_clear_button: "Clear the visible OpenClaude terminal output.",
+            self.openclaude_paste_button: "Paste clipboard text directly into the running OpenClaude terminal.",
+            self.openclaude_page_up_button: "Scroll terminal history up without stopping live output.",
+            self.openclaude_bottom_button: "Return to the live terminal tail and resume follow mode.",
+            self.openclaude_screenshot_button: "Save a PNG screenshot of the visible terminal and copy its path to the clipboard.",
             self.openclaude_prompt_button: "Copy the structured FZAstro OpenClaude task prompt without launching OpenClaude.",
             self.stop_agent_button: "Stop the visible agent run immediately and ignore late model output from the retired worker.",
             self.preview_patch_button: "Validate and review an existing unified diff. If none exists, this opens inline guidance.",
