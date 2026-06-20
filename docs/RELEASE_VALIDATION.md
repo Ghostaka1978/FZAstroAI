@@ -113,6 +113,7 @@ Validation should check:
 - PyInstaller resource configuration for packaged static/assets/data files
 - Isolated `smoke_appdata` launch state for GUI smoke checks
 - Optional GUI smoke launch test when `-SkipLaunch` is not used
+- Optional external tools such as Ollama, Tesseract, and Playwright are checked with short timeouts; a hung `ollama list` should warn and continue instead of blocking release validation.
 
 ## 5. Manual acceptance checklist
 
@@ -209,9 +210,7 @@ Confirm **SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP** work 
 - Confirm failures and invalid model tool requests, such as an empty `search_text` query, are summarized/recovered in the Agent Workspace rather than silently looping until timeout.
 
 - Confirm a patch proposal appears as an inline workspace card, while the raw diff is still available under **Advanced Diagnostics -> Patch Diff**.
-- Confirm validation results appear as inline workspace cards, while full command output remains under **Advanced Diagnostics -> Validation**. On a generic Python test folder, Compile should run `compileall -q .` from the selected folder and then pytest from that same folder when tests exist, or report a clean pytest skip when none exist.
-- Confirm malformed patch diffs are rejected during Preview/Apply preflight with an inline recovery card and no Apply confirmation dialog.
-- Confirm Ask/Reply copies submitted text into the Agent Workspace and clears the task/reply composer for the next message.
+- Confirm validation results appear as inline workspace cards, while full command output remains under **Advanced Diagnostics -> Validation**. On a generic Python test folder, Compile should run `compileall -q .` from the selected folder; Feature/Full tests should run pytest from that same folder when tests exist, or report a clean skip when none exist.
 - Confirm patch work remains review-first, backed up, and approval-gated. Also confirm a unified diff that creates a new file with `/dev/null` can be previewed and applied, and that an already-applied implementation hunk with a remaining test-file hunk applies the remaining file instead of failing with a vague “no files changed” dialog. Optionally use **Ask / Reply** when the configured model endpoint is already available; confirm the app does not auto-start Ollama.
 
 ## 6. Git release commands
@@ -253,3 +252,6 @@ Developer Agent update: broad analysis requests such as `analyse all Python file
 - Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
 - Web Companion/LAN token/security tasks are routed to launcher/server/app/test files instead of unrelated UI files.
 - Invalid empty tool requests stop with actionable guidance instead of looping until timeout.
+
+
+Release validation skips `ollama list` by default so deploy checks do not depend on a running Ollama server. Use `scripts/validate_release.ps1 -DeepRuntimeChecks` only when you explicitly want a local Ollama model inventory check.

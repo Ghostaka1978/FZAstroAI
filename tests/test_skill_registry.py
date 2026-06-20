@@ -171,11 +171,15 @@ def test_new_chat_and_imported_documents_buttons_live_next_to_tools():
     assert "skills_group_layout.addWidget(self.new_chat_button" not in app_text
 
 
-def test_model_and_expandable_mode_share_top_bar_with_web_in_config_sidebar():
+def test_model_and_profile_controls_share_top_bar_with_web_in_config_sidebar():
     app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
 
-    assert 'self.mode_menu_button = QPushButton("Mode ▾")' in app_text
-    assert "self.mode_menu_button.setMenu(self.build_top_mode_menu())" in app_text
+    assert 'self.mode_menu_button = QPushButton("Mode ▾")' not in app_text
+    assert "self.mode_menu_button.setMenu(self.build_top_mode_menu())" not in app_text
+    assert "mode_group_layout.addWidget(self.mode_menu_button" not in app_text
+    assert "self.profile_menu_button.setMenu(self.build_profile_menu())" in app_text
+    assert "mode_group_layout.addWidget(self.profile_menu_button" in app_text
+    assert "def build_profile_menu(self):" in app_text
     assert "top_bar_layout.addWidget(runtime_group, 0)" in app_text
     assert "top_bar_layout.addWidget(web_group, 0)" not in app_text
     assert "cockpitWebGroup" not in app_text

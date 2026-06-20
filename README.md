@@ -131,7 +131,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -RunValidation -Gi
 
 The scripts enforce Python 3.11 for the build even if newer interpreters such as **Python 3.14** are installed on the system. `scripts/reset_venv.ps1` recreates the venv, sets `FZASTRO_PYTHON`, and uses the sibling build folder one folder above the project root: `..\FZAstroAI_BUILD`.
 
-`deploy.ps1` is the scripted release workflow command. It calls `scripts/clean_build.ps1`, which starts `build_exe.ps1` automatically, then validation can run `scripts/validate_release.ps1`. The cleanup/build/validation scripts use a progress bar, `VerboseOutput`, and logs under `..\FZAstroAI_BUILD\logs`.
+`deploy.ps1` is the scripted release workflow command. It calls `scripts/clean_build.ps1`, which starts `build_exe.ps1` automatically, then validation can run `scripts/validate_release.ps1`. The cleanup/build/validation scripts use a progress bar, `VerboseOutput`, and logs under `..\FZAstroAI_BUILD\logs`. Optional external checks for Ollama, Tesseract, and Playwright use timeouts and warn/continue so a hung `ollama list` cannot block deployment.
 
 The source handoff keeps the root folder lean: `main.py`, `DEPLOY.bat`, version/config files, README, requirements, pytest/Black config, icon/spec files used by the build, and the main `fzastro_ai/`, `docs/`, `scripts/`, and `tests/` folders. Generated caches, local virtual environments, external N.I.N.A. worktrees, bundled runtime binaries, and installer leftovers are not part of the clean source package.
 
@@ -174,12 +174,11 @@ The DEV cockpit now uses one Agent Workspace timeline for plans, answers, patch 
 
 ### Developer Agent apply hardening
 
-Patch application now handles partially stale unified diffs more safely. If an implementation hunk was already applied but a new test-file hunk still needs to be created, Developer Agent Mode skips only the proven already-applied section and applies the remaining valid section after creating a rollback snapshot. Apply failures now report failed paths and raw `git apply` details instead of only saying that no files changed. New-file `/dev/null` diff sections are validated and applied explicitly. Patch Preview now runs a non-mutating `git apply --check` preflight first, so malformed hunks are rejected before the Apply approval dialog.
-
-### Developer Agent generic-project polish
-
-Generic Python folders now use a full quick validation sequence from the selected root when **6 Compile** is clicked: `compileall -q .` followed by pytest when tests are present, or a clean skipped-pytest report when no tests are discovered. Final reports show the detected project profile and only require an EXE rebuild for Python changes inside the FZAstro application repo. Ask/Reply also behaves more like chat: submitted text is copied into the workspace and the composer is cleared for the next reply.
+Patch application now handles partially stale unified diffs more safely. If an implementation hunk was already applied but a new test-file hunk still needs to be created, Developer Agent Mode skips only the proven already-applied section and applies the remaining valid section after creating a rollback snapshot. Apply failures now report failed paths and raw `git apply` details instead of only saying that no files changed. New-file `/dev/null` diff sections are validated and applied explicitly.
 
 ### Developer Agent polish
 
 The DEV cockpit now remembers the last valid project root, shows progress and telemetry, highlights the next workflow action, keeps patch apply locked until preview, and uses generic evidence-based planning so patch-management wording does not pull in unrelated Developer Agent UI/type files.
+
+
+Release validation skips `ollama list` by default so deploy checks do not depend on a running Ollama server. Use `scripts/validate_release.ps1 -DeepRuntimeChecks` only when you explicitly want a local Ollama model inventory check.

@@ -7,7 +7,8 @@ param(
     [string]$ExePath = "",
     [switch]$KeepRunning,
     [switch]$SkipLaunch,
-    [switch]$VerboseOutput
+    [switch]$VerboseOutput,
+    [switch]$DeepRuntimeChecks
 )
 
 function Write-Ok {
@@ -240,7 +241,8 @@ function Invoke-NativeCommand {
         [string]$CommandPath,
         [string[]]$Arguments,
         [string]$LogPath,
-        [switch]$VerboseOutput
+        [switch]$VerboseOutput,
+        [int]$TimeoutSeconds = 0
     )
 
     $logDirectory = Split-Path -Parent $LogPath
@@ -251,13 +253,29 @@ function Invoke-NativeCommand {
     $argumentLine = ConvertTo-NativeArgumentLine -Arguments $Arguments
     Write-ValidationLog -Path $LogPath -Value "`n[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Description"
     Write-ValidationLog -Path $LogPath -Value ("COMMAND: {0} {1}" -f $CommandPath, $argumentLine)
+    if ($TimeoutSeconds -gt 0) {
+        Write-ValidationLog -Path $LogPath -Value ("TIMEOUT: {0} seconds" -f $TimeoutSeconds)
+    }
 
     $tempBase = Join-Path $logDirectory ([Guid]::NewGuid().ToString("N"))
     $stdoutPath = "$tempBase.stdout.log"
     $stderrPath = "$tempBase.stderr.log"
 
     try {
-        $process = Start-Process -FilePath $CommandPath -ArgumentList $argumentLine -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $process = Start-Process -FilePath $CommandPath -ArgumentList $argumentLine -NoNewWindow -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $timedOut = $false
+        if ($TimeoutSeconds -gt 0) {
+            $finished = $process.WaitForExit($TimeoutSeconds * 1000)
+            if (-not $finished) {
+                $timedOut = $true
+                try { $process.Kill() } catch { }
+                try { $process.WaitForExit(3000) } catch { }
+            }
+        }
+        else {
+            $process.WaitForExit()
+        }
+
         $stdoutText = ""
         $stderrText = ""
         if (Test-Path $stdoutPath) { $stdoutText = Get-Content -Path $stdoutPath -Raw -ErrorAction SilentlyContinue }
@@ -272,6 +290,12 @@ function Invoke-NativeCommand {
             Write-ValidationLog -Path $LogPath -Value "`n[stderr]"
             Write-ValidationLog -Path $LogPath -Value $stderrText
             if ($VerboseOutput) { Write-Host $stderrText }
+        }
+
+        if ($timedOut) {
+            Write-ValidationLog -Path $LogPath -Value ("TIMEOUT after {0} seconds" -f $TimeoutSeconds)
+            Write-ValidationLog -Path $LogPath -Value "EXIT CODE: -1"
+            return -1
         }
 
         Write-ValidationLog -Path $LogPath -Value ("EXIT CODE: {0}" -f $process.ExitCode)
@@ -303,7 +327,8 @@ function Invoke-PythonSnippet {
     param(
         [string]$PythonExe,
         [string]$Code,
-        [string]$Name = "snippet"
+        [string]$Name = "snippet",
+        [int]$TimeoutSeconds = 0
     )
 
     $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "fzastroai_build_checks"
@@ -319,7 +344,7 @@ function Invoke-PythonSnippet {
             $snippetLogPath = Join-Path $tempDir "$Name.log"
         }
         $snippetVerboseOutput = (-not $script:QuietOutput) -or $VerboseOutput
-        $script:PythonSnippetExitCode = Invoke-NativeCommand -Description "Python snippet: $Name" -CommandPath $PythonExe -Arguments @($tempFile) -LogPath $snippetLogPath -VerboseOutput:$snippetVerboseOutput
+        $script:PythonSnippetExitCode = Invoke-NativeCommand -Description "Python snippet: $Name" -CommandPath $PythonExe -Arguments @($tempFile) -LogPath $snippetLogPath -VerboseOutput:$snippetVerboseOutput -TimeoutSeconds $TimeoutSeconds
     }
     finally {
         Remove-Item -Force $tempFile -ErrorAction SilentlyContinue
@@ -578,18 +603,26 @@ Show-StageStep "Check PyInstaller resource configuration"
 Assert-PyInstallerResourceConfiguration -Root $ProjectRoot
 
 Show-StageStep "Check optional external tools"
+$OptionalToolTimeoutSeconds = 20
 $ollamaCommand = Get-Command ollama -ErrorAction SilentlyContinue
 if ($ollamaCommand) {
-    $ollamaVersionExit = Invoke-NativeCommand -Description "Ollama version check" -CommandPath $ollamaCommand.Source -Arguments @("--version") -LogPath $ValidationLog -VerboseOutput:$VerboseOutput
-    $ollamaListExit = Invoke-NativeCommand -Description "Ollama model list check" -CommandPath $ollamaCommand.Source -Arguments @("list") -LogPath $ValidationLog -VerboseOutput:$VerboseOutput
-    if (($ollamaVersionExit -ne 0) -or ($ollamaListExit -ne 0)) { Write-Warning "Ollama command exists but model list/version check failed" }
+    $ollamaVersionExit = Invoke-NativeCommand -Description "Ollama version check" -CommandPath $ollamaCommand.Source -Arguments @("--version") -LogPath $ValidationLog -VerboseOutput:$VerboseOutput -TimeoutSeconds $OptionalToolTimeoutSeconds
+    if ($DeepRuntimeChecks) {
+        $ollamaListExit = Invoke-NativeCommand -Description "Ollama model list check" -CommandPath $ollamaCommand.Source -Arguments @("list") -LogPath $ValidationLog -VerboseOutput:$VerboseOutput -TimeoutSeconds $OptionalToolTimeoutSeconds
+        if ($ollamaListExit -ne 0) { Write-Warning "Ollama model list optional check failed or timed out; continuing validation. Chat still works when Ollama or another configured API endpoint is available." }
+    }
+    else {
+        Write-ValidationLog -Path $ValidationLog -Value "Ollama model list check skipped by default; use -DeepRuntimeChecks to query local models."
+        Write-Warning "Ollama model list check skipped by default so release validation does not depend on a running Ollama server. Use -DeepRuntimeChecks for an optional model inventory check."
+    }
+    if ($ollamaVersionExit -ne 0) { Write-Warning "Ollama version optional check failed or timed out; continuing validation. Chat still works when Ollama or another configured API endpoint is available." }
 }
 else { Write-Warning "Ollama command not found. Chat requires Ollama or another configured API endpoint." }
 
 $tesseractCommand = Get-Command tesseract -ErrorAction SilentlyContinue
 if ($tesseractCommand) {
-    $tesseractExit = Invoke-NativeCommand -Description "Tesseract version check" -CommandPath $tesseractCommand.Source -Arguments @("--version") -LogPath $ValidationLog -VerboseOutput:$VerboseOutput
-    if ($tesseractExit -ne 0) { Write-Warning "Tesseract command exists but version check failed" }
+    $tesseractExit = Invoke-NativeCommand -Description "Tesseract version check" -CommandPath $tesseractCommand.Source -Arguments @("--version") -LogPath $ValidationLog -VerboseOutput:$VerboseOutput -TimeoutSeconds $OptionalToolTimeoutSeconds
+    if ($tesseractExit -ne 0) { Write-Warning "Tesseract optional check failed or timed out; OCR will be unavailable unless installed/configured." }
 }
 else { Write-Warning "Tesseract command not found. OCR will be unavailable unless installed/configured." }
 
@@ -609,8 +642,8 @@ with sync_playwright() as p:
         raise SystemExit(f"Chromium executable not found: {exe}")
     print(exe)
 '@
-Invoke-PythonSnippet -PythonExe $ResolvedPython -Code $PlaywrightCheck -Name "playwright_check"
-if ($script:PythonSnippetExitCode -ne 0) { Write-Warning "Playwright Chromium is not installed in the build environment. Run: `$env:PLAYWRIGHT_BROWSERS_PATH='0'; python -m playwright install chromium" }
+Invoke-PythonSnippet -PythonExe $ResolvedPython -Code $PlaywrightCheck -Name "playwright_check" -TimeoutSeconds 30
+if ($script:PythonSnippetExitCode -ne 0) { Write-Warning "Playwright optional check failed or timed out. Run: `$env:PLAYWRIGHT_BROWSERS_PATH='0'; python -m playwright install chromium" }
 
 
 Show-StageStep "Check release manifest and required files"

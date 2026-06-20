@@ -128,16 +128,18 @@ def apply_calibration_profile(self, profile_key, announce=True):
     if hasattr(self, "calibration_status_label"):
         self.calibration_status_label.setText(f"Active calibration: {profile['name']}")
 
-    if hasattr(self, "mode_menu_button"):
-        self.mode_menu_button.setText(f"{profile.get('icon') or profile['name'][:1]} ▾")
-        self.mode_menu_button.setToolTip(
+    if hasattr(self, "profile_menu_button"):
+        self.profile_menu_button.setText(
+            f"{profile.get('icon') or profile['name'][:1]} ▾"
+        )
+        self.profile_menu_button.setToolTip(
             f"Active calibration: {profile['name']}\n"
-            "Click to open the full assistant mode/profile menu."
+            "Click to switch calibration profile."
         )
-        self.mode_menu_button.setAccessibleName(
-            f"Open assistant mode menu. Active calibration: {profile['name']}"
+        self.profile_menu_button.setAccessibleName(
+            f"Open calibration profile menu. Active calibration: {profile['name']}"
         )
-        self.mode_menu_button.setMenu(self.build_top_mode_menu())
+        self.profile_menu_button.setMenu(self.build_profile_menu())
 
     self.refresh_system_prompt_summary()
     self.persist_calibration_profile_store()
@@ -165,16 +167,15 @@ def mark_custom_calibration(self):
     if hasattr(self, "calibration_status_label"):
         self.calibration_status_label.setText("Active calibration: Custom")
 
-    if hasattr(self, "mode_menu_button"):
-        self.mode_menu_button.setText("* ▾")
-        self.mode_menu_button.setToolTip(
-            "Active calibration: Custom\n"
-            "Click to open the full assistant mode/profile menu."
+    if hasattr(self, "profile_menu_button"):
+        self.profile_menu_button.setText("* ▾")
+        self.profile_menu_button.setToolTip(
+            "Active calibration: Custom\n" "Click to switch calibration profile."
         )
-        self.mode_menu_button.setAccessibleName(
-            "Open assistant mode menu. Active calibration: Custom"
+        self.profile_menu_button.setAccessibleName(
+            "Open calibration profile menu. Active calibration: Custom"
         )
-        self.mode_menu_button.setMenu(self.build_top_mode_menu())
+        self.profile_menu_button.setMenu(self.build_profile_menu())
 
     self.refresh_system_prompt_summary()
 

@@ -305,6 +305,27 @@ def test_release_docs_describe_artifact_hygiene_check():
     assert "repair_*.ps1" in docs
 
 
+def test_validate_release_optional_external_tools_have_timeouts():
+    script = (PROJECT_ROOT / "scripts" / "validate_release.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "[int]$TimeoutSeconds = 0" in script
+    assert "$OptionalToolTimeoutSeconds = 20" in script
+    assert "[switch]$DeepRuntimeChecks" in script
+    assert "Ollama model list check skipped by default" in script
+    assert "if ($DeepRuntimeChecks)" in script
+    assert "Ollama model list check" in script
+    assert 'Arguments @("list")' in script
+    assert "-TimeoutSeconds $OptionalToolTimeoutSeconds" in script
+    assert "TIMEOUT after {0} seconds" in script
+    assert (
+        "Ollama model list optional check failed or timed out; continuing validation"
+        in script
+    )
+    assert 'playwright_check" -TimeoutSeconds 30' in script
+
+
 def test_validate_release_requires_manifest_resource_check_and_isolated_smoke_appdata(
     project_root,
 ):

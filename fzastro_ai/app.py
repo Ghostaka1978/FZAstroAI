@@ -1213,23 +1213,12 @@ class FZAstroAI(
         self.profile_menu_button.setCursor(Qt.PointingHandCursor)
         self.profile_menu_button.setToolTip("Open calibration profile menu.")
         self.profile_menu_button.setAccessibleName("Open calibration profile menu")
-        self.profile_menu_button.setMenu(self.build_top_mode_menu())
-
-        self.mode_menu_button = QPushButton("Mode ▾")
-        self.mode_menu_button.setObjectName("cockpitModeButton")
-        self.mode_menu_button.setFixedSize(104, 36)
-        self.mode_menu_button.setCursor(Qt.PointingHandCursor)
-        self.mode_menu_button.setToolTip(
-            "Expand assistant mode, calibration, persona, memory, and runtime tools."
-        )
-        self.mode_menu_button.setAccessibleName("Open assistant mode menu")
-        self.mode_menu_button.setMenu(self.build_top_mode_menu())
+        self.profile_menu_button.setMenu(self.build_profile_menu())
 
         mode_group, mode_group_layout = _create_cockpit_group(
             "MODE", "cockpitModeGroup", title_width=44
         )
         mode_group_layout.addWidget(self.profile_menu_button, 0, Qt.AlignVCenter)
-        mode_group_layout.addWidget(self.mode_menu_button, 0, Qt.AlignVCenter)
 
         self.system_menu_button = QPushButton("Menu ▾")
         self.system_menu_button.setObjectName("cockpitSystemMenuButton")
@@ -3730,13 +3719,19 @@ class FZAstroAI(
         action.setDefaultWidget(label)
         menu.addAction(action)
 
-    def build_top_mode_menu(self):
-        """Build the expandable top-bar Mode menu."""
+    def build_profile_menu(self):
+        """Build the compact calibration-profile menu for the top bar."""
         menu = QMenu(self)
-
         self._add_menu_section_title(menu, "Calibration profiles")
 
-        for profile_key, profile in (self.calibration_profiles or {}).items():
+        profiles = self.calibration_profiles or {}
+        if not profiles:
+            action = QAction("No calibration profiles", self)
+            action.setEnabled(False)
+            menu.addAction(action)
+            return menu
+
+        for profile_key, profile in profiles.items():
             action = QAction(f"{profile['icon']} {profile['name']}", self)
             action.setToolTip(profile.get("tooltip", ""))
             action.setCheckable(True)
@@ -3748,7 +3743,11 @@ class FZAstroAI(
             )
             menu.addAction(action)
 
-        menu.addSeparator()
+        return menu
+
+    def build_top_mode_menu(self):
+        """Build the expandable top-bar Mode menu."""
+        menu = QMenu(self)
         self._add_skill_actions_to_menu(menu, "model_lab")
         return menu
 

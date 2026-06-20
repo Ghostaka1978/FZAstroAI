@@ -208,6 +208,11 @@ def test_profile_menu_closed_state_uses_compact_icon_display():
     assert "{profile.get('icon')" in profile_text
     assert "{profile['name']} v" not in profile_text
     assert 'QPushButton("P ▾")' in app_text
+    assert "self.profile_menu_button.setMenu(self.build_profile_menu())" in app_text
+    assert "self.profile_menu_button.setText(" in profile_text
+    assert "mode_menu_button" not in profile_text
+    assert 'self.mode_menu_button = QPushButton("Mode ▾")' not in app_text
+    assert "mode_group_layout.addWidget(self.mode_menu_button" not in app_text
     assert "QProgressDialog" in app_text
 
 
