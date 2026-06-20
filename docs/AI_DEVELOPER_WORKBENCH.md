@@ -212,7 +212,7 @@ Next stages are controlled auto-fix loops, deeper persistent memory/rule editing
 ### OpenClaude UX polish
 
 - OpenClaude remembers the last valid project root and restores it on reopen.
-- The cockpit shows a progress bar plus telemetry/status while scanning, planning, streaming, patching, and validating.
+- The OpenClaude page shows compact telemetry plus a colored running/stopped state indicator; the old progress bar is removed so the terminal keeps maximum space.
 - Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
 - File planning is generic and evidence-driven: task-management words such as `PatchProposal`, `unified`, `diff`, `summary`, `validation`, and `risk` are filtered from relevance scoring so patch tasks select implementation/test evidence instead of OpenClaude meta-files.
 - Invalid empty tool requests stop with actionable guidance instead of looping until timeout.
@@ -225,3 +225,8 @@ OpenClaude normal workflow now uses a compact two-tab workspace: **Session** for
 ### Next-action workflow controls
 
 The workflow now keeps one primary visible path: type directly in **Claude Terminal**. Session keeps setup and tools available without taking terminal space.
+
+
+### OpenClaude session cleanup
+
+Session is setup/status only: workspace, provider/environment, git state, AGENTS.md, and terminal frontend/backend readiness. Patch/test/report controls from the old DEV testbed are not exposed in Session; normal work happens directly in the Claude Terminal. Dirty git checkouts are shown with a warning so live workspace changes are visible before using OpenClaude.

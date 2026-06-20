@@ -274,6 +274,8 @@ def test_dev_workbench_uses_terminal_first_openclaude_mode():
     assert "Task / reply" not in text
     assert "This is the single normal OpenClaude input" not in text
     assert "Manual Input" not in text
+    assert "Tools:" not in text
+    assert "More actions..." not in text
     assert "openclaude_manual_input_frame" not in text
     assert "toggle_openclaude_manual_input" not in text
     assert "QPlainTextEdit#embeddedClaudeTerminal" in styles_text

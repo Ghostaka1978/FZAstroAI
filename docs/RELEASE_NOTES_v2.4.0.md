@@ -42,3 +42,8 @@ Full deploy path:
 .\DEPLOY.bat
 .\DEPLOY.bat -GitPush
 ```
+
+
+### OpenClaude session cleanup
+
+Session is setup/status only: workspace, provider/environment, git state, AGENTS.md, and terminal frontend/backend readiness. Patch/test/report controls from the old DEV testbed are not exposed in Session; normal work happens directly in the Claude Terminal. Dirty git checkouts are shown with a warning so live workspace changes are visible before using OpenClaude.

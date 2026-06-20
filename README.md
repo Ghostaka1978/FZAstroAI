@@ -184,7 +184,7 @@ The OpenClaude workspace now uses OpenClaude as the coding-agent path with the s
 ### OpenClaude UX polish
 
 - OpenClaude remembers the last valid project root and restores it on reopen.
-- The cockpit shows a progress bar plus telemetry/status while scanning, planning, streaming, patching, and validating.
+- The OpenClaude page shows compact telemetry plus a colored running/stopped state indicator; the old progress bar is removed so the terminal keeps maximum space.
 - Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
 - Web Companion/LAN token/security tasks are routed to launcher/server/app/test files instead of unrelated UI files.
 - Invalid empty tool requests stop with actionable guidance instead of looping until timeout.
@@ -208,3 +208,8 @@ Release validation skips `ollama list` by default so deploy checks do not depend
 ## OpenClaude
 
 The OpenClaude workspace uses a real terminal frontend when available: Qt WebEngine + xterm.js connected to Windows ConPTY/pywinpty. Run `scripts\setup_openclaude_companion.ps1 -InstallEmbeddedTerminalBackend -InstallTerminalFrontend` before building/deploying on Windows.
+
+
+### OpenClaude session cleanup
+
+Session is setup/status only: workspace, provider/environment, git state, AGENTS.md, and terminal frontend/backend readiness. Patch/test/report controls from the old DEV testbed are not exposed in Session; normal work happens directly in the Claude Terminal. Dirty git checkouts are shown with a warning so live workspace changes are visible before using OpenClaude.

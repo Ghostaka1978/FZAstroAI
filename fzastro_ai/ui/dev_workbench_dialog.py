@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
-    QProgressBar,
     QScrollArea,
     QTextBrowser,
     QSplitter,
@@ -529,14 +528,14 @@ class DevWorkbenchDialog(QWidget):
 
         title = QLabel("OpenClaude")
         title.setObjectName("settingsCardTitle")
-        root_layout.addWidget(title)
+        title.setVisible(False)
 
         subtitle = QLabel(
             "OpenClaude is hosted as a real terminal inside the selected workspace."
         )
         subtitle.setObjectName("settingsCardSubtitle")
         subtitle.setWordWrap(True)
-        root_layout.addWidget(subtitle)
+        subtitle.setVisible(False)
 
         config_box = QFrame()
         config_box.setObjectName("settingsCard")
@@ -603,17 +602,17 @@ class DevWorkbenchDialog(QWidget):
         telemetry_row.addStretch(1)
         status_strip_layout.addLayout(telemetry_row)
 
-        progress_row = QHBoxLayout()
-        progress_row.setSpacing(10)
-        self.progress_label = QLabel("Progress: idle")
+        state_row = QHBoxLayout()
+        state_row.setSpacing(10)
+        self.progress_label = QLabel("State: idle")
         self.progress_label.setObjectName("settingsCardSubtitle")
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(True)
-        progress_row.addWidget(self.progress_label)
-        progress_row.addWidget(self.progress_bar, 1)
-        status_strip_layout.addLayout(progress_row)
+        self.progress_label.setVisible(False)
+        self.openclaude_state_label = QLabel("● IDLE")
+        self.openclaude_state_label.setObjectName("settingsCardSubtitle")
+        self.openclaude_state_label.setAlignment(Qt.AlignCenter)
+        self.openclaude_state_label.setMinimumWidth(96)
+        self.openclaude_state_label.setVisible(False)
+        self._set_openclaude_state_badge("idle")
         root_layout.addWidget(status_strip)
 
         self.mode_help_label = QLabel("")
@@ -729,8 +728,9 @@ class DevWorkbenchDialog(QWidget):
         primary_row.addSpacing(10)
 
         self.dev_action_combo = QComboBox()
+        self.dev_action_combo.setVisible(False)
         self.dev_action_combo.setMinimumWidth(180)
-        self.dev_action_combo.addItem("More actions...", "")
+        self.dev_action_combo.addItem("Internal actions...", "")
         for label, action in (
             ("Preview Diff", "preview"),
             ("Apply Diff", "apply"),
@@ -745,15 +745,10 @@ class DevWorkbenchDialog(QWidget):
         ):
             self.dev_action_combo.addItem(label, action)
         self.dev_action_run_button = QPushButton("Run")
+        self.dev_action_run_button.setVisible(False)
         self.dev_action_run_button.clicked.connect(self.run_selected_dev_action)
-        session_tools_row = QHBoxLayout()
-        session_tools_row.addWidget(QLabel("Tools:"))
-        session_tools_row.addWidget(self.dev_action_combo)
-        session_tools_row.addWidget(self.dev_action_run_button)
-        session_tools_row.addStretch(1)
-        config_layout.addLayout(session_tools_row)
-        # The Session tab is setup-only. The visible terminal controls are kept
-        # on the Claude Terminal tab; internal tools stay here to preserve space.
+        # Session is setup/status only. Do not expose legacy patch/test action
+        # dropdowns here; OpenClaude is the visible coding surface.
 
         for button in (
             self.stop_agent_button,
@@ -802,7 +797,7 @@ class DevWorkbenchDialog(QWidget):
         self.next_step_label = QLabel("")
         self.next_step_label.setObjectName("settingsCardSubtitle")
         self.next_step_label.setWordWrap(True)
-        status_strip_layout.addWidget(self.next_step_label)
+        self.next_step_label.setVisible(False)
 
         # Do not keep the session controls as a permanent top card. They are
         # added to the workspace tabs below so the live terminal/timeline can
@@ -832,7 +827,7 @@ class DevWorkbenchDialog(QWidget):
         )
         self.agent_activity_label.setObjectName("sidebarFooter")
         self.agent_activity_label.setWordWrap(True)
-        status_strip_layout.addWidget(self.agent_activity_label)
+        self.agent_activity_label.setVisible(False)
 
         self.workspace_splitter = QSplitter(Qt.Horizontal)
         self.workspace_splitter.setChildrenCollapsible(False)
@@ -1120,9 +1115,9 @@ class DevWorkbenchDialog(QWidget):
         ok_status, status = self._run_git_command(root, "status", "--short")
         if ok_status and status:
             changed = len([line for line in status.splitlines() if line.strip()])
-            dirty = f"dirty · {changed} changed path(s)"
+            dirty = f"⚠ dirty · {changed} changed path(s)"
         elif ok_status:
-            dirty = "clean"
+            dirty = "✓ clean"
         else:
             dirty = "unknown"
 
@@ -1410,8 +1405,8 @@ class DevWorkbenchDialog(QWidget):
             and self.openclaude_worker is not None
         )
         try:
-            self.openclaude_launch_button.setText("Restart" if running else "Start")
             self.openclaude_launch_button.setEnabled(True)
+            self._set_openclaude_state_badge("running" if running else "idle")
             self.openclaude_send_task_button.setVisible(False)
             self.openclaude_send_task_button.setEnabled(False)
             self.openclaude_stop_button.setEnabled(running)
@@ -1572,8 +1567,10 @@ class DevWorkbenchDialog(QWidget):
 
     def _on_openclaude_terminal_started(self, message: str):
         # Keep the terminal content pure. OpenClaude owns the terminal screen;
-        # FZAstro setup/status details live in Session and the compact telemetry strip.
+        # FZAstro setup/status details live in Session and the compact telemetry/state strip.
         self._log(str(message or "OpenClaude started"))
+        self._set_agent_status("OpenClaude terminal running")
+        self._set_progress(None, "running")
         try:
             self.openclaude_terminal_output.fit()
             self.openclaude_terminal_output.focus_terminal()
@@ -1587,6 +1584,9 @@ class DevWorkbenchDialog(QWidget):
             f"{message}\n\n"
             "Check setup/build/deploy if the embedded ConPTY backend is unstable on this machine."
         )
+        self._set_openclaude_terminal_running(False)
+        self._set_agent_status("OpenClaude error")
+        self._set_progress(None, "error")
         self._log(f"Embedded OpenClaude terminal error: {message}")
 
     def _on_openclaude_terminal_completed(self):
@@ -1732,21 +1732,94 @@ class DevWorkbenchDialog(QWidget):
         except RuntimeError:
             pass
 
-    def _set_progress(self, value: int | None, text: str):
-        """Update the OpenClaude progress bar.
+    def _set_openclaude_state_badge(self, state: str) -> None:
+        """Show OpenClaude state on the Start/Restart button, not the telemetry strip."""
 
-        Use ``value=None`` for indeterminate work such as a streaming model
-        request where token count and tool-loop length are not known ahead of
-        time.
-        """
+        hidden_label = getattr(self, "openclaude_state_label", None)
+        if hidden_label is not None:
+            try:
+                hidden_label.setVisible(False)
+            except RuntimeError:
+                pass
+
+        button = getattr(self, "openclaude_launch_button", None)
+        if button is None:
+            return
+
+        normalized = (state or "idle").strip().lower()
+        if any(
+            token in normalized
+            for token in ("error", "failed", "unavailable", "blocked", "stopped")
+        ):
+            text = "● Stopped"
+            background = "#3a1116"
+            foreground = "#ff8f9b"
+            border = "#9f2835"
+            tooltip = "OpenClaude is stopped or unavailable. Click to start a new terminal session."
+        elif any(token in normalized for token in ("start", "launch", "stopping")):
+            text = "● Starting"
+            background = "#332509"
+            foreground = "#ffd479"
+            border = "#8a6a1f"
+            tooltip = "OpenClaude is starting."
+        elif any(
+            token in normalized
+            for token in (
+                "running",
+                "ready",
+                "thinking",
+                "waiting",
+                "executing",
+                "reading",
+                "sent",
+                "complete",
+                "done",
+            )
+        ):
+            text = "● Running"
+            background = "#0f2d1b"
+            foreground = "#7ee787"
+            border = "#267a3d"
+            tooltip = (
+                "OpenClaude is running. Click to restart the embedded terminal session."
+            )
+        else:
+            text = "Start"
+            background = "#111820"
+            foreground = "#d6e4f5"
+            border = "#2a3644"
+            tooltip = "Start the embedded OpenClaude terminal session."
 
         try:
-            self.progress_label.setText(f"Progress: {text}")
-            if value is None:
-                self.progress_bar.setRange(0, 0)
-            else:
-                self.progress_bar.setRange(0, 100)
-                self.progress_bar.setValue(max(0, min(100, int(value))))
+            button.setText(text)
+            button.setToolTip(tooltip)
+            button.setStyleSheet(
+                "QPushButton {"
+                f"color: {foreground};"
+                f"background: {background};"
+                f"border: 1px solid {border};"
+                "border-radius: 8px;"
+                "padding: 6px 12px;"
+                "font-weight: 700;"
+                "}"
+                "QPushButton:hover { border-color: #4b80c9; }"
+            )
+        except RuntimeError:
+            pass
+
+    def _set_progress(self, value: int | None, text: str):
+        """Update the compact OpenClaude state line.
+
+        The OpenClaude terminal is a live interactive session, so percentages are
+        misleading. Keep telemetry visible and show a clear running/stopped
+        indicator instead of a progress bar.
+        """
+
+        del value
+        status_text = str(text or "idle").strip() or "idle"
+        try:
+            self.progress_label.setText(f"State: {status_text}")
+            self._set_openclaude_state_badge(status_text)
         except RuntimeError:
             pass
 

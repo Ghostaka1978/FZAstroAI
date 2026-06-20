@@ -244,7 +244,7 @@ OpenClaude update: broad analysis requests such as `analyse all Python files` no
 ### OpenClaude UX polish
 
 - OpenClaude remembers the last valid project root and restores it on reopen.
-- The cockpit shows a progress bar plus telemetry/status while scanning, planning, streaming, patching, and validating.
+- The OpenClaude page shows compact telemetry plus a colored running/stopped state indicator; the old progress bar is removed so the terminal keeps maximum space.
 - Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
 - Web Companion/LAN token/security tasks are routed to launcher/server/app/test files instead of unrelated UI files.
 - Invalid empty tool requests stop with actionable guidance instead of looping until timeout.
@@ -260,3 +260,8 @@ Release validation skips `ollama list` by default so deploy checks do not depend
 - Start with `/help`, then run a workspace command such as `Run powershell -NoProfile -Command "Get-Location"`.
 - Confirm the terminal renders OpenClaude's TUI without repeated `Crafting...` spam or leaked ANSI color fragments.
 - Confirm there is no separate Task / reply box, and direct keyboard input inside the terminal reaches OpenClaude.
+
+
+### OpenClaude session cleanup
+
+Session is setup/status only: workspace, provider/environment, git state, AGENTS.md, and terminal frontend/backend readiness. Patch/test/report controls from the old DEV testbed are not exposed in Session; normal work happens directly in the Claude Terminal. Dirty git checkouts are shown with a warning so live workspace changes are visible before using OpenClaude.
