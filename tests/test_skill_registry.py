@@ -196,6 +196,31 @@ def test_model_and_profile_controls_share_top_bar_with_web_in_config_sidebar():
     assert "main_layout.addWidget(runtime_bar)" not in app_text
 
 
+def test_side_panels_overlay_main_without_layout_cramping():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+    main_layout_text = (
+        PROJECT_ROOT / "fzastro_ai" / "ui" / "main_layout.py"
+    ).read_text(encoding="utf-8-sig")
+    history_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "history_panel.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "self.root_shell = root" in app_text
+    assert "self.sidebar = QWidget(root)" in app_text
+    assert "self.history_panel = QWidget(root)" in app_text
+    assert "root_layout.addWidget(self.sidebar)" not in app_text
+    assert "root_layout.addWidget(self.history_panel)" not in app_text
+    assert "root_layout.addWidget(main, 1)" in app_text
+    assert "def _position_overlay_panels(self):" in main_layout_text
+    assert "sidebar.raise_()" in main_layout_text
+    assert "history_panel.raise_()" in main_layout_text
+    assert "def resizeEvent(self, event):" in main_layout_text
+    assert (
+        'position_panels = getattr(self, "_position_overlay_panels", None)'
+        in history_text
+    )
+
+
 def test_context_and_mode_are_in_skills_menu_labels():
     app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
 

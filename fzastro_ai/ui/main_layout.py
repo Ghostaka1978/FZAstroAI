@@ -449,10 +449,45 @@ class MainLayoutMixin:
             error_text or "nvidia-smi did not return GPU telemetry"
         )
 
+    def _position_overlay_panels(self):
+        """Keep side panels above the main workspace without layout cramping."""
+        root = getattr(self, "root_shell", None)
+
+        if root is None:
+            root = self.centralWidget() if hasattr(self, "centralWidget") else None
+
+        if root is None:
+            return
+
+        root_width = max(0, int(root.width()))
+        root_height = max(0, int(root.height()))
+
+        sidebar = getattr(self, "sidebar", None)
+        if sidebar is not None:
+            sidebar_width = max(0, int(sidebar.width() or sidebar.sizeHint().width()))
+            sidebar.setGeometry(0, 0, sidebar_width, root_height)
+            if sidebar.isVisible():
+                sidebar.raise_()
+
+        history_panel = getattr(self, "history_panel", None)
+        if history_panel is not None:
+            history_width = max(
+                0, int(history_panel.width() or history_panel.sizeHint().width())
+            )
+            history_x = max(0, root_width - history_width)
+            history_panel.setGeometry(history_x, 0, history_width, root_height)
+            if history_panel.isVisible():
+                history_panel.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_overlay_panels()
+
     def toggle_sidebar(self):
         self.sidebar_visible = not self.sidebar.isVisible()
         self.sidebar.setVisible(self.sidebar_visible)
         self.sidebar_button.setChecked(self.sidebar_visible)
+        self._position_overlay_panels()
 
     def toggle_skills_drawer(self):
         """Backward-compatible helper: open the Skills menu instead of an inline drawer."""

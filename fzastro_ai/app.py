@@ -709,11 +709,12 @@ class FZAstroAI(
         self.web_companion_auto_start_checkbox = None
 
         root = QWidget()
+        self.root_shell = root
         root_layout = QHBoxLayout(root)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        self.sidebar = QWidget()
+        self.sidebar = QWidget(root)
         self.sidebar.setFixedWidth(336)
         self.sidebar.setObjectName("sidebar")
         self.sidebar.hide()
@@ -1814,7 +1815,7 @@ class FZAstroAI(
         main_layout.addWidget(self.thought_panel)
         main_layout.addWidget(self.create_workspace_tabs(chat_surface), 1)
         main_layout.addWidget(composer_shell)
-        self.history_panel = QWidget()
+        self.history_panel = QWidget(root)
         self.history_panel.setFixedWidth(368)
         self.history_panel.setObjectName("historyPanel")
         self.history_panel.hide()
@@ -1913,11 +1914,15 @@ class FZAstroAI(
         history_panel_layout.addWidget(self.history_scroll, 1)
         self.render_history()
         _startup_step(5, "Restoring chat workspace and history...")
-        root_layout.addWidget(self.sidebar)
+        # Side panels are children of the root shell, not siblings in the main
+        # horizontal layout. They overlay the main workspace when opened so the
+        # chat/composer area keeps its usable width instead of being squeezed by
+        # configuration or history panels.
         root_layout.addWidget(main, 1)
-        root_layout.addWidget(self.history_panel)
 
         self.setCentralWidget(root)
+        self._position_overlay_panels()
+        QTimer.singleShot(0, self._position_overlay_panels)
         self.apply_styles()
         self.update_web_companion_sidebar()
         _startup_step(6, "Startup complete.")

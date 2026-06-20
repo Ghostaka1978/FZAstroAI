@@ -460,3 +460,6 @@ def toggle_history_panel(self):
     show_panel = not self.history_panel.isVisible()
     self.history_panel.setVisible(show_panel)
     self.history_button.setChecked(show_panel)
+    position_panels = getattr(self, "_position_overlay_panels", None)
+    if callable(position_panels):
+        position_panels()
