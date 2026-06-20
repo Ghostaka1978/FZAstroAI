@@ -577,6 +577,14 @@ class FZAstroAI(
 
         event.ignore()
 
+    def _handle_sidebar_mark_click(self, event):
+        if event.button() == Qt.LeftButton:
+            self.close_sidebar()
+            event.accept()
+            return
+
+        event.ignore()
+
     def __init__(self):
         super().__init__()
 
@@ -733,6 +741,9 @@ class FZAstroAI(
         sidebar_mark.setObjectName("sidebarBrandMark")
         sidebar_mark.setAlignment(Qt.AlignCenter)
         sidebar_mark.setFixedSize(36, 36)
+        sidebar_mark.setCursor(Qt.PointingHandCursor)
+        sidebar_mark.setToolTip("Close workspace panel")
+        sidebar_mark.mousePressEvent = self._handle_sidebar_mark_click
 
         sidebar_title_box = QWidget()
         sidebar_title_layout = QVBoxLayout(sidebar_title_box)
@@ -746,6 +757,13 @@ class FZAstroAI(
 
         sidebar_title_layout.addWidget(title)
         sidebar_title_layout.addWidget(sidebar_subtitle)
+        self.sidebar_close_button = QPushButton("×", self.sidebar)
+        self.sidebar_close_button.setObjectName("panelCloseButton")
+        self.sidebar_close_button.setFixedSize(34, 34)
+        self.sidebar_close_button.setCursor(Qt.PointingHandCursor)
+        self.sidebar_close_button.setToolTip("Close workspace")
+        self.sidebar_close_button.clicked.connect(self.close_sidebar)
+
         sidebar_header_layout.addWidget(sidebar_mark)
         sidebar_header_layout.addWidget(sidebar_title_box, 1)
 

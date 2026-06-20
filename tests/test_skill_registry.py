@@ -219,6 +219,15 @@ def test_side_panels_overlay_main_without_layout_cramping():
         'position_panels = getattr(self, "_position_overlay_panels", None)'
         in history_text
     )
+    assert 'self.sidebar_close_button = QPushButton("×", self.sidebar)' in app_text
+    assert "self.sidebar_close_button.clicked.connect(self.close_sidebar)" in app_text
+    layout_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "main_layout.py").read_text(
+        encoding="utf-8-sig"
+    )
+    assert "close_button.move(close_x, 16)" in layout_text
+    assert "close_button.raise_()" in layout_text
+    assert "sidebar_mark.mousePressEvent = self._handle_sidebar_mark_click" in app_text
+    assert "def close_sidebar(self):" in main_layout_text
 
 
 def test_context_and_mode_are_in_skills_menu_labels():

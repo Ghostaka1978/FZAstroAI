@@ -466,8 +466,19 @@ class MainLayoutMixin:
         if sidebar is not None:
             sidebar_width = max(0, int(sidebar.width() or sidebar.sizeHint().width()))
             sidebar.setGeometry(0, 0, sidebar_width, root_height)
+
+            close_button = getattr(self, "sidebar_close_button", None)
+            if close_button is not None:
+                close_x = max(8, sidebar_width - int(close_button.width()) - 12)
+                close_button.move(close_x, 16)
+                close_button.setVisible(sidebar.isVisible())
+                if sidebar.isVisible():
+                    close_button.raise_()
+
             if sidebar.isVisible():
                 sidebar.raise_()
+                if close_button is not None:
+                    close_button.raise_()
 
         history_panel = getattr(self, "history_panel", None)
         if history_panel is not None:
@@ -481,6 +492,21 @@ class MainLayoutMixin:
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._position_overlay_panels()
+
+    def close_sidebar(self):
+        sidebar = getattr(self, "sidebar", None)
+
+        if sidebar is None:
+            return
+
+        self.sidebar_visible = False
+        sidebar.hide()
+
+        button = getattr(self, "sidebar_button", None)
+        if button is not None:
+            button.setChecked(False)
+
         self._position_overlay_panels()
 
     def toggle_sidebar(self):
