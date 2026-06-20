@@ -785,6 +785,14 @@ $NinaSequenceTemplatePath = Join-Path $NinaTemplatesDir "osc_advanced_sequence_t
 if (-not (Test-Path -LiteralPath $NinaSequenceTemplatePath)) {
     throw "N.I.N.A. sequence template resource not found: $NinaSequenceTemplatePath"
 }
+$OpenClaudeRunScript = Join-Path $ScriptsRoot "run_openclaude.ps1"
+$OpenClaudeSetupScript = Join-Path $ScriptsRoot "setup_openclaude_companion.ps1"
+$OpenClaudeTerminalResources = Join-Path $ProjectRoot "fzastro_ai\resources\terminal"
+foreach ($OpenClaudeScript in @($OpenClaudeRunScript, $OpenClaudeSetupScript)) {
+    if (-not (Test-Path -LiteralPath $OpenClaudeScript)) {
+        throw "OpenClaude companion script not found: $OpenClaudeScript"
+    }
+}
 
 if (-not $PlaywrightLocalBrowsersDir) {
     $PlaywrightLocalBrowsersDir = Resolve-PlaywrightLocalBrowsersDir -PythonExe $ResolvedPython
@@ -811,6 +819,11 @@ $PyInstallerArgs = @(
     "--add-data", "$AstropySampClientPolicyPath;astropy\samp\data",
     "--add-data", "$AstroquerySimbadCriteriaPath;astroquery\simbad\data",
     "--add-data", "$NinaTemplatesDir;fzastro_ai/resources/nina_templates",
+    "--add-data", "$OpenClaudeRunScript;scripts",
+    "--add-data", "$OpenClaudeSetupScript;scripts",
+    "--add-data", "$OpenClaudeTerminalResources;fzastro_ai/resources/terminal",
+    "--hidden-import", "PySide6.QtWebEngineWidgets",
+    "--hidden-import", "PySide6.QtWebChannel",
     "--add-data", "$AstropySampIconPath;astropy\vo\samp\data",
     "--add-data", "$AstropySampCrossdomainPath;astropy\vo\samp\data",
     "--add-data", "$AstropySampClientPolicyPath;astropy\vo\samp\data",
@@ -842,6 +855,22 @@ elseif (-not $SkipPlaywrightBrowserInstall) {
     throw "Playwright package-local .local-browsers was expected but was not found: $PlaywrightLocalBrowsersDir"
 }
 
+$WinptyCheck = & $ResolvedPython -c "import winpty; print('ok')" 2>$null
+if ($LASTEXITCODE -eq 0 -and $WinptyCheck) {
+    $PyInstallerArgs = @(
+        $PyInstallerArgs[0..($PyInstallerArgs.Count - 2)]
+        "--collect-all"
+        "winpty"
+        "--hidden-import"
+        "winpty"
+        $PyInstallerArgs[$PyInstallerArgs.Count - 1]
+    )
+    Write-Host "Including pywinpty/winpty for embedded OpenClaude terminal."
+}
+else {
+    Write-Host "pywinpty/winpty is not installed in this Python environment; embedded OpenClaude terminal will use external fallback in the EXE." -ForegroundColor Yellow
+}
+
 Invoke-LoggedCommand -Description "PyInstaller build" -CommandPath $ResolvedPython -Arguments $PyInstallerArgs -LogPath $BuildLog -VerboseOutput:$VerboseOutput
 if (-not (Test-Path $FinalExe)) { throw "Build finished but EXE was not found: $FinalExe" }
 
@@ -853,6 +882,8 @@ if (-not (Test-Path $ReleaseValidationDoc)) { $ReleaseValidationDoc = Join-Path 
 Copy-Item -Force $ReleaseValidationDoc (Join-Path $ReleaseDir "RELEASE_VALIDATION.md") -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $ProjectRoot "docs\OFFLINE_VOICE_COMMANDS.md") (Join-Path $ReleaseDir "OFFLINE_VOICE_COMMANDS.md") -ErrorAction SilentlyContinue
 Copy-Item -Force (Join-Path $ScriptsRoot "install_offline_voice.ps1") $ReleaseDir -ErrorAction SilentlyContinue
+Copy-Item -Force $OpenClaudeRunScript $ReleaseDir -ErrorAction SilentlyContinue
+Copy-Item -Force $OpenClaudeSetupScript $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $RequirementsFile $ReleaseDir -ErrorAction SilentlyContinue
 Copy-Item -Force $VersionFile $ReleaseDir -ErrorAction SilentlyContinue
 
@@ -864,7 +895,7 @@ if (Test-Path $VersionFile) {
 }
 $ManifestPath = Join-Path $ReleaseDir "release_manifest.txt"
 $Manifest = @"
-FZAstro AI Imaging Production
+FZAstro AI OpenClaude Terminal Production
 Generated: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 ProjectRoot: $ProjectRoot
 Python: $ResolvedPython

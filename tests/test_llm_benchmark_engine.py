@@ -1,6 +1,5 @@
 from fzastro_ai.benchmarks import grade_benchmark_response
 
-
 IMAGE_SCALE_PROMPT = (
     "A telescope has 800 mm focal length and a camera with 3.76 micron pixels. "
     "Estimate the image scale in arcseconds per pixel using 206.265 * pixel_size / focal_length. "

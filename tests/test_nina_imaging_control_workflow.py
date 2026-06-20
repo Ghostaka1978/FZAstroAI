@@ -4,7 +4,6 @@ from pathlib import Path
 
 from fzastro_ai.nina import nina_bridge
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONTROL_SOURCE = PROJECT_ROOT / "fzastro_ai" / "ui" / "nina_control_dialog.py"
 TARGETS_SOURCE = PROJECT_ROOT / "fzastro_ai" / "ui" / "targets_dialog.py"

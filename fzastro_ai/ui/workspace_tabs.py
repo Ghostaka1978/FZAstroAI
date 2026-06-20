@@ -143,9 +143,9 @@ class WorkspaceTabsMixin:
         )
         self._add_workspace_app_action(
             menu,
-            "DEV",
+            "OpenClaude",
             "open_dev_workbench",
-            "Developer Agent Mode",
+            "OpenClaude",
         )
         self._add_workspace_app_action(
             menu,

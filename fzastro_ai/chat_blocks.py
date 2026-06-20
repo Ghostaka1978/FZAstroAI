@@ -16,7 +16,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Sequence, TypeAlias
 
-
 MessageRole: TypeAlias = Literal["user", "assistant", "system", "tool", "news"]
 TextFormat: TypeAlias = Literal["plain", "markdown"]
 ToolStatus: TypeAlias = Literal["running", "success", "warning", "error"]

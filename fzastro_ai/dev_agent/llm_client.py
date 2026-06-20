@@ -102,7 +102,7 @@ class RuntimeAgentClient:
         if is_local_ollama_base_url(self.config.base_url):
             if not is_local_ollama_listener_present(self.config.base_url, timeout=0.5):
                 raise DevAgentLLMError(
-                    "Local Ollama is not listening. Developer Agent Mode will not auto-start it."
+                    "Local Ollama is not listening. OpenClaude will not auto-start it."
                 )
 
     def is_available(self) -> bool:
@@ -158,7 +158,7 @@ class RuntimeAgentClient:
             if isinstance(delta, dict):
                 # Only display final assistant content. Reasoning fields are
                 # intentionally ignored so local reasoning models do not leak
-                # scratchpad text into the Developer Agent chat.
+                # scratchpad text into the OpenClaude chat.
                 text = cls._coerce_delta_value(delta.get("content"))
                 return text
             return ""
@@ -237,7 +237,7 @@ class RuntimeAgentClient:
 
         The request still uses the same main-app runtime configuration. This is
         only a transport change from blocking completion to incremental chunks,
-        so Developer Agent Mode stays aligned with normal chat settings and does
+        so OpenClaude stays aligned with normal chat settings and does
         not auto-start local Ollama.
         """
         self._ensure_local_listener()
@@ -294,7 +294,7 @@ class OllamaAgentClient:
         if is_local_ollama_base_url(self.config.base_url):
             if not is_local_ollama_listener_present(self.config.base_url, timeout=0.5):
                 raise DevAgentLLMError(
-                    "Local Ollama is not listening. Developer Agent Mode will not auto-start it."
+                    "Local Ollama is not listening. OpenClaude will not auto-start it."
                 )
 
     def is_available(self) -> bool:

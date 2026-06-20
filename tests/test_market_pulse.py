@@ -6,7 +6,6 @@ from fzastro_ai.market_sources import (
     parse_market_pulse_payload,
 )
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 

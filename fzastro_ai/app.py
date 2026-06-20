@@ -1138,16 +1138,16 @@ class FZAstroAI(
         self.new_chat_button.setAccessibleName("Start new chat")
         self.new_chat_button.clicked.connect(self.new_chat)
 
-        self.dev_workbench_button = QPushButton("⚙ DEV")
+        self.dev_workbench_button = QPushButton("OpenClaude")
         self.dev_workbench_button.setObjectName("cockpitSkillButton")
         self.dev_workbench_button.setProperty("accent", "true")
-        self.dev_workbench_button.setFixedSize(62, 36)
+        self.dev_workbench_button.setFixedSize(104, 36)
         self.dev_workbench_button.setCursor(Qt.PointingHandCursor)
         self.dev_workbench_button.clicked.connect(self.open_dev_workbench)
         self.dev_workbench_button.setToolTip(
-            "Open the Developer Agent Mode for scanning, planning, patch preview, and validation"
+            "Open the OpenClaude workspace for coding tasks, patch preview, and validation"
         )
-        self.dev_workbench_button.setAccessibleName("Open Developer Agent Mode")
+        self.dev_workbench_button.setAccessibleName("Open OpenClaude coding workspace")
 
         self.history_button = self._create_toolbar_button(
             "◷", "historyToggle", "Chat history"
@@ -3790,9 +3790,9 @@ class FZAstroAI(
     def build_composer_skills_menu(self):
         menu = QMenu(self)
 
-        dev_action = QAction("⚙ Developer Agent Mode", self)
+        dev_action = QAction("OpenClaude Coding", self)
         dev_action.setToolTip(
-            "Open the Developer Agent Mode for scanning, planning, patch preview, and validation."
+            "Open the OpenClaude workspace for coding tasks, patch preview, and validation."
         )
         dev_action.triggered.connect(lambda checked=False: self.open_dev_workbench())
         menu.addAction(dev_action)

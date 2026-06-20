@@ -28,7 +28,6 @@ except Exception:  # WebEngine is optional in source/dev installs.
 from ..workers.sky_quality_worker import SkyQualityFetchWorker
 from .window_utils import apply_window_defaults
 
-
 _LOCATION_HTML = """
 <!doctype html>
 <html>

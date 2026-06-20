@@ -1,4 +1,4 @@
-# FZAstro AI v2.3.1 Project Overview
+# FZAstro AI v2.4.0 Project Overview
 
 FZAstro AI is a Windows desktop AI workstation focused on astrophotography, local LLM work, project-aware coding assistance, document research, web research, local Python execution, and astronomy planning.
 
@@ -7,7 +7,7 @@ FZAstro AI is a Windows desktop AI workstation focused on astrophotography, loca
 | Area | Main files/folders | Purpose |
 |---|---|---|
 | Desktop shell | `fzastro_ai/app.py`, `fzastro_ai/ui/` | PySide6 main window, dialogs, message widgets, Help/About, benchmark and astro windows. |
-| Actions | `fzastro_ai/actions/` | Main-window command mixins for chat lifecycle, Python, web/news, market, Astro tools, voice, and Developer Agent Mode. |
+| Actions | `fzastro_ai/actions/` | Main-window command mixins for chat lifecycle, Python, web/news, market, Astro tools, voice, and OpenClaude. |
 | Workers | `fzastro_ai/workers/` | Threaded workers for chat, imports, memory extraction, model discovery, GPU telemetry, web search, and astronomy tasks. |
 | Knowledge | `fzastro_ai/knowledge_library.py` | Document import/search, PDF text/page handling, OCR hooks, and local SQLite-backed knowledge. |
 | Memory | `fzastro_ai/memory_store.py`, `fzastro_ai/ui/memory_dialog.py` | Persistent local memory, review, search, and extraction. |
@@ -15,7 +15,7 @@ FZAstro AI is a Windows desktop AI workstation focused on astrophotography, loca
 | LLM benchmark | `fzastro_ai/benchmarks/`, `fzastro_ai/ui/llm_benchmark_dialog.py` | Model latency/throughput/quality tests, telemetry, history, compare views. |
 | Astro tools | `fzastro_ai/astro_tools/`, `fzastro_ai/ui/*astro*`, `fzastro_ai/ui/seeing_dialog.py`, `fzastro_ai/ui/targets_dialog.py` | SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, SOLAR MAP. |
 | Web Companion | `fzastro_ai/web_companion/` | Local browser companion server and static interface for LAN/iPad/mobile workflows. |
-| Developer Agent Mode | `fzastro_ai/dev_agent/`, `fzastro_ai/ui/dev_workbench_dialog.py` | Project scanning, focused context, structured JSON tool execution, local Ollama inspect/plan/patch proposal, compile/pytest checks, failure analysis, and patch snapshot helpers. |
+| OpenClaude | `fzastro_ai/dev_agent/`, `fzastro_ai/ui/dev_workbench_dialog.py` | Project scanning, focused context, structured JSON tool execution, local Ollama inspect/plan/patch proposal, compile/pytest checks, failure analysis, and patch snapshot helpers. |
 | FZAstro Imaging / N.I.N.A. bundle | `fzastro_ai/nina/`, `fzastro_ai/ui/nina_control_dialog.py`, `fzastro_ai/actions/nina_actions.py`, `fzastro_ai/resources/nina_templates/`, `bundled_apps/FZAstroImaging/` | Side-by-side imaging-app launcher, quiet bundle build, local settings, update feed check, safe update package download, and review-only Advanced Sequencer plan export. |
 | Build/release | `DEPLOY.bat`, `scripts/build_exe.ps1`, `scripts/clean_build.ps1`, `scripts/deploy.ps1`, `scripts/validate_release.ps1` | Root deploy launcher plus repeatable Windows EXE build, validation, Git commit/tag, and optional push workflow. |
 
@@ -49,7 +49,7 @@ Set `FZASTRO_APP_DIR` to override the runtime data folder for testing or portabl
 - Deploy can run validation and then create the local release commit/tag with `-GitRelease`; `-GitPush` pushes the branch and tag.
 - Tracked installer/runtime leftovers were removed from the source root.
 - Generated Python bytecode, backup files, local virtual environments, and patch leftovers are omitted from the clean source package.
-- Developer Agent Mode is now a first-class app area rather than a separate overlay bundle.
+- OpenClaude is now a first-class app area rather than a separate overlay bundle.
 - Main astronomy tools open as tabs in the main workspace through the Apps launcher.
 - Adds safe predefined `/nina-plan` and `/imaging-plan` commands for review-first imaging plans.
 - Uses SITE, IMAGING, SEEING, and TARGETS context to choose practical targets and windows.

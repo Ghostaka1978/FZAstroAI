@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -257,3 +256,28 @@ def test_management_panels_cleanup_when_opened_as_tabs():
     assert "on_close=_clear_references" in memory_text
     assert '"settings.system_prompt"' in calibration_text
     assert "on_close=_clear_references" in calibration_text
+
+
+def test_dev_workbench_uses_terminal_first_openclaude_mode():
+    text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "dev_workbench_dialog.py").read_text(
+        encoding="utf-8-sig"
+    )
+    styles_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "styles.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "OpenClaude is hosted as a real terminal" in text
+    assert "No separate chat/composer surface" in text
+    assert "The terminal is the only visible OpenClaude input" in text
+    assert "openclaude_terminal_output" in text
+    assert "embeddedClaudeTerminalHost" in text
+    assert "Task / reply" not in text
+    assert "This is the single normal OpenClaude input" not in text
+    assert "Manual Input" not in text
+    assert "openclaude_manual_input_frame" not in text
+    assert "toggle_openclaude_manual_input" not in text
+    assert "QPlainTextEdit#embeddedClaudeTerminal" in styles_text
+    assert 'font-family: "Cascadia Mono"' in styles_text
+    assert "Legacy actions" not in text
+    assert "legacy_action_combo" not in text
+    assert 'primary_row.addWidget(QLabel("Legacy:"))' not in text

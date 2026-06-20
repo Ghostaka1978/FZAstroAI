@@ -31,7 +31,6 @@ from ..ui.astro_lookup_dialog import (
     show_astro_lookup_dialog,
 )
 
-
 # Keep the original FZASTRO web-app defaults from python/app.py.
 DEFAULT_ASTRO_LOCATION = {
     "lat": 50.24590,

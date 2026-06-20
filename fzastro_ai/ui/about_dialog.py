@@ -42,9 +42,9 @@ def open_about_window(parent):
         title.setObjectName("helpDialogTitle")
 
         subtitle = QLabel(
-            "Imaging Production local AI workstation for chat, documents, web "
+            "OpenClaude Terminal Production local AI workstation for chat, documents, web "
             "research, Python execution, memory, LLM benchmarking, the Astro Tools "
-            "Suite, FZAstro Imaging/N.I.N.A. planning, Web Companion, and Developer Agent Mode."
+            "Suite, FZAstro Imaging/N.I.N.A. planning, Web Companion, and OpenClaude."
         )
         subtitle.setObjectName("helpDialogSubtitle")
         subtitle.setWordWrap(True)
@@ -58,8 +58,8 @@ def open_about_window(parent):
 Version: {APP_VERSION}
 Release: {APP_MILESTONE}
 
-Imaging Production scope:
-- Version 2.3 tabbed workspace: Chat, LOOKUP, SEEING, SUN NOW, N.I.N.A., TARGETS, Help/About, and system panels open as main-window tabs
+OpenClaude Terminal Production scope:
+- Version 2.4 OpenClaude Terminal workspace: Chat, OpenClaude, LOOKUP, SEEING, SUN NOW, N.I.N.A., TARGETS, Help/About, and system panels open as main-window tabs
 - Workspace Apps launcher keeps astronomy and system tools available from every tab
 - Root deploy button: DEPLOY.bat runs validation and local Git release commit/tag automation
 - Optional deploy push: DEPLOY.bat -GitPush pushes the current branch and release tag
@@ -80,12 +80,12 @@ Imaging Production scope:
 - SEEING Astro Night Planner with cloud-aware scoring, astronomical-dark prioritization, Moon periods, and Bortle-aware top-bar tint
 - LOOKUP distance-ladder details for parallax, Gaia proxy, NED-D, and Hubble estimates where available
 - Optional distance-ladder calculation visibility via FZASTRO_USE_DISTANCE_LADDER=1
-- Developer Agent Mode for project scanning, focused coding context, safety modes, patch preview/apply, compile/pytest presets, and final engineering reports
+- Dedicated OpenClaude workspace terminal with Session setup, visible workspace/git/provider context, AGENTS.md project rules, and no old legacy DEV testbed in the normal UI
 - LLM Benchmark Dashboard with telemetry, Run All Presets, Delete Selected, history, compare, and persona/calibration controls
 - Source tags that identify whether answers come from local knowledge, web, files, Python, memory, app actions, or model reasoning
 - Persistent memory with review/search tools
 - Python code-block Run support through a real local Python interpreter
-- Repeatable EXE build tooling and release validation for Windows builds
+- Repeatable EXE build tooling, release validation, local Git release commit/tag support, and OpenClaude terminal setup/deploy checks for Windows builds
 
 Runtime storage:
 App data: {APP_DIR}

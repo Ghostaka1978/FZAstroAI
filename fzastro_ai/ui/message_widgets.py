@@ -78,7 +78,6 @@ from ..routing.source_tags import (
 )
 from .source_chips import add_source_header_widget
 
-
 CHAT_BLOCK_RENDERERS = {
     SourceHeaderBlock: "_render_source_header_block",
     NewsHeaderBlock: "_render_news_header_block",

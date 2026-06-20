@@ -35,7 +35,6 @@ from PySide6.QtWidgets import (
 from ..workers.solar_map_worker import SolarMapWorker
 from .window_utils import apply_window_defaults
 
-
 AU_TO_SCENE = 44.0
 MODE_LIMITS_AU = {
     "inner": 2.2,

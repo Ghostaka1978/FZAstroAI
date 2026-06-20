@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 from importlib import resources
 
-
 TEMPLATE_FILENAME = "osc_advanced_sequence_template.json"
 TEMPLATE_PACKAGE = "fzastro_ai.resources.nina_templates"
 TEMPLATE_PATH = (

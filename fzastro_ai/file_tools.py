@@ -14,7 +14,6 @@ from io import BytesIO
 from .config import CHAT_ATTACHMENT_MAX_BYTES, CHAT_IMAGE_ATTACHMENT_MAX_BYTES
 from .logging_utils import log_debug, log_exception, log_warning
 
-
 IMAGE_FILE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp")
 
 

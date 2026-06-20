@@ -1,6 +1,10 @@
-# FZAstro AI v2.3.1 Imaging Production Build and Validation
+# FZAstro AI v2.4.0 OpenClaude Terminal Production Build and Validation
 
-This file is the production release checklist for **FZAstro AI v2.3.1 - Imaging Production**.
+This file is the production release checklist for **FZAstro AI v2.4.0 - OpenClaude Terminal Production**.
+
+## 0. v2.4.0 major release note
+
+This is a major OpenClaude release. The old legacy Developer Workbench / DEV testbed has been removed from the normal app surface. FZAstro now ships a dedicated OpenClaude workspace with Session setup and a real embedded terminal. The release tag is `v2.4.0`.
 
 A build can be marked production-ready only after automated tests, release validation, and manual acceptance checks pass on the target Windows machine.
 
@@ -55,7 +59,7 @@ Recommended root deploy button:
 .\DEPLOY.bat
 ```
 
-`DEPLOY.bat` runs `scripts/deploy.ps1 -RunValidation -GitRelease`. After a successful build and validation, it stages the release changes, creates a local release commit, and creates the annotated tag from `VERSION.txt` (`v2.3.1` for this release).
+`DEPLOY.bat` runs `scripts/deploy.ps1 -RunValidation -GitRelease`. After a successful build and validation, it stages the release changes, creates a local release commit, and creates the annotated tag from `VERSION.txt` (`v2.4.0` for this release).
 
 To also push the current branch and tag:
 
@@ -77,8 +81,8 @@ The deploy/build/validation scripts use a quiet progress display by default. The
 Git release flags:
 
 - `-GitRelease` stages release changes, creates a commit, and creates the tag from `VERSION.txt`.
-- `-GitTag v2.3.1` overrides the default tag if needed.
-- `-GitCommitMessage "Release FZAstro AI v2.3.1"` overrides the default commit message.
+- `-GitTag v2.4.0` overrides the default tag if needed.
+- `-GitCommitMessage "Release FZAstro AI v2.4.0"` overrides the default commit message.
 - `-GitPush` pushes the current branch and tag to `origin` after the local commit/tag.
 - `-GitRemote` and `-GitBranch` can override the push target.
 
@@ -120,14 +124,14 @@ Validation should check:
 ### Desktop app
 
 - Launch `FZAstroAI.exe`.
-- Confirm the title/about identity is `FZAstro AI v2.3.1 (Imaging Production)`.
+- Confirm the title/about identity is `FZAstro AI v2.4.0 (OpenClaude Terminal Production)` and that the OpenClaude tab replaces the old DEV testbed.
 - Confirm normal chat works with the configured Ollama/OpenAI-compatible endpoint.
 - Confirm source chips still appear for LLM, Docs, Web, Files, Python, Memory, News, Market, and App workflows.
 - Confirm the app closes cleanly without worker shutdown errors.
 
 ### Documentation/help/about
 
-- Help and About should describe v2.3.1, not RC3 or older v2.1 text as the current release.
+- Help and About should describe v2.4.0 OpenClaude Terminal Production, not RC3, older v2.1 text, or the old legacy DEV testbed as the current release.
 - Root should contain one primary `README.md`; detailed docs should live under `docs/`.
 - Root should expose one easy deploy button, `DEPLOY.bat`; PowerShell workflow logic should remain under `scripts/`.
 - Root should not contain stale installer/runtime leftovers such as `Codex Installer.exe`, `Microsoft.Services.Store.winmd`, or `DELETE_THESE_FILES.txt`.
@@ -190,28 +194,20 @@ Confirm **SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP** work 
 - Confirm the web UI shows the control-panel, hidden advanced runtime area, Daily News Brief, and Astro Tools toolbar.
 - Confirm `with_image: true`, `/api/news/daily`, `/api/assets/file`, and image asset serving work.
 
-### Developer Agent Mode
+### OpenClaude
 
-- Click **DEV** in the quick actions bar.
-- Scan the project root. Close and reopen DEV, then confirm the last valid project root is restored without browsing again.
-- Enter a coding request and build context + plan.
-- Confirm the main **Agent Workspace** shows the plan, and that **Evidence** opens as a resizable right-side drawer with its own scroll area instead of expanding downward into the timeline.
-- Confirm **Advanced Diagnostics** opens as the same resizable right-side drawer, replaces the Evidence drawer when selected, contains Tool Log, Context, Patch Diff, Validation, and Report panes, and can be widened/narrowed by dragging the splitter handle. Runtime/model endpoint text and the visible Steering Prompt should not appear inside the drawer.
-- Confirm selected files and plan are relevant.
-- Use **Ask / Reply** on a broad read-only task such as `Deep analyse my app for risks` and confirm the Agent Workspace first shows read-only audit coverage across multiple app areas before producing a final report.
-- Confirm Review Only can execute safe inspection tools, but cannot apply patches, run build scripts, or execute unsafe commands.
-- Confirm the Agent Workspace streams progressively, renders Markdown headings/lists/tables, and the main UI remains responsive.
-- While the agent is active, confirm the status/telemetry strip and progress bar update and **Stop Agent** requests cancellation without closing the app.
-- Enter steering guidance such as `focus on shutdown risks` and confirm it is queued/applied to the next agent step or next Ask/Reply.
-- When the model asks a follow-up question, type the answer in the task box, click **Ask / Reply** again, and confirm the conversation continues instead of restarting from scratch.
-- Ask a follow-up that requires a tool, for example `Inspect the full Web Companion launcher token logic and confirm whether the default LAN token is a real risk. Do not patch yet.` Confirm the chat shows the read-only tool result and then a final conclusion, not only `Tool read_file ... ok`.
-- Run compile check.
-- Run pytest or a targeted test group.
-- Confirm failures and invalid model tool requests, such as an empty `search_text` query, are summarized/recovered in the Agent Workspace rather than silently looping until timeout.
+- Click **OpenClaude** in the quick actions bar.
+- Open **Session** and confirm only setup/default items are present: workspace folder, model/endpoint summary, git status, AGENTS.md status, terminal frontend status, and internal tools.
+- Confirm the persistent telemetry/progress strip is visible above the OpenClaude workspace from both Session and Claude Terminal.
+- Confirm **Claude Terminal** contains only the large embedded terminal and compact controls: Status, Start/Restart, Stop, and Clear.
+- Confirm there is no visible Timeline tab, Evidence drawer button, Advanced Diagnostics button, External Terminal button, Manual Input control, mode/safety controls, legacy scan/plan/ask controls, separate Task/reply composer, or bottom hard-boundary footer.
+- Select a generic test workspace and run **Status**; confirm generic folders are accepted when they exist.
+- Click **Start** and confirm OpenClaude starts inside the selected workspace using the model from the top bar.
+- Type `/help` directly in the embedded terminal and confirm OpenClaude responds.
+- Type `create a simple python file to print 10 lines` directly in the embedded terminal and confirm OpenClaude operates in the selected workspace.
+- While OpenClaude is active, confirm the UI stays responsive, telemetry/progress remain visible, and **Stop** requests cancellation without closing FZAstro.
+- Use **Session -> Tools** for compile/test/preview/apply/report actions when needed.
 
-- Confirm a patch proposal appears as an inline workspace card, while the raw diff is still available under **Advanced Diagnostics -> Patch Diff**.
-- Confirm validation results appear as inline workspace cards, while full command output remains under **Advanced Diagnostics -> Validation**. On a generic Python test folder, Compile should run `compileall -q .` from the selected folder; Feature/Full tests should run pytest from that same folder when tests exist, or report a clean skip when none exist.
-- Confirm patch work remains review-first, backed up, and approval-gated. Also confirm a unified diff that creates a new file with `/dev/null` can be previewed and applied, and that an already-applied implementation hunk with a remaining test-file hunk applies the remaining file instead of failing with a vague “no files changed” dialog. Optionally use **Ask / Reply** when the configured model endpoint is already available; confirm the app does not auto-start Ollama.
 
 ## 6. Git release commands
 
@@ -225,29 +221,29 @@ Manual fallback if needed:
 ```powershell
 git status --short
 git add -A -- .
-git commit -m "Release FZAstro AI v2.3.1"
-git tag -a v2.3.1 -m "FZAstro AI v2.3.1"
+git commit -m "Release FZAstro AI v2.4.0"
+git tag -a v2.4.0 -m "FZAstro AI v2.4.0"
 git push origin main
-git push origin v2.3.1
+git push origin v2.4.0
 ```
 
 
 See also: `docs/SCRIPTS.md` for the consolidated PowerShell script folder layout.
 
 
-Developer Agent update: broad analysis requests such as `analyse all Python files` now build a project-audit index of every scanned `.py` file while keeping deep-read excerpts bounded.
+OpenClaude update: broad analysis requests such as `analyse all Python files` now build a project-audit index of every scanned `.py` file while keeping deep-read excerpts bounded.
 
-## Developer Agent Tool Loop Smoke Check
+## OpenClaude Tool Loop Smoke Check
 
 - Run `python -m pytest -q tests/test_dev_agent_action_executor_and_loop.py`.
 - Verify broad audit requests can index all Python files.
-- Verify `3 · Ask / Reply` shows tool-progress lines, not raw JSON tool blocks, and that follow-up replies keep conversation history.
+- Verify embedded OpenClaude output is terminal-style, generated prompt echo is hidden, and follow-up tasks keep the active terminal session context.
 - Verify reasoning fields from streaming providers are not rendered in the agent chat.
 
 
-### Developer Agent UX polish
+### OpenClaude UX polish
 
-- Developer Agent remembers the last valid project root and restores it on reopen.
+- OpenClaude remembers the last valid project root and restores it on reopen.
 - The cockpit shows a progress bar plus telemetry/status while scanning, planning, streaming, patching, and validating.
 - Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
 - Web Companion/LAN token/security tasks are routed to launcher/server/app/test files instead of unrelated UI files.
@@ -255,3 +251,12 @@ Developer Agent update: broad analysis requests such as `analyse all Python file
 
 
 Release validation skips `ollama list` by default so deploy checks do not depend on a running Ollama server. Use `scripts/validate_release.ps1 -DeepRuntimeChecks` only when you explicitly want a local Ollama model inventory check.
+
+### OpenClaude real terminal frontend validation
+
+- Run `scripts\setup_openclaude_companion.ps1 -InstallOpenClaudeIfMissing -InstallEmbeddedTerminalBackend -InstallTerminalFrontend` in the build/source environment.
+- Confirm `fzastro_ai\resources\terminal\vendor\xterm.js` and `xterm.css` exist before building the EXE.
+- Open **OpenClaude -> Session**, select a workspace, then open **Claude Terminal**.
+- Start with `/help`, then run a workspace command such as `Run powershell -NoProfile -Command "Get-Location"`.
+- Confirm the terminal renders OpenClaude's TUI without repeated `Crafting...` spam or leaked ANSI color fragments.
+- Confirm there is no separate Task / reply box, and direct keyboard input inside the terminal reaches OpenClaude.

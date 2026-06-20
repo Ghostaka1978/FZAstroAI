@@ -13,14 +13,33 @@ web_companion_static_datas = [
     ),
 ]
 
+openclaude_datas = [
+    (str(PROJECT_ROOT / "scripts" / "run_openclaude.ps1"), "scripts"),
+    (str(PROJECT_ROOT / "scripts" / "setup_openclaude_companion.ps1"), "scripts"),
+]
+terminal_resource_dir = PROJECT_ROOT / "fzastro_ai" / "resources" / "terminal"
+if terminal_resource_dir.exists():
+    openclaude_datas.append((str(terminal_resource_dir), "fzastro_ai/resources/terminal"))
+
 astro_datas = []
 for package_name in ("astroquery", "astropy", "skyfield"):
     astro_datas += collect_data_files(package_name)
 
 playwright_datas = collect_data_files("playwright")
 
+openclaude_pywinpty_datas = []
+try:
+    openclaude_pywinpty_datas += collect_data_files("winpty")
+except Exception:
+    pass
+
 voice_datas = []
 voice_binaries = []
+openclaude_binaries = []
+try:
+    openclaude_binaries += collect_dynamic_libs("winpty")
+except Exception:
+    pass
 for package_name in ("vosk", "sounddevice", "_sounddevice_data"):
     try:
         voice_datas += collect_data_files(package_name)
@@ -76,6 +95,7 @@ a = Analysis(
     pathex=[],
     binaries=[
         *voice_binaries,
+        *openclaude_binaries,
     ],
     datas=[
         ('favicon.ico', '.'),
@@ -85,6 +105,8 @@ a = Analysis(
         ('fzastro_ai/resources/nina_templates', 'fzastro_ai/resources/nina_templates'),
         *astro_datas,
         *web_companion_static_datas,
+        *openclaude_datas,
+        *openclaude_pywinpty_datas,
         *playwright_datas,
         *voice_datas,
     ],
@@ -93,6 +115,11 @@ a = Analysis(
         "sounddevice",
         "_sounddevice",
         "_sounddevice_data",
+        # Optional Windows ConPTY backend for the embedded OpenClaude terminal.
+        # Safe if pywinpty is unavailable in non-Windows build environments.
+        "winpty",
+        "PySide6.QtWebEngineWidgets",
+        "PySide6.QtWebChannel",
     ],
     hookspath=[],
     hooksconfig={},

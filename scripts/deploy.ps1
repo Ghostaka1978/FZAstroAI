@@ -11,6 +11,11 @@ param(
     [switch]$SkipOfflineVoiceSetup,
     [switch]$PersistVoiceEnvironment,
     [switch]$SkipDependencyInstall,
+    [switch]$SetupOpenClaudeCompanion,
+    [switch]$InstallOpenClaudeIfMissing,
+    [switch]$InstallNodeWithWinget,
+    [switch]$InstallEmbeddedTerminalBackend,
+    [switch]$InstallTerminalFrontend,
     [switch]$SkipFormat,
     [switch]$SkipValidationPrompt,
     [switch]$RunValidation,
@@ -395,12 +400,16 @@ $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 $BuildRoot = Resolve-BuildRootPath -RequestedBuildRoot $BuildRoot -Root $ProjectRoot
 $CleanScript = Join-Path $ScriptsRoot "clean_build.ps1"
 $ImagingBundleScript = Join-Path $ScriptsRoot "prepare_fzastro_imaging_bundle.ps1"
+$OpenClaudeSetupScript = Join-Path $ScriptsRoot "setup_openclaude_companion.ps1"
 
 if (-not (Test-Path $CleanScript)) {
     throw "Clean/build script not found: $CleanScript"
 }
 if ($BuildImagingBundle -and -not (Test-Path $ImagingBundleScript)) {
     throw "FZAstro Imaging bundle script not found: $ImagingBundleScript"
+}
+if ($SetupOpenClaudeCompanion -and -not (Test-Path $OpenClaudeSetupScript)) {
+    throw "OpenClaude companion setup script not found: $OpenClaudeSetupScript"
 }
 if ($GitRelease -and $CleanOnly) {
     throw "Git release automation cannot run with -CleanOnly."
@@ -417,9 +426,21 @@ Write-Host "Build:   $BuildRoot"
 Write-Host "Logs:    $LogDir"
 Write-Host ""
 $TotalDeploySteps = 2
+if ($SetupOpenClaudeCompanion) { $TotalDeploySteps += 1 }
 if ($BuildImagingBundle) { $TotalDeploySteps += 1 }
 if ($GitRelease) { $TotalDeploySteps += 1 }
 Initialize-StageProgress -Activity "FZAstro AI deploy" -TotalSteps $TotalDeploySteps
+if ($SetupOpenClaudeCompanion) {
+    Show-StageStep "OpenClaude companion setup"
+    $OpenClaudeParams = @{ PythonExe = $ResolvedPython }
+    if ($InstallOpenClaudeIfMissing) { $OpenClaudeParams["InstallOpenClaudeIfMissing"] = $true }
+    if ($InstallNodeWithWinget) { $OpenClaudeParams["InstallNodeWithWinget"] = $true }
+    if ($InstallEmbeddedTerminalBackend) { $OpenClaudeParams["InstallEmbeddedTerminalBackend"] = $true }
+    if ($InstallTerminalFrontend) { $OpenClaudeParams["InstallTerminalFrontend"] = $true }
+    & $OpenClaudeSetupScript @OpenClaudeParams
+    if (-not $?) { throw "OpenClaude companion setup failed." }
+}
+
 if ($SkipOfflineVoiceSetup) {
     Show-StageStep "Offline voice setup skipped"
 }

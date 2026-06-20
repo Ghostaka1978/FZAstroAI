@@ -124,6 +124,30 @@ def get_main_stylesheet():
                 font-size: 11px;
             }
 
+            QFrame#inlinePanel {
+                background: #0d1218;
+                border: 1px solid #243142;
+                border-radius: 10px;
+            }
+
+            QPlainTextEdit#embeddedClaudeTerminal {
+                background: #05080d;
+                color: #d6e4f0;
+                border: 1px solid #26364a;
+                border-radius: 10px;
+                padding: 10px 12px;
+                font-family: "Cascadia Mono", "Consolas", "Courier New", monospace;
+                font-size: 12px;
+                selection-background-color: #31587d;
+                selection-color: #ffffff;
+            }
+
+            QPlainTextEdit#embeddedClaudeTerminal:focus {
+                border-color: #58a6ff;
+                background: #070b12;
+            }
+
+
             QLabel#documentKnowledgeStatusLabel {
                 background: #0f141a;
                 color: #a9bdd4;

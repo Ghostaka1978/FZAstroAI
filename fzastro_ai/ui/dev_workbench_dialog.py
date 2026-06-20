@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import os
+import re
+import subprocess
 import threading
 import time
 
 from PySide6.QtCore import QObject, QThread, Qt, QTimer, Signal
-from PySide6.QtGui import QGuiApplication, QTextCursor
+from PySide6.QtGui import QFont, QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -41,6 +44,25 @@ from ..dev_agent.llm_client import (
     RuntimeAgentClient,
     RuntimeAgentConfig,
 )
+from ..dev_agent.openclaude_bridge import (
+    OpenClaudeBridgeError,
+    OpenClaudeLaunchConfig,
+    build_openclaude_task_prompt,
+    format_openclaude_status_markdown,
+    launch_openclaude_companion,
+    openclaude_artifact_paths,
+    safe_first_prompt,
+    write_openclaude_project_context,
+    write_openclaude_task_prompt,
+    ensure_openclaude_agents_file,
+)
+from ..dev_agent.openclaude_embedded_terminal import (
+    build_openclaude_embedded_command,
+    command_to_cmdline,
+    format_embedded_terminal_status,
+    get_embedded_terminal_support,
+)
+from .openclaude_terminal_widget import OpenClaudeTerminalWidget
 from ..dev_agent.patch_applier import (
     PatchPathError,
     apply_patch_proposal,
@@ -68,8 +90,228 @@ def _is_runtime_owner(candidate: Any) -> bool:
     )
 
 
+class _OpenClaudeTaskEdit(QPlainTextEdit):
+    """Single OpenClaude composer. Enter sends; Shift+Enter inserts a newline."""
+
+    submitted = Signal()
+
+    def keyPressEvent(self, event):  # noqa: N802 - Qt override name
+        key = event.key()
+        modifiers = event.modifiers()
+        if key in (Qt.Key_Return, Qt.Key_Enter) and not (modifiers & Qt.ShiftModifier):
+            self.submitted.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
+class _OpenClaudePtyWorker(QObject):
+    """Run OpenClaude inside a Windows ConPTY session for the embedded OpenClaude tab."""
+
+    started = Signal(str)
+    output = Signal(str)
+    failed = Signal(str)
+    completed = Signal()
+
+    def __init__(
+        self,
+        config: OpenClaudeLaunchConfig,
+        task_prompt: str,
+        *,
+        auto_send_prompt: bool = True,
+        initial_cols: int = 120,
+        initial_rows: int = 30,
+    ):
+        super().__init__()
+        self.config = config
+        self.task_prompt = task_prompt
+        self.auto_send_prompt = auto_send_prompt
+        self.initial_cols = max(40, int(initial_cols or 120))
+        self.initial_rows = max(10, int(initial_rows or 30))
+        self._latest_cols = self.initial_cols
+        self._latest_rows = self.initial_rows
+        self._stop_requested = threading.Event()
+        self._pty_lock = threading.Lock()
+        self._pty = None
+
+    def send_input(self, text: str) -> None:
+        payload = str(text or "")
+        if not payload:
+            return
+        self._write_pty(payload)
+
+    def resize_terminal(self, cols: int, rows: int) -> None:
+        cols = max(40, int(cols or self.initial_cols))
+        rows = max(10, int(rows or self.initial_rows))
+        self._latest_cols = cols
+        self._latest_rows = rows
+        with self._pty_lock:
+            pty = self._pty
+        if pty is None:
+            return
+        for method_name in ("setwinsize", "set_size", "resize"):
+            method = getattr(pty, method_name, None)
+            if callable(method):
+                try:
+                    method(int(cols), int(rows))
+                    return
+                except TypeError:
+                    try:
+                        method(int(rows), int(cols))
+                        return
+                    except Exception:
+                        continue
+                except Exception:
+                    continue
+
+    def request_stop(self) -> None:
+        self._stop_requested.set()
+        self._close_pty()
+
+    def _write_pty(self, payload: str) -> None:
+        with self._pty_lock:
+            pty = self._pty
+        if pty is None:
+            return
+        try:
+            pty.write(payload)
+        except Exception as exc:
+            self.output.emit(f"\n[embedded terminal write failed: {exc}]\n")
+
+    def _close_pty(self) -> None:
+        with self._pty_lock:
+            pty = self._pty
+        if pty is None:
+            return
+        for method_name in ("close", "kill", "terminate"):
+            method = getattr(pty, method_name, None)
+            if callable(method):
+                try:
+                    method()
+                    return
+                except Exception:
+                    continue
+
+    def _spawn_pty(self, command_line: str, cwd: Path, env: dict[str, str]):
+        import winpty  # type: ignore[import-not-found]
+
+        try:
+            pty = winpty.PTY(self._latest_cols, self._latest_rows)
+        except TypeError:
+            try:
+                pty = winpty.PTY(cols=self._latest_cols, rows=self._latest_rows)
+            except TypeError:
+                pty = winpty.PTY()
+
+        spawn = getattr(pty, "spawn", None)
+        if not callable(spawn):
+            raise RuntimeError("pywinpty PTY object does not expose spawn().")
+
+        attempts = (
+            lambda: spawn(command_line, cwd=str(cwd), env=env),
+            lambda: spawn(command_line, cwd=str(cwd)),
+            lambda: spawn(command_line),
+        )
+        last_error: Exception | None = None
+        for attempt in attempts:
+            try:
+                attempt()
+                return pty
+            except TypeError as exc:
+                last_error = exc
+                continue
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Could not spawn OpenClaude PTY session.")
+
+    def _read_pty(self, pty) -> str:
+        read = getattr(pty, "read", None)
+        if not callable(read):
+            raise RuntimeError("pywinpty PTY object does not expose read().")
+        try:
+            return str(read(4096) or "")
+        except TypeError:
+            return str(read() or "")
+
+    def run(self) -> None:
+        try:
+            context = build_openclaude_embedded_command(self.config)
+            if not context.support.supported:
+                self.failed.emit(
+                    context.support.reason
+                    + (
+                        f"\n{context.support.install_hint}"
+                        if context.support.install_hint
+                        else ""
+                    )
+                )
+                return
+
+            pty = self._spawn_pty(
+                command_to_cmdline(context.command),
+                context.cwd,
+                context.env,
+            )
+            with self._pty_lock:
+                self._pty = pty
+            self.resize_terminal(self._latest_cols, self._latest_rows)
+
+            self.started.emit(
+                f"Embedded OpenClaude started with {context.support.backend} in {context.cwd}"
+            )
+
+            started_at = time.monotonic()
+            initial_sent = not (self.auto_send_prompt and self.task_prompt.strip())
+            readiness_buffer = ""
+
+            while not self._stop_requested.is_set():
+                try:
+                    chunk = self._read_pty(pty)
+                except Exception as exc:
+                    if not self._stop_requested.is_set():
+                        message = str(exc)
+                        if "EOF" in message.upper():
+                            self.output.emit(
+                                "\n[embedded terminal session ended: standard output closed. "
+                                "If this happened immediately, check setup/build/deploy and the OpenClaude launcher output.]\n"
+                            )
+                        else:
+                            self.failed.emit(
+                                f"Embedded OpenClaude terminal stopped: {exc}"
+                            )
+                    return
+                if chunk:
+                    self.output.emit(chunk)
+                    if not initial_sent:
+                        readiness_buffer = (readiness_buffer + chunk)[-6000:]
+                else:
+                    time.sleep(0.03)
+
+                if not initial_sent:
+                    lowered = readiness_buffer.casefold()
+                    ready = (
+                        ("ready" in lowered and "/help" in lowered)
+                        or "type /help" in lowered
+                        or "openclaude v" in lowered
+                    )
+                    timed_out = time.monotonic() - started_at >= 8.0
+                    if ready or timed_out:
+                        if timed_out and not ready:
+                            self.output.emit(
+                                "\n[fzastro] OpenClaude readiness was not detected; sending queued task anyway.\n"
+                            )
+                        self._write_pty(self.task_prompt.rstrip() + "\r")
+                        initial_sent = True
+        except Exception as exc:
+            if not self._stop_requested.is_set():
+                self.failed.emit(str(exc))
+        finally:
+            self._close_pty()
+            self.completed.emit()
+
+
 class _DevAgentWorker(QObject):
-    """Run the Developer Agent loop away from the Qt UI thread."""
+    """Run the OpenClaude loop away from the Qt UI thread."""
 
     # Include the run id in worker-to-UI signals so the UI can connect these
     # signals directly to QObject methods. Avoid Python lambda wrappers here:
@@ -140,7 +382,7 @@ class _DevAgentWorker(QObject):
                 self.failed.emit(
                     self.run_id,
                     "Active model unavailable",
-                    "The active FZAstro model endpoint is not reachable. Developer Agent Mode did not auto-start Ollama.",
+                    "The active FZAstro model endpoint is not reachable. OpenClaude did not auto-start Ollama.",
                 )
                 return
 
@@ -170,7 +412,7 @@ class _DevAgentWorker(QObject):
 
 
 class DevWorkbenchDialog(QWidget):
-    """Step-based FZAstro AI Developer Agent cockpit.
+    """Step-based FZAstro AI OpenClaude workspace.
 
     The dialog is intentionally preview-first: it scans, prepares context, asks
     the active app model to inspect/plan/propose patches, applies only after
@@ -180,7 +422,7 @@ class DevWorkbenchDialog(QWidget):
     def __init__(self, parent=None, project_root: Path | str | None = None):
         super().__init__(parent, Qt.Window)
         self.app_window = self._find_runtime_owner(parent)
-        self.setWindowTitle("FZAstro AI Developer Agent Mode")
+        self.setWindowTitle("FZAstro AI OpenClaude")
         self.resize(1360, 860)
         self.setMinimumSize(1040, 700)
         apply_window_defaults(self)
@@ -207,10 +449,18 @@ class DevWorkbenchDialog(QWidget):
         self._agent_is_followup = False
         self.agent_thread: QThread | None = None
         self.agent_worker: _DevAgentWorker | None = None
+        self.openclaude_thread: QThread | None = None
+        self.openclaude_worker: _OpenClaudePtyWorker | None = None
+        self._openclaude_terminal_running = False
+        self._openclaude_terminal_cols = 120
+        self._openclaude_terminal_rows = 30
+        self._openclaude_prompt_echo_lines: set[str] = set()
+        self._openclaude_prompt_echo_notice_shown = False
+        self._openclaude_spinner_notice_shown = False
         self._agent_run_id = 0
         self._retired_agent_runs: list[tuple[int, QThread, _DevAgentWorker]] = []
         self._agent_stop_requested = False
-        # Developer Agent runs should behave like local coding-agent sessions:
+        # OpenClaude runs should behave like local coding-agent sessions:
         # do not kill a long patch/review run just because a fixed wall-clock
         # timer elapsed. The user-controlled Stop Agent button remains the
         # cancellation boundary. Keep a generous provider read timeout as a
@@ -236,9 +486,11 @@ class DevWorkbenchDialog(QWidget):
         self.telemetry_timer.timeout.connect(self.refresh_telemetry_from_app)
 
         self._build_ui()
-        self._log("Developer Agent Mode ready. Start at Step 1: scan the project.")
+        self._log(
+            "OpenClaude ready. Select a workspace in Session, then type directly in Claude Terminal."
+        )
         self._set_next_step(
-            "Step 1: enter a task, then click Scan Project. After an answer, use the same box as your reply field."
+            "Ready: set workspace defaults in Session, then type directly in Claude Terminal."
         )
         self._update_runtime_status()
         self._reset_progress_idle()
@@ -265,22 +517,22 @@ class DevWorkbenchDialog(QWidget):
             if self.project_root.exists() and self.project_root.is_dir():
                 save_developer_agent_last_project_root(self.project_root)
         except Exception as exc:
-            self._log(f"Could not save Developer Agent project root: {exc}")
+            self._log(f"Could not save OpenClaude project root: {exc}")
 
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
     def _build_ui(self):
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(14, 14, 14, 14)
-        root_layout.setSpacing(8)
+        root_layout.setContentsMargins(10, 10, 10, 10)
+        root_layout.setSpacing(6)
 
-        title = QLabel("Developer Agent Mode")
+        title = QLabel("OpenClaude")
         title.setObjectName("settingsCardTitle")
         root_layout.addWidget(title)
 
         subtitle = QLabel(
-            "Step-based coding workflow: scan -> plan -> ask/reply with the active model -> review patch -> apply -> validate -> report. Nothing edits files until you approve a patch."
+            "OpenClaude is hosted as a real terminal inside the selected workspace."
         )
         subtitle.setObjectName("settingsCardSubtitle")
         subtitle.setWordWrap(True)
@@ -293,42 +545,46 @@ class DevWorkbenchDialog(QWidget):
         config_layout.setSpacing(8)
 
         top_row = QHBoxLayout()
-        top_row.addWidget(QLabel("Project:"))
+        top_row.addWidget(QLabel("Workspace:"))
         self.root_input = QLineEdit(str(self.project_root))
-        self.root_input.setMinimumWidth(320)
-        top_row.addWidget(self.root_input, 3)
+        self.root_input.setMinimumWidth(420)
+        top_row.addWidget(self.root_input, 1)
         browse_button = QPushButton("Browse")
         browse_button.clicked.connect(self.browse_root)
         top_row.addWidget(browse_button)
-        top_row.addSpacing(8)
-        top_row.addWidget(QLabel("Mode:"))
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems([mode.value for mode in AgentMode])
-        self.mode_combo.setMinimumWidth(145)
-        self.mode_combo.currentTextChanged.connect(
-            lambda *_: self._on_mode_or_safety_changed()
-        )
-        top_row.addWidget(self.mode_combo)
-        top_row.addSpacing(8)
-        top_row.addWidget(QLabel("Safety:"))
-        self.safety_combo = QComboBox()
-        self.safety_combo.addItems([mode.value for mode in SafetyMode])
-        self.safety_combo.setCurrentText(SafetyMode.ASK_BEFORE_EDITING.value)
-        self.safety_combo.setMinimumWidth(210)
-        self.safety_combo.currentTextChanged.connect(
-            lambda *_: self._on_mode_or_safety_changed()
-        )
-        top_row.addWidget(self.safety_combo)
         top_row.addStretch(1)
         config_layout.addLayout(top_row)
 
-        # Runtime/model details are owned by the main FZAstro top bar. DEV keeps
+        # OpenClaude now owns edit/review behavior inside its terminal. These
+        # hidden defaults are retained only for compatibility with older helper
+        # methods and project-rule generation. They are not part of the visible UI.
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems([mode.value for mode in AgentMode])
+        self.mode_combo.setCurrentText(AgentMode.PATCH_RUN_TESTS.value)
+        self.mode_combo.setVisible(False)
+        self.safety_combo = QComboBox()
+        self.safety_combo.addItems([mode.value for mode in SafetyMode])
+        self.safety_combo.setCurrentText(SafetyMode.ASK_BEFORE_EDITING.value)
+        self.safety_combo.setVisible(False)
+
+        self.session_details_label = QLabel("")
+        self.session_details_label.setObjectName("sidebarFooter")
+        self.session_details_label.setWordWrap(True)
+        config_layout.addWidget(self.session_details_label)
+
+        # Runtime/model details are owned by the main FZAstro top bar. OpenClaude keeps
         # them out of the normal and advanced UI so diagnostics stay focused on
         # the selected project, tools, patch, and validation results.
         self.runtime_status_label = QLabel("")
         self.runtime_status_label.setVisible(False)
         self.runtime_status_label.setObjectName("sidebarFooter")
         self.runtime_status_label.setWordWrap(True)
+
+        status_strip = QFrame()
+        status_strip.setObjectName("settingsCard")
+        status_strip_layout = QVBoxLayout(status_strip)
+        status_strip_layout.setContentsMargins(10, 6, 10, 6)
+        status_strip_layout.setSpacing(4)
 
         telemetry_row = QHBoxLayout()
         telemetry_row.setSpacing(10)
@@ -345,7 +601,7 @@ class DevWorkbenchDialog(QWidget):
         telemetry_row.addWidget(self.gpu_telemetry_label, 1)
         telemetry_row.addWidget(self.system_telemetry_label, 1)
         telemetry_row.addStretch(1)
-        config_layout.addLayout(telemetry_row)
+        status_strip_layout.addLayout(telemetry_row)
 
         progress_row = QHBoxLayout()
         progress_row.setSpacing(10)
@@ -357,9 +613,11 @@ class DevWorkbenchDialog(QWidget):
         self.progress_bar.setTextVisible(True)
         progress_row.addWidget(self.progress_label)
         progress_row.addWidget(self.progress_bar, 1)
-        config_layout.addLayout(progress_row)
+        status_strip_layout.addLayout(progress_row)
+        root_layout.addWidget(status_strip)
 
         self.mode_help_label = QLabel("")
+        self.mode_help_label.setVisible(False)
         self.mode_help_label.setObjectName("sidebarFooter")
         self.mode_help_label.setWordWrap(True)
         config_layout.addWidget(self.mode_help_label)
@@ -372,13 +630,13 @@ class DevWorkbenchDialog(QWidget):
         self.base_url_input = QLineEdit(BASE_URL)
         self.base_url_input.setVisible(False)
 
-        # The task/reply composer lives in the Agent Workspace so the top
-        # control panel stays compact and the flow feels like the main chat.
-        self.request_edit = QPlainTextEdit()
-        self.request_edit.setPlaceholderText(
-            "Describe the task, or reply to the agent here. The DEV agent will plan, propose, preview, apply, and validate from this project."
-        )
-        self.request_edit.setFixedHeight(78)
+        # The visible interaction is the embedded terminal itself. Keep a hidden
+        # composer only so older helper methods/tests that inspect the attribute
+        # do not break; it is no longer part of the OpenClaude UI.
+        self.request_edit = _OpenClaudeTaskEdit()
+        self.request_edit.setVisible(False)
+        self.request_edit.setFixedHeight(0)
+        self.request_edit.submitted.connect(self.submit_openclaude_from_composer)
 
         # Steering/guidance is now internal prompt context. The normal UI keeps a
         # single composer so users do not have to decide between task text and a
@@ -390,43 +648,29 @@ class DevWorkbenchDialog(QWidget):
         self.steer_button.setVisible(False)
         self.steer_button.clicked.connect(self.add_agent_steering)
 
-        workflow_row = QHBoxLayout()
-        self.scan_button = QPushButton("1 · Scan Project")
+        # Keep the OpenClaude workspace compact: OpenClaude is now the only normal
+        # OpenClaude execution path. Tests and patch utilities live behind one tools
+        # dropdown so the embedded terminal has the screen space.
+        self.scan_button = QPushButton("Scan")
         self.scan_button.clicked.connect(self.scan_project)
-        self.plan_button = QPushButton("2 · Build Plan")
+        self.plan_button = QPushButton("Plan")
         self.plan_button.clicked.connect(self.build_context_plan)
-        self.local_agent_button = QPushButton("3 · Ask / Reply")
+        self.local_agent_button = QPushButton("Ask")
         self.local_agent_button.clicked.connect(self.run_local_agent)
         self.stop_agent_button = QPushButton("Stop Agent")
         self.stop_agent_button.clicked.connect(self.stop_agent)
         self.stop_agent_button.setEnabled(False)
-        self.preview_patch_button = QPushButton("4 · Preview Patch")
+        self.preview_patch_button = QPushButton("Preview Diff")
         self.preview_patch_button.clicked.connect(self.preview_patch)
-        self.apply_patch_button = QPushButton("5 · Apply Patch")
+        self.apply_patch_button = QPushButton("Apply Diff")
         self.apply_patch_button.clicked.connect(self.apply_patch)
-        self.compile_button = QPushButton("6 · Compile")
+        self.compile_button = QPushButton("Compile")
         self.compile_button.clicked.connect(
             lambda: self.run_validation(ValidationPreset.COMPILE_ONLY)
         )
-        self.final_report_button = QPushButton("7 · Final Report")
+        self.final_report_button = QPushButton("Final Report")
         self.final_report_button.clicked.connect(self.build_final_report)
 
-        for button in (
-            self.scan_button,
-            self.plan_button,
-            self.local_agent_button,
-            self.stop_agent_button,
-            self.preview_patch_button,
-            self.apply_patch_button,
-            self.compile_button,
-            self.final_report_button,
-        ):
-            button.setCursor(Qt.PointingHandCursor)
-            workflow_row.addWidget(button)
-        workflow_row.addStretch(1)
-        config_layout.addLayout(workflow_row)
-
-        utility_row = QHBoxLayout()
         self.fast_tests_button = QPushButton("Fast Tests")
         self.fast_tests_button.clicked.connect(
             lambda: self.run_validation(ValidationPreset.FAST_UNIT_TESTS)
@@ -439,46 +683,116 @@ class DevWorkbenchDialog(QWidget):
         self.full_pytest_button.clicked.connect(
             lambda: self.run_validation(ValidationPreset.FULL_PYTEST)
         )
-        self.copy_prompt_button = QPushButton("Copy Prompt")
+        self.copy_prompt_button = QPushButton("Internal Prompt")
         self.copy_prompt_button.clicked.connect(self.copy_system_prompt)
+        self.copy_prompt_button.setVisible(False)
         self.copy_context_button = QPushButton("Copy Context")
         self.copy_context_button.clicked.connect(self.copy_context_package)
+        self.openclaude_status_button = QPushButton("Status")
+        self.openclaude_status_button.clicked.connect(self.check_openclaude_companion)
+        self.openclaude_launch_button = QPushButton("Start / Restart")
+        self.openclaude_launch_button.clicked.connect(
+            self.restart_embedded_openclaude_terminal
+        )
+        self.openclaude_send_task_button = QPushButton("Send")
+        self.openclaude_send_task_button.setVisible(False)
+        self.openclaude_send_task_button.clicked.connect(
+            self.send_openclaude_task_to_terminal
+        )
+        self.openclaude_stop_button = QPushButton("Stop")
+        self.openclaude_stop_button.clicked.connect(
+            self.stop_embedded_openclaude_terminal
+        )
+        self.openclaude_clear_button = QPushButton("Clear")
+        self.openclaude_clear_button.clicked.connect(
+            self.clear_openclaude_terminal_output
+        )
+        self.openclaude_external_button = QPushButton("Hidden Fallback")
+        self.openclaude_external_button.clicked.connect(
+            self.open_openclaude_external_terminal
+        )
+        self.openclaude_prompt_button = QPushButton("Copy Claude Task")
+        self.openclaude_prompt_button.clicked.connect(self.copy_openclaude_safe_prompt)
         self.export_patch_button = QPushButton("Save Patch ZIP")
         self.export_patch_button.clicked.connect(self.export_patch)
         self.reset_chat_button = QPushButton("New Chat")
         self.reset_chat_button.clicked.connect(self.reset_agent_chat)
+
+        primary_row = QHBoxLayout()
+        primary_row.setSpacing(8)
         for button in (
+            self.openclaude_status_button,
+            self.openclaude_launch_button,
+        ):
+            button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_external_button.setVisible(False)
+        primary_row.addSpacing(10)
+
+        self.dev_action_combo = QComboBox()
+        self.dev_action_combo.setMinimumWidth(180)
+        self.dev_action_combo.addItem("More actions...", "")
+        for label, action in (
+            ("Preview Diff", "preview"),
+            ("Apply Diff", "apply"),
+            ("Compile", "compile"),
+            ("Fast Tests", "fast_tests"),
+            ("Feature Tests", "feature_tests"),
+            ("Full Pytest", "full_pytest"),
+            ("Final Report", "final_report"),
+            ("Copy Claude Task", "copy_claude_task"),
+            ("Save Patch ZIP", "export_patch"),
+            ("New Chat", "new_chat"),
+        ):
+            self.dev_action_combo.addItem(label, action)
+        self.dev_action_run_button = QPushButton("Run")
+        self.dev_action_run_button.clicked.connect(self.run_selected_dev_action)
+        session_tools_row = QHBoxLayout()
+        session_tools_row.addWidget(QLabel("Tools:"))
+        session_tools_row.addWidget(self.dev_action_combo)
+        session_tools_row.addWidget(self.dev_action_run_button)
+        session_tools_row.addStretch(1)
+        config_layout.addLayout(session_tools_row)
+        # The Session tab is setup-only. The visible terminal controls are kept
+        # on the Claude Terminal tab; internal tools stay here to preserve space.
+
+        for button in (
+            self.stop_agent_button,
+            self.preview_patch_button,
+            self.apply_patch_button,
+            self.compile_button,
+            self.final_report_button,
             self.fast_tests_button,
             self.feature_tests_button,
             self.full_pytest_button,
-            self.copy_prompt_button,
-            self.copy_context_button,
+            self.openclaude_status_button,
+            self.openclaude_launch_button,
+            self.openclaude_send_task_button,
+            self.openclaude_stop_button,
+            self.openclaude_clear_button,
+            self.openclaude_external_button,
+            self.openclaude_prompt_button,
             self.export_patch_button,
             self.reset_chat_button,
+            self.dev_action_run_button,
         ):
             button.setCursor(Qt.PointingHandCursor)
-            utility_row.addWidget(button)
-        utility_row.addStretch(1)
-        config_layout.addLayout(utility_row)
 
         self.workflow_buttons = (
-            self.scan_button,
-            self.plan_button,
-            self.local_agent_button,
-            self.stop_agent_button,
+            self.openclaude_launch_button,
             self.preview_patch_button,
             self.apply_patch_button,
             self.compile_button,
             self.final_report_button,
         )
         self.utility_buttons = (
-            self.fast_tests_button,
-            self.feature_tests_button,
-            self.full_pytest_button,
-            self.copy_prompt_button,
-            self.copy_context_button,
+            self.openclaude_status_button,
+            self.openclaude_send_task_button,
+            self.openclaude_stop_button,
+            self.openclaude_clear_button,
+            self.openclaude_prompt_button,
             self.export_patch_button,
             self.reset_chat_button,
+            self.dev_action_run_button,
         )
         self._button_base_labels = {
             button: button.text()
@@ -488,45 +802,37 @@ class DevWorkbenchDialog(QWidget):
         self.next_step_label = QLabel("")
         self.next_step_label.setObjectName("settingsCardSubtitle")
         self.next_step_label.setWordWrap(True)
-        config_layout.addWidget(self.next_step_label)
+        status_strip_layout.addWidget(self.next_step_label)
 
-        root_layout.addWidget(config_box)
+        # Do not keep the session controls as a permanent top card. They are
+        # added to the workspace tabs below so the live terminal/timeline can
+        # use the vertical space while configuration stays one click away.
+        self.session_config_panel = config_box
 
         workspace_box = QFrame()
         workspace_box.setObjectName("settingsCard")
         workspace_layout = QVBoxLayout(workspace_box)
-        workspace_layout.setContentsMargins(12, 10, 12, 10)
-        workspace_layout.setSpacing(8)
+        workspace_layout.setContentsMargins(8, 6, 8, 8)
+        workspace_layout.setSpacing(4)
         root_layout.addWidget(workspace_box, 1)
 
         workspace_header = QHBoxLayout()
-        workspace_title = QLabel("Agent Workspace")
+        workspace_title = QLabel("OpenClaude Workspace")
         workspace_title.setObjectName("settingsCardTitle")
         workspace_header.addWidget(workspace_title)
         workspace_header.addStretch(1)
-        self.evidence_toggle_button = QPushButton("Evidence · minimized")
-        self.evidence_toggle_button.setCursor(Qt.PointingHandCursor)
-        self.evidence_toggle_button.clicked.connect(self.toggle_evidence_panel)
-        workspace_header.addWidget(self.evidence_toggle_button)
-        self.advanced_toggle_button = QPushButton("Advanced Diagnostics ▸")
-        self.advanced_toggle_button.setCursor(Qt.PointingHandCursor)
-        self.advanced_toggle_button.clicked.connect(self.toggle_advanced_panel)
-        workspace_header.addWidget(self.advanced_toggle_button)
+        self.evidence_toggle_button = QPushButton("Internal Files")
+        self.evidence_toggle_button.setVisible(False)
+        self.advanced_toggle_button = QPushButton("Internal Details")
+        self.advanced_toggle_button.setVisible(False)
         workspace_layout.addLayout(workspace_header)
 
-        workspace_hint = QLabel(
-            "One-flow agent timeline. Plans, evidence summaries, patch proposals, previews, validation, and reports appear here; technical trace panels stay minimized unless needed."
-        )
-        workspace_hint.setObjectName("settingsCardSubtitle")
-        workspace_hint.setWordWrap(True)
-        workspace_layout.addWidget(workspace_hint)
-
         self.agent_activity_label = QLabel(
-            "Activity: idle. Tool and model activity appears here while a run is active; private reasoning is not shown."
+            "Activity: idle. OpenClaude terminal activity stays visible in the compact telemetry strip."
         )
         self.agent_activity_label.setObjectName("sidebarFooter")
         self.agent_activity_label.setWordWrap(True)
-        workspace_layout.addWidget(self.agent_activity_label)
+        status_strip_layout.addWidget(self.agent_activity_label)
 
         self.workspace_splitter = QSplitter(Qt.Horizontal)
         self.workspace_splitter.setChildrenCollapsible(False)
@@ -539,30 +845,55 @@ class DevWorkbenchDialog(QWidget):
         workspace_main.setSpacing(8)
         self.workspace_splitter.addWidget(workspace_main_widget)
 
+        self.workspace_tabs = QTabWidget()
+        workspace_main.addWidget(self.workspace_tabs, 1)
+        self.workspace_tabs.addTab(self.session_config_panel, "Session")
+
         self.plan_output = QTextBrowser()
         self.plan_output.setReadOnly(True)
         self.plan_output.setOpenExternalLinks(True)
         self.plan_output.setPlaceholderText(
-            "Agent timeline appears here. Start with Scan Project, Build Plan, then Ask / Reply."
+            "Internal status output. The visible OpenClaude workflow uses the Claude Terminal tab."
         )
-        workspace_main.addWidget(self.plan_output, 1)
+        self.plan_output.setVisible(False)
 
-        composer_frame = QFrame()
-        composer_frame.setObjectName("settingsCard")
-        composer_layout = QVBoxLayout(composer_frame)
-        composer_layout.setContentsMargins(10, 8, 10, 8)
-        composer_layout.setSpacing(6)
-        composer_label = QLabel("Task / reply")
-        composer_label.setObjectName("settingsCardSubtitle")
-        composer_layout.addWidget(composer_label)
-        composer_layout.addWidget(self.request_edit)
-        composer_hint = QLabel(
-            "Type once, then use the numbered workflow buttons. Follow-ups go in the same box after the agent answers."
+        self.openclaude_terminal_frame = QFrame()
+        self.openclaude_terminal_frame.setObjectName("settingsCard")
+        terminal_layout = QVBoxLayout(self.openclaude_terminal_frame)
+        terminal_layout.setContentsMargins(4, 4, 4, 4)
+        terminal_layout.setSpacing(4)
+        terminal_header = QHBoxLayout()
+        terminal_header.addStretch(1)
+        terminal_header.addWidget(self.openclaude_status_button)
+        terminal_header.addWidget(self.openclaude_launch_button)
+        terminal_header.addWidget(self.openclaude_stop_button)
+        terminal_header.addWidget(self.openclaude_clear_button)
+        terminal_layout.addLayout(terminal_header)
+        self.openclaude_terminal_output = OpenClaudeTerminalWidget()
+        self.openclaude_terminal_output.setObjectName("embeddedClaudeTerminalHost")
+        self.openclaude_terminal_output.setMinimumHeight(620)
+        self.openclaude_terminal_output.input_received.connect(
+            self._send_raw_openclaude_terminal_input
         )
-        composer_hint.setObjectName("sidebarFooter")
-        composer_hint.setWordWrap(True)
-        composer_layout.addWidget(composer_hint)
-        workspace_main.addWidget(composer_frame)
+        self.openclaude_terminal_output.resized.connect(
+            self._resize_openclaude_terminal
+        )
+        self.openclaude_terminal_output.frontend_ready.connect(
+            self._on_openclaude_terminal_frontend_ready
+        )
+        terminal_layout.addWidget(self.openclaude_terminal_output, 1)
+        # The terminal is the only visible OpenClaude input. Keyboard data is
+        # routed through xterm.js/ConPTY exactly like the standalone CLI.
+        self.openclaude_stop_button.setEnabled(False)
+        self.openclaude_send_task_button.setEnabled(False)
+        self.openclaude_clear_button.setCursor(Qt.PointingHandCursor)
+        self.workspace_tabs.addTab(self.openclaude_terminal_frame, "Claude Terminal")
+        self.workspace_tabs.setCurrentWidget(self.openclaude_terminal_frame)
+
+        # No separate chat/composer surface: the OpenClaude terminal is the only
+        # interaction surface, matching the external CLI. Keyboard input goes
+        # directly through xterm.js/ConPTY into OpenClaude.
+        self.request_edit.textChanged.connect(self._update_action_buttons)
 
         self.drawer_frame = QFrame()
         self.drawer_frame.setObjectName("settingsCard")
@@ -603,7 +934,7 @@ class DevWorkbenchDialog(QWidget):
         evidence_layout = QVBoxLayout(self.evidence_panel)
         evidence_layout.setContentsMargins(10, 8, 10, 8)
         evidence_layout.setSpacing(6)
-        evidence_title = QLabel("Evidence / Files")
+        evidence_title = QLabel("Internal Files")
         evidence_title.setObjectName("settingsCardSubtitle")
         evidence_layout.addWidget(evidence_title)
         self.file_list = QListWidget()
@@ -621,7 +952,7 @@ class DevWorkbenchDialog(QWidget):
         advanced_layout = QVBoxLayout(self.advanced_panel)
         advanced_layout.setContentsMargins(10, 8, 10, 8)
         advanced_layout.setSpacing(6)
-        advanced_title = QLabel("Advanced Diagnostics")
+        advanced_title = QLabel("Internal Details")
         advanced_title.setObjectName("settingsCardSubtitle")
         advanced_layout.addWidget(advanced_title)
         self.tabs = QTabWidget()
@@ -648,14 +979,8 @@ class DevWorkbenchDialog(QWidget):
         self.drawer_content_layout.addWidget(self.advanced_panel)
         self.drawer_content_layout.addStretch(1)
 
-        footer = QLabel(
-            "Hard boundary: no hidden edits, no fake test claims, no dangerous commands, and no hardware or N.I.N.A. sequence actions from this mode."
-        )
-        footer.setObjectName("sidebarFooter")
-        footer.setAlignment(Qt.AlignCenter)
-        footer.setWordWrap(True)
-        root_layout.addWidget(footer)
         self._update_mode_help()
+        self._refresh_session_details()
 
     # ------------------------------------------------------------------
     # Runtime resolution and status
@@ -750,16 +1075,636 @@ class DevWorkbenchDialog(QWidget):
         )
         return f"Runtime source: {owner_state}"
 
+    def _run_git_command(self, root: Path, *args: str) -> tuple[bool, str]:
+        """Run a small read-only git command for Session diagnostics."""
+
+        try:
+            completed = subprocess.run(
+                ["git", *args],
+                cwd=str(root),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=4,
+                check=False,
+            )
+        except FileNotFoundError:
+            return False, "git executable not found"
+        except Exception as exc:
+            return False, str(exc)
+        output = (completed.stdout or completed.stderr or "").strip()
+        return completed.returncode == 0, output
+
+    def _redact_git_remote(self, remote: str) -> str:
+        text = str(remote or "").strip()
+        if not text:
+            return "none"
+        # Hide credentials if a remote was configured as https://token@host/...
+        return re.sub(r"(https?://)([^/@]+)@", r"\1***@", text)
+
+    def _workspace_git_summary_lines(self, root: Path) -> list[str]:
+        ok, top = self._run_git_command(root, "rev-parse", "--show-toplevel")
+        if not ok:
+            return ["Git repo: not detected"]
+
+        ok_branch, branch = self._run_git_command(root, "branch", "--show-current")
+        if not ok_branch or not branch:
+            ok_branch, branch = self._run_git_command(
+                root, "rev-parse", "--short", "HEAD"
+            )
+        branch = branch or "unknown"
+
+        ok_remote, remote = self._run_git_command(root, "remote", "get-url", "origin")
+        remote = self._redact_git_remote(remote if ok_remote else "none")
+
+        ok_status, status = self._run_git_command(root, "status", "--short")
+        if ok_status and status:
+            changed = len([line for line in status.splitlines() if line.strip()])
+            dirty = f"dirty · {changed} changed path(s)"
+        elif ok_status:
+            dirty = "clean"
+        else:
+            dirty = "unknown"
+
+        auth_bits = []
+        if os.environ.get("GITHUB_TOKEN"):
+            auth_bits.append("GITHUB_TOKEN present")
+        if os.environ.get("GH_TOKEN"):
+            auth_bits.append("GH_TOKEN present")
+        if not auth_bits:
+            auth_bits.append("system git credentials / not inspected")
+
+        return [
+            f"Git repo: {Path(top).name if top else 'detected'}",
+            f"Git branch: {branch}",
+            f"Git remote: {remote}",
+            f"Git status: {dirty}",
+            f"Git auth: {', '.join(auth_bits)}",
+        ]
+
+    def _workspace_git_summary(self, root: Path) -> str:
+        return " · ".join(self._workspace_git_summary_lines(root))
+
+    def _refresh_session_details(self) -> None:
+        if not hasattr(self, "session_details_label"):
+            return
+        try:
+            root = Path(self.root_input.text().strip()).expanduser()
+        except Exception:
+            root = self.project_root
+        runtime = self._main_app_runtime_config()
+        agents_path = root / "AGENTS.md"
+        terminal_frontend = getattr(
+            getattr(self, "openclaude_terminal_output", None),
+            "frontend_name",
+            "not initialized",
+        )
+        exists = root.exists() and root.is_dir()
+        api_key = str(runtime.api_key or "")
+        if not api_key:
+            api_state = "OPENAI_API_KEY: not set"
+        elif api_key == API_KEY:
+            api_state = "OPENAI_API_KEY: using configured default / hidden"
+        else:
+            api_state = "OPENAI_API_KEY: set / hidden"
+        details = [
+            f"Workspace: {root} {'✓' if exists else 'not found'}",
+            "Workspace warning: OpenClaude works directly in this folder. Use a test clone if you do not want the live checkout edited.",
+            "",
+            "OpenClaude environment:",
+            "CLAUDE_CODE_USE_OPENAI=1",
+            f"OPENAI_BASE_URL={runtime.base_url or BASE_URL}",
+            f"OPENAI_MODEL={runtime.model or DEFAULT_MODEL_NAME}",
+            api_state,
+            f"FZASTRO_PROJECT_ROOT={root}",
+            "",
+        ]
+        if exists:
+            details.extend(self._workspace_git_summary_lines(root))
+        else:
+            details.append("Git repo: unavailable until workspace exists")
+        details.extend(
+            [
+                "",
+                f"AGENTS.md: {'present' if agents_path.exists() else 'will be created when OpenClaude starts'}",
+                f"Terminal frontend: {terminal_frontend}",
+            ]
+        )
+        self.session_details_label.setText("\n".join(details))
+
     def _update_runtime_status(self):
         try:
             self.runtime_status_label.setText(self._runtime_summary())
         except Exception as exc:
             self.runtime_status_label.setText(f"Runtime unavailable ({exc})")
+        self._refresh_session_details()
+
+    def _openclaude_launch_config(
+        self, *, install_if_missing: bool = False
+    ) -> OpenClaudeLaunchConfig:
+        runtime = self._main_app_runtime_config()
+        return OpenClaudeLaunchConfig(
+            project_root=Path(self.root_input.text().strip()).expanduser(),
+            model=str(runtime.model or DEFAULT_MODEL_NAME),
+            base_url=str(runtime.base_url or BASE_URL),
+            api_key=str(runtime.api_key or API_KEY),
+            install_if_missing=install_if_missing,
+        )
+
+    def check_openclaude_companion(self):
+        self._refresh_root()
+        config = self._openclaude_launch_config()
+        self._append_workspace_card(
+            format_openclaude_status_markdown(config)
+            + "\n\n---\n\n"
+            + format_embedded_terminal_status(config)
+        )
+        self._log(
+            "Checked OpenClaude companion and embedded terminal status. No files changed."
+        )
+
+    def _openclaude_task_prompt(self) -> str:
+        task = self.request_edit.toPlainText().strip()
+        config = self._openclaude_launch_config(install_if_missing=False)
+        mode = str(self.mode_combo.currentText() or "plan")
+        safety = str(self.safety_combo.currentText() or "ask-before-editing")
+        context_path = write_openclaude_project_context(
+            config, mode=mode, safety=safety
+        )
+        artifacts = openclaude_artifact_paths()
+        return build_openclaude_task_prompt(
+            task,
+            mode=mode,
+            context_path=context_path,
+            output_log_path=artifacts["output_log"],
+            diff_path=artifacts["diff"],
+            report_path=artifacts["report"],
+        )
+
+    def _normalize_openclaude_prompt_echo_line(self, line: str) -> str:
+        """Normalize OpenClaude TUI echo lines so the generated prompt can be hidden."""
+
+        normalized = str(line or "").strip()
+        normalized = normalized.lstrip(">│┃| ").strip()
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized
+
+    def _prepare_openclaude_prompt_echo_filter(self, prompt: str) -> None:
+        """Track generated prompt lines that OpenClaude echoes back into the PTY."""
+
+        lines: set[str] = set()
+        for raw_line in str(prompt or "").splitlines():
+            normalized = self._normalize_openclaude_prompt_echo_line(raw_line)
+            if len(normalized) >= 8:
+                lines.add(normalized)
+        self._openclaude_prompt_echo_lines = lines
+        self._openclaude_prompt_echo_notice_shown = False
+
+    def _filter_openclaude_prompt_echo(self, text: str) -> str:
+        """Collapse FZAstro's injected task prompt echo into a single terminal marker."""
+
+        if not self._openclaude_prompt_echo_lines:
+            return text
+
+        kept: list[str] = []
+        suppressed_any = False
+        for line in str(text or "").splitlines(keepends=True):
+            body = line.rstrip("\n")
+            normalized = self._normalize_openclaude_prompt_echo_line(body)
+            suppress = normalized in self._openclaude_prompt_echo_lines
+            if not suppress and len(normalized) >= 32:
+                suppress = any(
+                    normalized.startswith(prompt_line[:32])
+                    for prompt_line in self._openclaude_prompt_echo_lines
+                    if len(prompt_line) >= 32
+                )
+            if suppress:
+                suppressed_any = True
+                continue
+            kept.append(line)
+
+        if suppressed_any and not self._openclaude_prompt_echo_notice_shown:
+            self._openclaude_prompt_echo_notice_shown = True
+            kept.insert(0, "\n[fzastro] task sent; generated prompt echo hidden\n")
+        return "".join(kept)
+
+    def _strip_terminal_ansi(self, text: str) -> str:
+        # QPlainTextEdit is not a terminal renderer. Keep the embedded session
+        # readable by removing ANSI CSI sequences and OSC title updates such as
+        # ESC ] 0;... BEL that OpenClaude emits for real terminals.
+        cleaned = str(text or "")
+        cleaned = re.sub(r"\x1b\][^\x07]*(?:\x07|\x1b\\)", "", cleaned)
+        cleaned = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", cleaned)
+        # Some PTY reads can split an ANSI sequence after ESC was removed by
+        # an upstream terminal layer. Drop orphan SGR fragments as well.
+        cleaned = re.sub(r"\[[0-9;:]*m", "", cleaned)
+        cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", cleaned)
+        cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+        return cleaned
+
+    def _looks_like_openclaude_spinner_line(self, line: str) -> bool:
+        """Detect transient OpenClaude TUI spinner frames such as Crafting..."""
+
+        raw = str(line or "").strip()
+        if not raw:
+            return False
+        letters = re.sub(r"[^A-Za-z]", "", raw).lower()
+        # OpenClaude's terminal UI updates a spinner in-place. Once terminal
+        # controls are stripped for QPlainTextEdit those frames can become
+        # broken fragments such as "oCra", "Cfrtaifn", or "otgin...".
+        if letters and len(letters) <= 24:
+            if "crafting" in letters or "crafting".startswith(letters):
+                return True
+            if letters.startswith("o") and "crafting".startswith(letters[1:]):
+                return True
+            if set(letters).issubset(set("ocrafting")) and any(
+                ch in letters for ch in "craft"
+            ):
+                return True
+        compact = re.sub(r"\s+", "", raw)
+        compact = re.sub(r"[─━═╔╗╚╝║│╠╣╭╮╰╯┌┐└┘┬┴┼]+", "", compact)
+        if compact and len(compact) <= 18:
+            if all(ch in "oO◦○●◎◉∙•·.:-_" for ch in compact):
+                return True
+            if all((not ch.isalpha()) or ch.lower() in "ocrafting" for ch in compact):
+                return True
+        return False
+
+    def _filter_openclaude_spinner_noise(self, text: str) -> str:
+        lines = str(text or "").splitlines(keepends=True)
+        if not lines:
+            return ""
+        kept: list[str] = []
+        suppressed = False
+        for line in lines:
+            body = line.rstrip("\n")
+            if self._looks_like_openclaude_spinner_line(body):
+                suppressed = True
+                continue
+            kept.append(line)
+        if suppressed:
+            self._set_agent_status("OpenClaude thinking")
+            self._set_progress(None, "OpenClaude thinking")
+            if not self._openclaude_spinner_notice_shown:
+                self._openclaude_spinner_notice_shown = True
+                kept.insert(0, "\n[openclaude] Thinking...\n")
+        return "".join(kept)
+
+    def _append_openclaude_terminal_output(self, text: str):
+        if not hasattr(self, "openclaude_terminal_output"):
+            return
+        terminal = self.openclaude_terminal_output
+        # xterm.js is a real terminal renderer, so feed it raw PTY bytes/text.
+        # The text fallback still needs ANSI/spinner cleanup because it is only a transcript view.
+        try:
+            is_real_terminal = bool(terminal.is_real_terminal())
+        except Exception:
+            is_real_terminal = False
+        if is_real_terminal:
+            if text:
+                terminal.append_output(str(text))
+            return
+
+        cleaned = self._strip_terminal_ansi(text)
+        cleaned = self._filter_openclaude_prompt_echo(cleaned)
+        cleaned = self._filter_openclaude_spinner_noise(cleaned)
+        if not cleaned:
+            return
+        terminal.append_output(cleaned)
+
+    def _send_raw_openclaude_terminal_input(self, data: str):
+        worker = self.openclaude_worker
+        if worker is not None and data:
+            worker.send_input(data)
+
+    def _resize_openclaude_terminal(self, cols: int, rows: int):
+        self._openclaude_terminal_cols = max(40, int(cols or 120))
+        self._openclaude_terminal_rows = max(10, int(rows or 30))
+        worker = self.openclaude_worker
+        if worker is not None:
+            worker.resize_terminal(
+                self._openclaude_terminal_cols, self._openclaude_terminal_rows
+            )
+
+    def _on_openclaude_terminal_frontend_ready(self, frontend_name: str):
+        self._log(f"OpenClaude terminal frontend ready: {frontend_name}")
+        self._refresh_session_details()
+        try:
+            self.openclaude_terminal_output.fit()
+            self.openclaude_terminal_output.focus_terminal()
+        except Exception:
+            pass
+        if frontend_name != "xterm.js":
+            self._set_agent_status(f"OpenClaude terminal frontend: {frontend_name}")
+
+    def _set_openclaude_terminal_running(self, running: bool):
+        self._openclaude_terminal_running = bool(running)
+        self._update_action_buttons()
+        self._update_openclaude_composer_buttons()
+
+    def _update_openclaude_composer_buttons(self):
+        if not hasattr(self, "openclaude_launch_button"):
+            return
+        running = bool(
+            getattr(self, "_openclaude_terminal_running", False)
+            and self.openclaude_worker is not None
+        )
+        try:
+            self.openclaude_launch_button.setText("Restart" if running else "Start")
+            self.openclaude_launch_button.setEnabled(True)
+            self.openclaude_send_task_button.setVisible(False)
+            self.openclaude_send_task_button.setEnabled(False)
+            self.openclaude_stop_button.setEnabled(running)
+            self.openclaude_clear_button.setEnabled(True)
+        except Exception:
+            pass
+
+    def clear_openclaude_terminal_output(self):
+        if hasattr(self, "openclaude_terminal_output"):
+            self.openclaude_terminal_output.clear()
+
+    def run_selected_dev_action(self):
+        action = str(self.dev_action_combo.currentData() or "")
+        if not action:
+            self._append_workspace_card(
+                "# More Actions\n\nChoose a tool action from the dropdown, then click **Run**."
+            )
+            return
+        handlers = {
+            "preview": self.preview_patch,
+            "apply": self.apply_patch,
+            "compile": lambda: self.run_validation(ValidationPreset.COMPILE_ONLY),
+            "fast_tests": lambda: self.run_validation(ValidationPreset.FAST_UNIT_TESTS),
+            "feature_tests": lambda: self.run_validation(
+                ValidationPreset.FEATURE_TESTS
+            ),
+            "full_pytest": lambda: self.run_validation(ValidationPreset.FULL_PYTEST),
+            "final_report": self.build_final_report,
+            "copy_claude_task": self.copy_openclaude_safe_prompt,
+            "export_patch": self.export_patch,
+            "new_chat": self.reset_agent_chat,
+        }
+        handler = handlers.get(action)
+        if handler is not None:
+            handler()
+        self.dev_action_combo.setCurrentIndex(0)
+
+    def copy_openclaude_safe_prompt(self):
+        prompt = self._openclaude_task_prompt()
+        prompt_path = write_openclaude_task_prompt(prompt)
+        QGuiApplication.clipboard().setText(prompt)
+        self._append_workspace_card(
+            "# OpenClaude Task Copied\n\n"
+            f"**Prompt file:** `{prompt_path}`\n\n"
+            "The compatibility prompt is on the clipboard. Normal OpenClaude use is terminal-first; type directly into the embedded terminal."
+        )
+        self._log("Copied structured OpenClaude task prompt to clipboard.")
+
+    def restart_embedded_openclaude_terminal(self):
+        """Start OpenClaude as a direct embedded terminal session.
+
+        The terminal is the interaction surface. FZAstro does not auto-send a
+        hidden prompt and does not maintain a second chat composer.
+        """
+
+        if self.openclaude_worker is not None:
+            self.stop_embedded_openclaude_terminal()
+            QTimer.singleShot(600, self.start_embedded_openclaude_terminal)
+            return
+        self.start_embedded_openclaude_terminal()
+
+    def submit_openclaude_from_composer(self):
+        """Compatibility entry point; visible interaction is the terminal."""
+
+        if self.openclaude_worker is None:
+            self.start_embedded_openclaude_terminal()
+        else:
+            self.send_openclaude_task_to_terminal()
+
+    def _mark_openclaude_submission_started(self):
+        self._openclaude_spinner_notice_shown = False
+        self._set_agent_status("OpenClaude task sent")
+        self._set_progress(None, "OpenClaude task sent")
+
+    def _clear_openclaude_composer_after_submit(self):
+        try:
+            self.request_edit.blockSignals(True)
+            self.request_edit.clear()
+        finally:
+            try:
+                self.request_edit.blockSignals(False)
+            except Exception:
+                pass
+        self._update_openclaude_composer_buttons()
+
+    def start_embedded_openclaude_terminal(self):
+        self._refresh_root()
+        if self.openclaude_thread is not None or self.openclaude_worker is not None:
+            self._append_openclaude_terminal_output(
+                "\n[fzastro] OpenClaude is already running. Type directly in the terminal, or press Restart.\n"
+            )
+            return
+
+        config = self._openclaude_launch_config(install_if_missing=False)
+        try:
+            ensure_openclaude_agents_file(
+                config,
+                mode="openclaude-terminal",
+                safety="openclaude-native",
+            )
+        except Exception as exc:
+            self._append_openclaude_terminal_output(
+                f"[fzastro] could not create AGENTS.md: {exc}\n"
+            )
+
+        try:
+            self.workspace_tabs.setCurrentWidget(self.openclaude_terminal_frame)
+        except Exception:
+            pass
+        self.openclaude_terminal_output.clear()
+        try:
+            self.openclaude_terminal_output.fit()
+            self.openclaude_terminal_output.focus_terminal()
+        except Exception:
+            pass
+
+        support = get_embedded_terminal_support()
+        if not support.supported:
+            self._append_openclaude_terminal_output(
+                "Embedded terminal backend is not ready.\n"
+                f"Reason: {support.reason}\n"
+                f"Hint: {support.install_hint or 'Prepare pywinpty through setup/build/deploy.'}\n\n"
+            )
+            self._append_workspace_card(
+                "# Embedded OpenClaude Not Available\n\n"
+                f"{support.reason}\n\n"
+                f"{support.install_hint or 'Prepare pywinpty through setup/build/deploy.'}\n\n"
+                "FZAstro did not fake terminal automation or use SendKeys."
+            )
+            self._log(
+                "Embedded OpenClaude terminal unavailable; fix setup/build/deploy backend."
+            )
+            return
+
+        self.openclaude_thread = QThread(self)
+        self.openclaude_worker = _OpenClaudePtyWorker(
+            config,
+            "",
+            auto_send_prompt=False,
+            initial_cols=getattr(self, "_openclaude_terminal_cols", 120),
+            initial_rows=getattr(self, "_openclaude_terminal_rows", 30),
+        )
+        self.openclaude_worker.moveToThread(self.openclaude_thread)
+        self.openclaude_thread.started.connect(self.openclaude_worker.run)
+        self.openclaude_worker.started.connect(self._on_openclaude_terminal_started)
+        self.openclaude_worker.output.connect(self._append_openclaude_terminal_output)
+        self.openclaude_worker.failed.connect(self._on_openclaude_terminal_failed)
+        self.openclaude_worker.completed.connect(self._on_openclaude_terminal_completed)
+        self.openclaude_worker.completed.connect(self.openclaude_thread.quit)
+        self.openclaude_worker.completed.connect(self.openclaude_worker.deleteLater)
+        self.openclaude_thread.finished.connect(self.openclaude_thread.deleteLater)
+        self.openclaude_thread.finished.connect(self._clear_openclaude_terminal_thread)
+        self._set_openclaude_terminal_running(True)
+        self._set_agent_status("OpenClaude terminal starting")
+        self._set_progress(None, "starting OpenClaude terminal")
+        self.openclaude_thread.start()
+        self._log("Started embedded OpenClaude terminal.")
+
+    def _on_openclaude_terminal_started(self, message: str):
+        # Keep the terminal content pure. OpenClaude owns the terminal screen;
+        # FZAstro setup/status details live in Session and the compact telemetry strip.
+        self._log(str(message or "OpenClaude started"))
+        try:
+            self.openclaude_terminal_output.fit()
+            self.openclaude_terminal_output.focus_terminal()
+        except Exception:
+            pass
+
+    def _on_openclaude_terminal_failed(self, message: str):
+        self._append_openclaude_terminal_output(f"\n[OpenClaude error] {message}\n")
+        self._append_workspace_card(
+            "# Embedded OpenClaude Error\n\n"
+            f"{message}\n\n"
+            "Check setup/build/deploy if the embedded ConPTY backend is unstable on this machine."
+        )
+        self._log(f"Embedded OpenClaude terminal error: {message}")
+
+    def _on_openclaude_terminal_completed(self):
+        self._append_openclaude_terminal_output(
+            "\n[fzastro] OpenClaude exited. Press Start to open a new terminal session.\n"
+        )
+        self._set_openclaude_terminal_running(False)
+        self._set_agent_status("OpenClaude stopped")
+        self._reset_progress_idle()
+        self._log("Embedded OpenClaude terminal closed.")
+
+    def _clear_openclaude_terminal_thread(self):
+        self.openclaude_thread = None
+        self.openclaude_worker = None
+        self._set_openclaude_terminal_running(False)
+
+    def _is_raw_openclaude_command(self, text: str) -> bool:
+        return str(text or "").lstrip().startswith("/")
+
+    def _openclaude_terminal_payload(
+        self, *, prompt: str, prompt_path: Path, user_text: str
+    ) -> str:
+        clean = str(user_text or "").strip()
+        # With a real terminal frontend, behave like OpenClaude/Codex: send what
+        # the user typed into the terminal.  The generated prompt/context file is
+        # still written for audit/logging and the workspace AGENTS.md carries the
+        # stable project rules, but it is no longer pasted into the TUI.
+        self._prepare_openclaude_prompt_echo_filter(clean)
+        return clean.rstrip("\r\n") + "\r"
+
+    def send_embedded_openclaude_input(self):
+        """Backward-compatible alias: the single composer is the terminal input."""
+        self.send_openclaude_task_to_terminal()
+
+    def send_openclaude_task_to_terminal(self):
+        user_text = self.request_edit.toPlainText().strip()
+        if not user_text:
+            return
+        prompt = self._openclaude_task_prompt()
+        prompt_path = write_openclaude_task_prompt(prompt)
+        try:
+            config = self._openclaude_launch_config(install_if_missing=False)
+            mode = str(self.mode_combo.currentText() or "plan")
+            safety = str(self.safety_combo.currentText() or "ask-before-editing")
+            ensure_openclaude_agents_file(config, mode=mode, safety=safety)
+        except Exception:
+            pass
+        QGuiApplication.clipboard().setText(prompt)
+        worker = self.openclaude_worker
+        if worker is None:
+            self._append_openclaude_terminal_output(
+                f"fzastro$ task saved to {prompt_path}. Click Run to start OpenClaude.\n"
+            )
+            return
+        if self._is_raw_openclaude_command(user_text):
+            self._append_openclaude_terminal_output(f"\nfzastro$ {user_text}\n")
+        else:
+            self._append_openclaude_terminal_output(f"\nfzastro$ task sent\n")
+        worker.send_input(
+            self._openclaude_terminal_payload(
+                prompt=prompt,
+                prompt_path=prompt_path,
+                user_text=user_text,
+            )
+        )
+        self._mark_openclaude_submission_started()
+        self._clear_openclaude_composer_after_submit()
+        self._log("Sent compatibility OpenClaude input.")
+
+    def stop_embedded_openclaude_terminal(self):
+        worker = self.openclaude_worker
+        if worker is not None:
+            worker.request_stop()
+        self._set_openclaude_terminal_running(False)
+        self._set_agent_status("Stopping embedded OpenClaude")
+        self._set_progress(None, "stopping embedded OpenClaude")
+        self._append_openclaude_terminal_output("\n[Stop requested]\n")
+
+    def open_openclaude_external_terminal(self):
+        self._refresh_root()
+        config = self._openclaude_launch_config(install_if_missing=False)
+        prompt = self._openclaude_task_prompt()
+        try:
+            result = launch_openclaude_companion(config, task_prompt=prompt)
+        except OpenClaudeBridgeError as exc:
+            QMessageBox.warning(self, "OpenClaude Companion", str(exc))
+            self._append_workspace_card(
+                "# OpenClaude Fallback Not Started\n\n"
+                f"{exc}\n\n"
+                "Use **Status** for diagnostics, or select the real source checkout in the Project field."
+            )
+            self._log(f"OpenClaude external terminal launch blocked: {exc}")
+            return
+
+        QGuiApplication.clipboard().setText(result.safe_prompt)
+        prompt_path = result.prompt_path or write_openclaude_task_prompt(
+            result.safe_prompt
+        )
+        self._append_workspace_card(
+            "# OpenClaude Fallback Launched\n\n"
+            f"**Script:** `{result.script_path}`\n\n"
+            f"**Prompt file:** `{prompt_path}`\n\n"
+            f"**Model:** `{config.model}`\n\n"
+            f"**Endpoint:** `{config.base_url}`\n\n"
+            "The structured FZAstro OpenClaude task prompt and project context were written under AppData. The prompt was copied to the clipboard for the external fallback."
+        )
+        self._log(
+            "Launched OpenClaude external terminal and copied structured OpenClaude prompt."
+        )
+
+    def open_openclaude_companion(self):
+        # Backward-compatible slot name retained for older tests/actions.
+        self.open_openclaude_external_terminal()
 
     def refresh_telemetry_from_app(self):
-        """Mirror main-window telemetry in the Developer Agent cockpit.
+        """Mirror main-window telemetry in the OpenClaude workspace.
 
-        The DEV panel should not start another telemetry worker. It only copies
+        The OpenClaude panel should not start another telemetry worker. It only copies
         labels already maintained by the main app when they are available.
         """
 
@@ -788,7 +1733,7 @@ class DevWorkbenchDialog(QWidget):
             pass
 
     def _set_progress(self, value: int | None, text: str):
-        """Update the Developer Agent progress bar.
+        """Update the OpenClaude progress bar.
 
         Use ``value=None`` for indeterminate work such as a streaming model
         request where token count and tool-loop length are not known ahead of
@@ -817,7 +1762,7 @@ class DevWorkbenchDialog(QWidget):
     def _task_mode_for_request(self, request: str) -> str:
         """Return the classified task mode for the current request.
 
-        The visible run button may be pressed before Build Plan, or after the
+        The visible OpenClaude run button may be pressed before any internal context plan, or after the
         task text has changed.  Do not read a nonexistent ``session.task``
         attribute; classify the current request directly and fall back to the
         last built plan only when classification fails.
@@ -841,7 +1786,7 @@ class DevWorkbenchDialog(QWidget):
         mode = self._selected_mode().value
         safety = self._selected_safety_mode().value
         self.mode_help_label.setText(
-            f"Current behavior: {mode}. Safety: {safety}. The model may inspect and propose; file writes still require patch preview and approval."
+            "OpenClaude behavior is controlled by the terminal conversation and AGENTS.md."
         )
 
     def toggle_evidence_panel(self):
@@ -890,17 +1835,15 @@ class DevWorkbenchDialog(QWidget):
 
     def _refresh_drawer_buttons(self):
         count = self.file_list.count() if hasattr(self, "file_list") else 0
-        evidence_label = (
-            f"Evidence · {count} files" if count else "Evidence · minimized"
-        )
+        evidence_label = f"Internal files · {count}" if count else "Internal files"
         if self._drawer_mode == "evidence":
             self.evidence_toggle_button.setText(f"{evidence_label} ◂")
         else:
             self.evidence_toggle_button.setText(f"{evidence_label} ▸")
         self.advanced_toggle_button.setText(
-            "Advanced Diagnostics ◂"
+            "Internal Details ◂"
             if self._drawer_mode == "advanced"
-            else "Advanced Diagnostics ▸"
+            else "Internal Details ▸"
         )
 
     def _open_workspace_drawer(self, mode: str):
@@ -911,7 +1854,7 @@ class DevWorkbenchDialog(QWidget):
         self.evidence_panel.setVisible(mode == "evidence")
         self.advanced_panel.setVisible(mode == "advanced")
         self.drawer_title_label.setText(
-            "Evidence / Files" if mode == "evidence" else "Advanced Diagnostics"
+            "Internal Files" if mode == "evidence" else "Internal Details"
         )
         self.drawer_frame.setVisible(True)
         QTimer.singleShot(0, self._restore_workspace_splitter_sizes)
@@ -943,7 +1886,8 @@ class DevWorkbenchDialog(QWidget):
 
     def _show_workspace(self):
         try:
-            self.plan_output.setFocus()
+            self.workspace_tabs.setCurrentWidget(self.openclaude_terminal_frame)
+            self.openclaude_terminal_output.setFocus()
         except Exception:
             pass
 
@@ -980,7 +1924,7 @@ class DevWorkbenchDialog(QWidget):
         current = str(
             self._agent_stream_markdown
             or self.agent_transcript_markdown
-            or "# Developer Agent Workspace"
+            or "# OpenClaude Workspace"
         ).rstrip()
         self._agent_stream_markdown = (
             current + "\n\n---\n\n" + str(markdown or "").strip() + "\n"
@@ -988,6 +1932,11 @@ class DevWorkbenchDialog(QWidget):
         self.agent_transcript_markdown = self._agent_stream_markdown.rstrip()
         self._set_markdown_output(self.plan_output, self._agent_stream_markdown)
         self._scroll_text_widget_to_end(self.plan_output)
+        terminal_text = str(markdown or "").strip()
+        if terminal_text:
+            self._append_openclaude_terminal_output(
+                "\n[fzastro status] " + terminal_text.replace("\n", "\n") + "\n"
+            )
         self._show_workspace()
 
     def _refresh_root(self):
@@ -1065,7 +2014,7 @@ class DevWorkbenchDialog(QWidget):
                 "Activity: "
                 f"{self._agent_activity_phase}{detail} · elapsed {self._format_duration(now - started)} "
                 f"· last activity {self._format_duration(now - last)} ago{context_text}. "
-                "Private reasoning is not shown; DEV shows tool/model activity only."
+                "Private reasoning is not shown; OpenClaude shows tool/model activity only."
             )
             return
         final_detail = (
@@ -1143,16 +2092,14 @@ class DevWorkbenchDialog(QWidget):
         has_context = bool(self.latest_prompt_package)
         has_patch = self._has_patch_text()
         has_validation = bool(self.latest_checks)
-        request_ready = bool(self.request_edit.toPlainText().strip())
+        request_ready = False
+        openclaude_running = bool(
+            getattr(self, "_openclaude_terminal_running", False)
+            and self.openclaude_worker is not None
+        )
 
         if busy:
             next_button = self.stop_agent_button
-        elif not has_scan:
-            next_button = self.scan_button
-        elif request_ready and not has_context:
-            next_button = self.plan_button
-        elif request_ready and not has_patch:
-            next_button = self.local_agent_button
         elif has_patch and not self._patch_previewed:
             next_button = self.preview_patch_button
         elif self._patch_previewed and not self._patch_applied:
@@ -1162,7 +2109,7 @@ class DevWorkbenchDialog(QWidget):
         elif has_validation:
             next_button = self.final_report_button
         else:
-            next_button = self.scan_button
+            next_button = self.openclaude_launch_button
 
         enabled = {
             button: not busy
@@ -1175,15 +2122,9 @@ class DevWorkbenchDialog(QWidget):
             self.stop_agent_button.setText(
                 "Stopping..." if self._agent_stop_requested else "Stop Agent"
             )
-            self.local_agent_button.setText("3 · Streaming...")
         else:
             enabled[self.stop_agent_button] = False
             self.stop_agent_button.setText("Stop Agent")
-            self.local_agent_button.setText(
-                self._button_base_labels.get(self.local_agent_button, "3 · Ask / Reply")
-            )
-            enabled[self.local_agent_button] = request_ready
-            enabled[self.plan_button] = request_ready
             # Step 4 stays clickable to show inline guidance when a diff does
             # not exist yet; Step 5 remains locked until preview succeeds.
             enabled[self.preview_patch_button] = True
@@ -1193,6 +2134,10 @@ class DevWorkbenchDialog(QWidget):
                 and self._selected_safety_mode() != SafetyMode.READ_ONLY
             )
             enabled[self.compile_button] = True
+            enabled[self.openclaude_launch_button] = True
+            enabled[self.openclaude_send_task_button] = False
+            enabled[self.openclaude_stop_button] = bool(openclaude_running)
+            enabled[self.openclaude_clear_button] = True
             enabled[self.final_report_button] = bool(
                 has_context
                 or has_patch
@@ -1201,9 +2146,12 @@ class DevWorkbenchDialog(QWidget):
             )
 
         tooltips = {
-            self.scan_button: "Scan the selected project root and refresh the file index.",
-            self.plan_button: "Build an evidence-ranked context plan for the current task.",
-            self.local_agent_button: "Ask the active model to inspect, answer, or propose a patch from the current context.",
+            self.openclaude_status_button: "Check Node.js, npm, OpenClaude, selected model, endpoint, project workspace, and embedded ConPTY backend.",
+            self.openclaude_launch_button: "Start or restart the embedded OpenClaude terminal in the selected workspace.",
+            self.openclaude_send_task_button: "Hidden compatibility action; normal OpenClaude input goes directly through the terminal.",
+            self.openclaude_stop_button: "Stop the embedded OpenClaude terminal session.",
+            self.openclaude_clear_button: "Clear the visible OpenClaude terminal output.",
+            self.openclaude_prompt_button: "Copy the structured FZAstro OpenClaude task prompt without launching OpenClaude.",
             self.stop_agent_button: "Stop the visible agent run immediately and ignore late model output from the retired worker.",
             self.preview_patch_button: "Validate and review an existing unified diff. If none exists, this opens inline guidance.",
             self.apply_patch_button: "Apply the previewed patch after approval. Disabled until Step 4 succeeds.",
@@ -1224,12 +2172,9 @@ class DevWorkbenchDialog(QWidget):
             ):
                 suffix = " (after preview)"
                 blocked = True
-            elif button is self.local_agent_button and not request_ready and not busy:
-                suffix = " (needs task)"
-                blocked = True
             label = base + suffix
             if button is next_button and enabled.get(button, False):
-                label = "NEXT · " + base + suffix
+                label = base + suffix
             button.setText(label)
             button.setEnabled(bool(enabled.get(button, True)))
             button.setToolTip(tooltips.get(button, ""))
@@ -1238,6 +2183,7 @@ class DevWorkbenchDialog(QWidget):
                 is_next=(button is next_button and enabled.get(button, False)),
                 is_blocked=blocked or not enabled.get(button, True),
             )
+        self._update_openclaude_composer_buttons()
 
     def _log(self, text: str):
         self.action_log.appendPlainText(text.rstrip() + "\n")
@@ -1245,7 +2191,7 @@ class DevWorkbenchDialog(QWidget):
     def _set_markdown_output(self, widget, markdown: str):
         """Render markdown where supported, with a plain-text fallback.
 
-        The Developer Agent prompt asks models to return structured markdown.
+        The OpenClaude prompt asks models to return structured markdown.
         Rendering it avoids the unreadable raw-table/raw-heading blocks that
         made the plan tab hard to review.
         """
@@ -1275,15 +2221,15 @@ class DevWorkbenchDialog(QWidget):
             "## What to check",
             "1. Confirm the model selected in the top bar is listed by the configured provider.",
             "2. Press the main app model refresh button if the model list is stale.",
-            "3. For local Ollama, start Ollama from the main toolbar first; Developer Agent Mode will not auto-start it.",
-            "4. Then click `3 · Ask / Reply` again.",
+            "3. For local Ollama, start Ollama from the main toolbar first; OpenClaude will not auto-start it.",
+            "4. Use `Run`; if the embedded backend fails, fix setup/build/deploy before retrying.",
         ]
         self._agent_stream_markdown = "\n".join(lines)
         self._set_markdown_output(self.plan_output, self._agent_stream_markdown)
         self._show_workspace()
         self._log(f"{title}: {message}")
         self._set_next_step(
-            "Fix the active model/runtime selection, then run Step 3 again."
+            "Fix the active model/runtime selection, then restart the OpenClaude terminal."
         )
 
     # ------------------------------------------------------------------
@@ -1297,7 +2243,10 @@ class DevWorkbenchDialog(QWidget):
             self.root_input.setText(selected)
             self._refresh_root()
             self._log(f"Project root set: {self.project_root}")
-            self._set_next_step("Step 1: scan the selected project.")
+            self._refresh_session_details()
+            self._set_next_step(
+                "Workspace selected. Start OpenClaude, then type directly in the terminal."
+            )
 
     def scan_project(self):
         self._refresh_root()
@@ -1330,7 +2279,7 @@ class DevWorkbenchDialog(QWidget):
                 f"Indexed **{scan.file_count} files** · **{scan.python_count} Python** · **{scan.test_count} tests**.",
                 f"Ignored {scan.ignored_count} files · oversized {scan.oversized_count}.",
                 "",
-                "**Next:** enter or refine the task in the composer, then click `2 · Build Plan`.",
+                "**Next:** enter or refine the task in the composer, then run In-App Claude.",
             ]
         )
         self._agent_stream_markdown = scan_card
@@ -1342,7 +2291,7 @@ class DevWorkbenchDialog(QWidget):
         self._set_progress(100, "scan complete")
         self._set_workflow_stage(
             "scanned",
-            "Step 2: enter a task if needed, then click Build Plan to choose focused files or build a broad audit index.",
+            "Enter a task if needed, then run In-App Claude.",
         )
 
     def build_context_plan(self):
@@ -1353,7 +2302,7 @@ class DevWorkbenchDialog(QWidget):
         if not request:
             self._reset_progress_idle()
             QMessageBox.information(
-                self, "Task needed", "Enter a Developer Agent task first."
+                self, "Task needed", "Enter a OpenClaude task first."
             )
             return
         self.latest_proposal = None
@@ -1385,11 +2334,11 @@ class DevWorkbenchDialog(QWidget):
             self.file_list.addItem(item)
         self._refresh_evidence_button()
         self._show_workspace()
-        self._log("Built Developer Agent context and visible plan. No files changed.")
+        self._log("Built OpenClaude context and visible plan. No files changed.")
         self._set_progress(100, "context ready")
         self._set_workflow_stage(
             "planned",
-            "Step 3: click Ask / Reply. If the agent asks a question, type the answer in the task box and click 3 again.",
+            "OpenClaude context is ready. Type the next task and run In-App Claude.",
         )
 
     def _next_agent_run_id(self) -> int:
@@ -1421,14 +2370,14 @@ class DevWorkbenchDialog(QWidget):
         request = self.request_edit.toPlainText().strip()
         if not request:
             QMessageBox.information(
-                self, "Task needed", "Enter a Developer Agent task first."
+                self, "Task needed", "Enter a OpenClaude task first."
             )
             return
         if self.agent_thread is not None:
             QMessageBox.information(
                 self,
                 "Agent already running",
-                "Wait for the current Developer Agent request to finish before starting another one.",
+                "Wait for the current OpenClaude request to finish before starting another one.",
             )
             return
 
@@ -1440,7 +2389,7 @@ class DevWorkbenchDialog(QWidget):
         )
         steering = self._current_steering_text()
         if steering:
-            self._log("Using Developer Agent steering guidance for this turn.")
+            self._log("Using OpenClaude steering guidance for this turn.")
 
         self._agent_active_request = request
         self.request_edit.clear()
@@ -1449,7 +2398,7 @@ class DevWorkbenchDialog(QWidget):
         conversation_messages = None
         if self._agent_is_followup:
             conversation_messages = list(self.agent_conversation_messages)
-            followup_content = "Developer Agent follow-up from the user:\n" + request
+            followup_content = "OpenClaude follow-up from the user:\n" + request
             conversation_messages.append(
                 {
                     "role": "user",
@@ -1465,14 +2414,14 @@ class DevWorkbenchDialog(QWidget):
                 )
             else:
                 self._agent_stream_markdown = (
-                    "# Developer Agent Chat\n\n## You\n" + request + "\n\n## Agent\n"
+                    "# OpenClaude Chat\n\n## You\n" + request + "\n\n## Agent\n"
                 )
-            self._log("Continuing existing Developer Agent conversation.")
+            self._log("Continuing existing OpenClaude conversation.")
         else:
             self._agent_stream_markdown = (
-                "# Developer Agent Chat\n\n" "## You\n" + request + "\n\n## Agent\n"
+                "# OpenClaude Chat\n\n" "## You\n" + request + "\n\n## Agent\n"
             )
-            self._log("Starting new Developer Agent conversation.")
+            self._log("Starting new OpenClaude conversation.")
 
         self._set_markdown_output(self.plan_output, self._agent_stream_markdown)
         self._show_workspace()
@@ -1550,7 +2499,7 @@ class DevWorkbenchDialog(QWidget):
                 self.agent_worker.add_steering_note(note)
             except RuntimeError:
                 self.agent_steering_notes.append(note)
-            self._log(f"Queued Developer Agent steering: {note}")
+            self._log(f"Queued OpenClaude steering: {note}")
             self._agent_stream_markdown += (
                 "\n\n> Steering queued for next agent step: " + note + "\n"
             )
@@ -1561,10 +2510,8 @@ class DevWorkbenchDialog(QWidget):
             )
         else:
             self.agent_steering_notes.append(note)
-            self._log(f"Saved Developer Agent steering for next Ask/Reply: {note}")
-            self._set_next_step(
-                "Internal guidance saved. Click 3 · Ask / Reply to apply it to the next agent turn."
-            )
+            self._log(f"Saved OpenClaude steering for next Ask/Reply: {note}")
+            self._set_next_step("Internal guidance saved for the next OpenClaude task.")
         self.steering_input.clear()
 
     def _start_agent_timeout_timer_if_configured(self):
@@ -1572,7 +2519,7 @@ class DevWorkbenchDialog(QWidget):
 
         Local coding-agent jobs can legitimately spend several minutes in
         evidence review or patch generation. By default FZAstro no longer uses
-        a wall-clock kill timer for Developer Agent runs; Stop Agent is the
+        a wall-clock kill timer for OpenClaude runs; Stop Agent is the
         cancellation mechanism. Keeping this helper allows a future settings UI
         or tests to enable a hard limit deliberately without reintroducing an
         unconditional timeout.
@@ -1621,11 +2568,9 @@ class DevWorkbenchDialog(QWidget):
         self._set_progress(0, "agent stopped")
         self._set_workflow_stage(
             "stopped",
-            "Stopped by user. You can revise the task and click 3 · Ask / Reply to start a fresh run.",
+            "Stopped by user. Revise the task and run In-App Claude to start again.",
         )
-        self._log(
-            "Developer Agent stopped by user; retired worker output will be ignored."
-        )
+        self._log("OpenClaude stopped by user; retired worker output will be ignored.")
 
     def _handle_agent_timeout(self):
         if self.agent_thread is None:
@@ -1643,7 +2588,7 @@ class DevWorkbenchDialog(QWidget):
         self._set_next_step(
             "Optional hard timeout reached. Stop was requested; use a narrower task or continue from loaded evidence if the model keeps looping."
         )
-        self._log("Developer Agent optional timeout reached; stop requested.")
+        self._log("OpenClaude optional timeout reached; stop requested.")
 
     def _append_agent_stream_delta(self, delta: str):
         self._agent_stream_markdown += str(delta or "")
@@ -1792,7 +2737,7 @@ class DevWorkbenchDialog(QWidget):
             QMessageBox.information(
                 self,
                 "Agent running",
-                "Wait for the current Developer Agent request to finish before starting a new chat.",
+                "Wait for the current OpenClaude request to finish before starting a new chat.",
             )
             return
         self.agent_conversation_messages = []
@@ -1807,9 +2752,9 @@ class DevWorkbenchDialog(QWidget):
         self._agent_is_followup = False
         self.plan_output.clear()
         self.patch_output.clear()
-        self._log("Developer Agent chat reset. Context scan is kept; no files changed.")
+        self._log("OpenClaude chat reset. Context scan is kept; no files changed.")
         self._set_next_step(
-            "New chat started. Enter a task, then click 2 Build Plan or 3 Ask / Reply."
+            "New OpenClaude session started. Enter one task, then run In-App Claude."
         )
 
     def _handle_agent_result(self, result):
@@ -1880,7 +2825,7 @@ class DevWorkbenchDialog(QWidget):
                 self._set_progress(0, "agent stopped")
                 self._set_workflow_stage(
                     "stopped",
-                    "Continue the chat: type your answer or next instruction in the task box, then click 3 · Ask / Reply.",
+                    "Continue the session: type your answer or next instruction in the task box, then run In-App Claude.",
                 )
             else:
                 self._set_agent_status("Agent done")
@@ -1888,7 +2833,7 @@ class DevWorkbenchDialog(QWidget):
                 self._set_progress(100, "agent done")
                 self._set_workflow_stage(
                     "answered",
-                    "Continue the chat: type your answer or next instruction in the task box, then click 3 · Ask / Reply.",
+                    "Continue the session: type your answer or next instruction in the task box, then run In-App Claude.",
                 )
         self._set_agent_busy(False)
 
@@ -1940,7 +2885,7 @@ class DevWorkbenchDialog(QWidget):
             "Step 4 previews an existing unified diff. No diff is available yet.\n\n"
             "What to do next:\n"
             "1. In the task box, ask: `Propose a safe patch for <issue>. Do not apply it yet.`\n"
-            "2. Click **3 · Ask / Reply** and wait for a patch proposal.\n"
+            "2. Click **Run** and wait for OpenClaude output.\n"
             "3. Review the generated diff in the workspace.\n"
             "4. Click **4 · Preview Patch** to validate paths and risk before applying."
         )
@@ -1998,7 +2943,7 @@ class DevWorkbenchDialog(QWidget):
                 self._log("Patch preflight failed: " + preflight.message)
                 self._set_workflow_stage(
                     "patch_ready",
-                    "Patch diff is malformed or stale. Ask Step 3 to regenerate a valid unified diff.",
+                    "Patch diff is malformed or stale. Ask OpenClaude to regenerate a valid unified diff.",
                 )
                 return
             self._render_patch_preview(self.latest_proposal)
@@ -2019,7 +2964,7 @@ class DevWorkbenchDialog(QWidget):
             )
             self._set_progress(0, "no patch to preview")
             self._set_next_step(
-                "No patch exists yet. Ask Step 3 to propose a patch first, or stay in Review Only for analysis."
+                "No patch exists yet. Ask OpenClaude to propose a patch first, or stay in Review Only for analysis."
             )
             return
         try:
@@ -2053,7 +2998,7 @@ class DevWorkbenchDialog(QWidget):
             self._log("Patch preflight failed: " + preflight.message)
             self._set_workflow_stage(
                 "patch_ready",
-                "Patch diff is malformed or stale. Ask Step 3 to regenerate a valid unified diff.",
+                "Patch diff is malformed or stale. Ask OpenClaude to regenerate a valid unified diff.",
             )
             return
         self.latest_proposal = proposal
@@ -2202,7 +3147,7 @@ class DevWorkbenchDialog(QWidget):
                 "",
                 f"**Summary:** {result.failure_summary().headline}",
                 "",
-                "Detailed output is available under **Advanced Diagnostics -> Validation**.",
+                "Detailed output was captured in the internal validation buffer and summarized here.",
             ]
         )
         self._append_workspace_card(validation_card)
@@ -2230,7 +3175,7 @@ class DevWorkbenchDialog(QWidget):
                     f"**Preset:** {preset.value}",
                     f"**Commands:** {', '.join(item.value for item in presets)}",
                     "",
-                    "DEV selected safe validation command(s) for this project automatically.",
+                    "OpenClaude selected safe validation command(s) for this project automatically.",
                 ]
             )
         )
@@ -2286,7 +3231,7 @@ class DevWorkbenchDialog(QWidget):
             self._agent_active_request or self.request_edit.toPlainText().strip()
         )
         lines = [
-            "# Developer Agent Final Report",
+            "# OpenClaude Final Report",
             "",
             "## Task",
             task_text or "(no task text)",
@@ -2311,7 +3256,7 @@ class DevWorkbenchDialog(QWidget):
                 "",
                 "## Known limitations",
                 "- Agent generation is wired for inspect/plan/patch proposal. Apply, Build EXE, Release Validation, and unsafe commands remain approval-gated.",
-                "- Developer Agent Mode uses the main app runtime and does not auto-start Ollama.",
+                "- OpenClaude uses the main app runtime and does not auto-start Ollama.",
                 "",
                 "## EXE rebuild required",
                 (
@@ -2371,9 +3316,9 @@ def open_dev_workbench_dialog(parent=None):
 
         return parent.open_workspace_tab(
             "dev.agent",
-            "DEV",
+            "OpenClaude",
             _create_dev_tab,
-            tooltip="FZAstro AI Developer Agent Mode",
+            tooltip="FZAstro AI OpenClaude",
             on_close=_clear_reference,
         )
 

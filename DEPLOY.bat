@@ -5,11 +5,11 @@ cd /d "%~dp0"
 echo FZAstro AI deploy
 echo Project: %CD%
 echo.
-echo This runs the full deploy workflow, validation, and local Git release tag.
+echo This runs the full deploy workflow, OpenClaude companion setup, validation, and local Git release tag.
 echo Add -GitPush after DEPLOY.bat if you also want to push the branch and tag.
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\deploy.ps1" -RunValidation -GitRelease %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\deploy.ps1" -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -InstallEmbeddedTerminalBackend -RunValidation -GitRelease %*
 set DEPLOY_EXIT=%ERRORLEVEL%
 
 echo.

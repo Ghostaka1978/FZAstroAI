@@ -25,7 +25,7 @@ class DeveloperAgentMemory:
 def load_developer_agent_memory(
     memory_dir: Path | str | None = None,
 ) -> DeveloperAgentMemory:
-    """Load stable project facts for Developer Agent Mode."""
+    """Load stable project facts for OpenClaude."""
 
     directory = Path(memory_dir) if memory_dir is not None else default_memory_dir()
     path = directory / "developer_agent_memory.json"
@@ -73,7 +73,7 @@ def save_developer_agent_last_project_root(
     project_root: Path | str,
     memory_dir: Path | str | None = None,
 ) -> DeveloperAgentMemory:
-    """Persist the last valid Developer Agent project root.
+    """Persist the last valid OpenClaude project root.
 
     The project root is a user convenience setting, not an authorization
     boundary. Safety checks still resolve and validate every file operation

@@ -6,7 +6,6 @@ from pathlib import Path
 
 import fzastro_ai.runtime as runtime
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 

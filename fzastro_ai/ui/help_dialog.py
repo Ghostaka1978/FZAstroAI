@@ -14,10 +14,9 @@ from PySide6.QtWidgets import (
 
 from ..logging_utils import log_exception
 
+HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI v2.4.0 Help
 
-HELP_CHEAT_SHEET_MARKDOWN = r"""# FZAstro AI v2.3.1 Help
-
-This guide shows what FZAstro AI can do and which source/mode is usually used. Imaging Production v2.3 is the tabbed workspace release: chat stays clean, astronomy tools open as main-window tabs, the root folder has one deploy button, and release deploy can create the Git commit/tag automatically. Click the **FZ** square in the header to open the GitHub repository.
+This guide shows what FZAstro AI can do and which source/mode is usually used. OpenClaude Terminal Production v2.4 is the dedicated embedded OpenClaude terminal release: chat stays clean, astronomy tools open as main-window tabs, the root folder has one deploy button, and release deploy can create the Git commit/tag automatically. Click the **FZ** square in the header to open the GitHub repository.
 
 ## 1. Main idea
 
@@ -42,7 +41,7 @@ Mention documents / PDF title / page number for local library work.
 Mention web / latest / current / URL for internet work.
 Mention remember / memory for persistent memory.
 Mention run / test / execute for Python.
-Use DEV for project scanning, coding context, plans, and checks.
+Use OpenClaude for direct terminal-based project coding inside the selected workspace.
 ```
 
 ## 2. Normal chat
@@ -156,23 +155,28 @@ Use the desktop Web Companion controls or run:
 
 Open the LAN URL from an iPad/phone/other device on the same network. LAN mode uses `FZASTRO_WEB_TOKEN`; do not expose it directly to the public internet.
 
-## 11. Developer Agent Mode
+## 11. OpenClaude
 
-Click **DEV** in the quick actions bar.
+Click **OpenClaude** in the quick actions bar. FZAstro opens a dedicated embedded OpenClaude terminal in the selected workspace. It is no longer the old legacy DEV testbed, and there is no separate FZAstro task box for coding work.
 
-Use it to:
+Use **Session** to confirm:
 
-- Scan the project
-- Select relevant files
-- Build a context package
-- Generate a visible implementation plan with safety boundaries
-- Preview unified diffs before any edit
-- Apply approved patches with rollback snapshots
-- Run compile checks and pytest presets
-- Analyze failures
-- Build a final engineering report
+- workspace folder
+- selected model and OpenAI-compatible endpoint
+- git repo, branch, remote, and dirty/clean state
+- `AGENTS.md` project rules status
+- terminal frontend/backend status
 
-The MVP remains approval-first: it does not silently rewrite the project, claim file inspection without reads, or claim tests passed without validation output.
+Use **Claude Terminal** like the normal OpenClaude CLI:
+
+```text
+/help
+Inspect this repository and summarize its structure.
+Create a small Python file and run it.
+Run pytest for the affected tests and summarize failures.
+```
+
+FZAstro supplies the terminal host, workspace defaults, telemetry, and deploy checks. OpenClaude owns the interactive coding flow directly inside the workspace.
 
 ## 12. Useful commands
 
@@ -198,21 +202,21 @@ def open_help_cheat_sheet_dialog(parent):
     dialog = QDialog(parent)
     apply_window_defaults(dialog)
     dialog.setObjectName("helpDialog")
-    dialog.setWindowTitle("FZAstro AI v2.3.1 Help")
+    dialog.setWindowTitle("FZAstro AI v2.4.0 Help")
     dialog.resize(900, 760)
 
     layout = QVBoxLayout(dialog)
     layout.setContentsMargins(18, 18, 18, 18)
     layout.setSpacing(12)
 
-    title = QLabel("FZAstro AI v2.3.1 Help")
+    title = QLabel("FZAstro AI v2.4.0 Help")
     title.setObjectName("helpDialogTitle")
 
     subtitle = QLabel(
-        "Imaging Production guide for chat, models, web, news, market quotes, documents, "
+        "OpenClaude Terminal Production guide for chat, models, web, news, market quotes, documents, "
         "PDF page images/text, memory, history, attachments, Python execution, "
         "LLM benchmarking, tests, Web Companion, tabbed Astro tools, "
-        "FZAstro Imaging/N.I.N.A. planning, Developer Agent Mode, root deploy, Git release tags, "
+        "FZAstro Imaging/N.I.N.A. planning, dedicated OpenClaude terminal, root deploy, Git release tags, "
         "and distance-ladder lookup details."
     )
     subtitle.setObjectName("helpDialogSubtitle")

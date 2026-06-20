@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FZAstro OpenClaude Terminal</title>
+  <link rel="stylesheet" href="vendor/xterm.css" />
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #05080d; color: #d7e7ff; }
+    #terminal { width: 100%; height: 100%; position: relative; }
+    .xterm { height: 100%; width: 100%; }
+    .xterm .xterm-viewport { overflow-y: auto; }
+    .xterm .xterm-screen { overflow: hidden; }
+    #fallback {
+      display: none; box-sizing: border-box; width: 100%; height: 100%; overflow: auto;
+      white-space: pre-wrap; word-break: break-word; padding: 12px;
+      font: 13px/1.35 "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+      background: #05080d; color: #d7e7ff;
+    }
+    #fallback:focus { outline: 1px solid #4aa3ff; }
+    .xterm { height: 100%; }
+  </style>
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+</head>
+<body>
+  <div id="terminal"></div>
+  <div id="fallback" tabindex="0"></div>
+<script>
+(function () {
+  let bridge = null;
+  let term = null;
+  let fitAddon = null;
+  let fallback = document.getElementById('fallback');
+  let terminalNode = document.getElementById('terminal');
+
+  function notifyReady(mode) {
+    if (bridge && bridge.frontendReady) {
+      bridge.frontendReady(mode);
+    }
+  }
+
+  function sendToPython(data) {
+    if (bridge && bridge.sendInput) {
+      bridge.sendInput(data);
+    }
+  }
+
+  function installFallback() {
+    terminalNode.style.display = 'none';
+    fallback.style.display = 'block';
+    fallback.textContent += '[fzastro] xterm.js assets not found; using basic terminal transcript fallback.\n';
+    fallback.addEventListener('keydown', function (event) {
+      if (event.ctrlKey && event.key.toLowerCase() === 'c') { sendToPython('\x03'); event.preventDefault(); return; }
+      if (event.key === 'Enter') { sendToPython('\r'); event.preventDefault(); return; }
+      if (event.key === 'Backspace') { sendToPython('\x7f'); event.preventDefault(); return; }
+      if (event.key === 'Tab') { sendToPython('\t'); event.preventDefault(); return; }
+      if (event.key.length === 1 && !event.metaKey && !event.altKey) { sendToPython(event.key); event.preventDefault(); }
+    });
+    window.fztermWrite = function (text) {
+      fallback.textContent += String(text || '');
+      fallback.scrollTop = fallback.scrollHeight;
+    };
+    window.fztermClear = function () { fallback.textContent = ''; };
+    window.fztermFocus = function () { fallback.focus(); };
+    window.fztermFit = function () {};
+    fallback.focus();
+    notifyReady('basic-dom-fallback');
+  }
+
+  function reportSize() {
+    if (term && bridge && bridge.resizeTerminal) {
+      bridge.resizeTerminal(term.cols || 120, term.rows || 30);
+    }
+  }
+
+  function fitAndReport() {
+    if (fitAddon) {
+      try { fitAddon.fit(); } catch (e) {}
+    }
+    reportSize();
+    if (term) {
+      try { term.scrollToBottom(); term.focus(); } catch (e) {}
+    }
+  }
+
+  function installXterm() {
+    if (!window.Terminal) {
+      installFallback();
+      return;
+    }
+    fallback.style.display = 'none';
+    terminalNode.style.display = 'block';
+    term = new Terminal({
+      cursorBlink: true,
+      convertEol: false,
+      scrollback: 10000,
+      fontFamily: 'Cascadia Mono, Consolas, Liberation Mono, monospace',
+      fontSize: 13,
+      lineHeight: 1.1,
+      windowsMode: true,
+      disableStdin: false,
+      fastScrollModifier: 'alt',
+      theme: {
+        background: '#05080d',
+        foreground: '#d7e7ff',
+        cursor: '#78b7ff',
+        selectionBackground: '#255f9f',
+        black: '#0b1119', red: '#ff6b6b', green: '#8bdc89', yellow: '#ffd166',
+        blue: '#78b7ff', magenta: '#c792ea', cyan: '#7ee7ff', white: '#e6edf3',
+        brightBlack: '#5f6b7a', brightRed: '#ff8a8a', brightGreen: '#a6f3a6',
+        brightYellow: '#ffe08a', brightBlue: '#9dccff', brightMagenta: '#ddb2ff',
+        brightCyan: '#a4f5ff', brightWhite: '#ffffff'
+      }
+    });
+    if (window.FitAddon && window.FitAddon.FitAddon) {
+      fitAddon = new window.FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+    }
+    term.open(terminalNode);
+    fitAndReport();
+    window.setTimeout(fitAndReport, 50);
+    window.setTimeout(fitAndReport, 250);
+    window.setTimeout(fitAndReport, 750);
+    term.onData(function (data) { sendToPython(data); });
+    term.onResize(function (size) {
+      if (bridge && bridge.resizeTerminal) bridge.resizeTerminal(size.cols, size.rows);
+    });
+    if (window.ResizeObserver) {
+      const resizeObserver = new ResizeObserver(function () { fitAndReport(); });
+      resizeObserver.observe(terminalNode);
+      resizeObserver.observe(document.body);
+    }
+    window.addEventListener('resize', fitAndReport);
+    window.fztermWrite = function (text) { term.write(String(text || ''), function () { try { term.scrollToBottom(); } catch(e) {} }); };
+    window.fztermClear = function () { term.clear(); };
+    window.fztermFocus = function () { term.focus(); };
+    window.fztermFit = fitAndReport;
+    term.focus();
+    notifyReady('xterm.js');
+  }
+
+  window.fztermWrite = function (text) {
+    fallback.style.display = 'block';
+    fallback.textContent += String(text || '');
+    fallback.scrollTop = fallback.scrollHeight;
+  };
+  window.fztermClear = function () { fallback.textContent = ''; };
+  window.fztermFocus = function () { fallback.focus(); };
+  window.fztermFit = function () {};
+
+  if (typeof QWebChannel === 'undefined') {
+    installFallback();
+    return;
+  }
+  new QWebChannel(qt.webChannelTransport, function (channel) {
+    bridge = channel.objects.fzTerminalBridge;
+    window.setTimeout(installXterm, 0);
+  });
+})();
+</script>
+</body>
+</html>

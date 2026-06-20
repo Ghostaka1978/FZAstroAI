@@ -1,13 +1,19 @@
-# FZAstro AI v2.3.1 - Imaging Production
+# FZAstro AI v2.4.0 - OpenClaude Terminal Production
 
-FZAstro AI is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document knowledge, persistent local memory, Python execution, web/news/market tools, hardware telemetry, LLM benchmarking, Developer Agent Mode coding assistance, Web Companion, and integrated astronomy planning.
+FZAstro AI is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document knowledge, persistent local memory, Python execution, web/news/market tools, hardware telemetry, LLM benchmarking, dedicated OpenClaude workspace terminal, Web Companion, and integrated astronomy planning.
 
-Release identity: **FZAstro AI v2.3.1 (Imaging Production)**.
+Release identity: **FZAstro AI v2.4.0 (OpenClaude Terminal Production)**.
 GitHub repository: https://github.com/Ghostaka1978/FZAstroAI
+
+## v2.4.0 release highlight
+
+FZAstro AI v2.4.0 is a major OpenClaude release. The old experimental Developer Workbench / legacy DEV testbed has been removed from the normal app surface. In its place, FZAstro now provides a dedicated **OpenClaude** workspace tab with a real embedded terminal, Session setup, visible workspace/git/provider context, and project rules through `AGENTS.md`. OpenClaude owns the interactive coding flow directly inside the selected workspace; FZAstro supplies the workspace, model endpoint, terminal host, telemetry, and release-safe setup/deploy support.
+
+Release tag: `v2.4.0`.
 
 ## Screenshots
 
-These v2.3.1 captures show the main desktop workspace, polished tool outputs, astronomy planning tabs, N.I.N.A. handoff, benchmarking, and the Web Companion.
+These v2.4.0 captures show the main desktop workspace, polished tool outputs, astronomy planning tabs, N.I.N.A. handoff, benchmarking, and the Web Companion.
 
 <table>
   <tr>
@@ -74,7 +80,7 @@ These v2.3.1 captures show the main desktop workspace, polished tool outputs, as
 - **Astro Tools Suite** - SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP.
 - **FZASTRO IMAGING / N.I.N.A. bridge** - safe Advanced Sequencer JSON export, bundled FZAstro Imaging launcher, N.I.N.A. API handoff, explicit ARM + START VIA API control, and session reports.
 - **LLM Benchmark Dashboard** - LLM BENCH opens a polished control layout with Dashboard, History, Compare, and benchmark controls.
-- **Developer Agent Mode** - active-model inspect/plan/chat/patch-proposal workflow with a hidden JSON tool loop, streamed Markdown answers/tool progress, follow-up replies, stop/status controls, single Agent Workspace timeline with resizable right-side Evidence/Advanced Diagnostics drawers, in-panel telemetry/progress, remembered last project root, Codex-style read-only project audit coverage, tool-result/invalid-tool recovery prompts, patch preview, project-aware compile/pytest checks, error analysis, and approval-gated apply.
+- **OpenClaude** - dedicated Codex-style workspace terminal backed by Windows ConPTY/pywinpty and an xterm.js frontend. The legacy Developer Workbench / DEV testbed has been removed from the normal UI; Session shows workspace/git/provider details, while all coding interaction happens directly inside the terminal.
 - **Document knowledge** - import/search local documents with SQLite-backed storage.
 - **Web Companion** - local browser/LAN companion for iPad/mobile workflows.
 
@@ -116,7 +122,7 @@ py -3.11 -m venv .venv
 .\DEPLOY.bat
 ```
 
-`DEPLOY.bat` is the root-folder deploy button. It runs `scripts/deploy.ps1 -RunValidation -GitRelease`, so a successful deploy also creates the local release commit and annotated tag from `VERSION.txt` (`v2.3.1` for this release). Add `-GitPush` when you want the branch and tag pushed:
+`DEPLOY.bat` is the root-folder deploy button. It runs `scripts/deploy.ps1 -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -RunValidation -GitRelease`, so a successful deploy also prepares the OpenClaude companion when Node/npm are available and creates the local release commit and annotated tag from `VERSION.txt` (`v2.4.0` for this release). Add `-GitPush` when you want the branch and tag pushed:
 
 ```powershell
 .\DEPLOY.bat -GitPush
@@ -125,13 +131,13 @@ py -3.11 -m venv .venv
 PowerShell equivalent:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -RunValidation -GitRelease
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -RunValidation -GitRelease -GitPush
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -RunValidation -GitRelease
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -RunValidation -GitRelease -GitPush
 ```
 
 The scripts enforce Python 3.11 for the build even if newer interpreters such as **Python 3.14** are installed on the system. `scripts/reset_venv.ps1` recreates the venv, sets `FZASTRO_PYTHON`, and uses the sibling build folder one folder above the project root: `..\FZAstroAI_BUILD`.
 
-`deploy.ps1` is the scripted release workflow command. It calls `scripts/clean_build.ps1`, which starts `build_exe.ps1` automatically, then validation can run `scripts/validate_release.ps1`. The cleanup/build/validation scripts use a progress bar, `VerboseOutput`, and logs under `..\FZAstroAI_BUILD\logs`. Optional external checks for Ollama, Tesseract, and Playwright use timeouts and warn/continue so a hung `ollama list` cannot block deployment.
+`deploy.ps1` is the scripted release workflow command. It can run `scripts/setup_openclaude_companion.ps1` before the build, then calls `scripts/clean_build.ps1`, which starts `build_exe.ps1` automatically, then validation can run `scripts/validate_release.ps1`. The cleanup/build/validation scripts use a progress bar, `VerboseOutput`, and logs under `..\FZAstroAI_BUILD\logs`. Optional external checks for Ollama, Tesseract, Playwright, Node.js/npm, and OpenClaude use warnings/status output so a missing companion tool does not block deployment unless explicitly required.
 
 The source handoff keeps the root folder lean: `main.py`, `DEPLOY.bat`, version/config files, README, requirements, pytest/Black config, icon/spec files used by the build, and the main `fzastro_ai/`, `docs/`, `scripts/`, and `tests/` folders. Generated caches, local virtual environments, external N.I.N.A. worktrees, bundled runtime binaries, and installer leftovers are not part of the clean source package.
 
@@ -156,29 +162,49 @@ Runtime data is stored under `%APPDATA%\FZAstroAI` by default. Important files i
 
 Set `FZASTRO_APP_DIR` to override the runtime data folder for testing or portable runs.
 
-Developer Agent update: broad analysis requests such as `analyse all Python files` now build a project-audit index of every scanned `.py` file while keeping deep-read excerpts bounded.
+OpenClaude update: broad analysis requests such as `analyse all Python files` now build a project-audit index of every scanned `.py` file while keeping deep-read excerpts bounded.
 
 
-### Developer Agent UX polish
 
-- Developer Agent remembers the last valid project root and restores it on reopen.
+### Codex-style OpenClaude prerequisites
+
+For source/developer setups on Windows, install Node.js, Git, ripgrep, and OpenClaude once. FZAstro deploy/setup scripts validate these tools and prepare the embedded ConPTY backend; the app UI does not install Python packages at runtime.
+
+```powershell
+winget install -e --id OpenJS.NodeJS.LTS
+winget install -e --id Git.Git
+winget install -e --id BurntSushi.ripgrep.MSVC
+npm install -g @gitlawb/openclaude@latest
+```
+
+### Embedded OpenClaude
+
+The OpenClaude workspace now uses OpenClaude as the coding-agent path with the selected FZAstro model and endpoint. Normal chat still uses the direct runtime (`FZAstro AI -> Ollama/OpenAI-compatible API`), while coding tasks use (`FZAstro OpenClaude -> embedded OpenClaude terminal -> Ollama`). On Windows, FZAstro embeds the interactive OpenClaude CLI through ConPTY/pywinpty in the Agent Workspace. Runtime package setup is kept out of the app UI: `pywinpty` is installed and packaged by requirements/setup/build/deploy, while the app only reports whether the embedded backend is ready. If the embedded backend is unavailable or unstable, the external terminal launcher remains available. FZAstro generates the runtime launcher and structured OpenClaude task prompt under `AppData\Roaming\FZAstroAI\openclaude`, so frozen EXE deployments do not depend on source-relative scripts.
+
+### OpenClaude UX polish
+
+- OpenClaude remembers the last valid project root and restores it on reopen.
 - The cockpit shows a progress bar plus telemetry/status while scanning, planning, streaming, patching, and validating.
 - Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
 - Web Companion/LAN token/security tasks are routed to launcher/server/app/test files instead of unrelated UI files.
 - Invalid empty tool requests stop with actionable guidance instead of looping until timeout.
 
 
-### Developer Agent single workspace
+### OpenClaude single workspace
 
-The DEV cockpit now uses one Agent Workspace timeline for plans, answers, patch proposals, previews, validation cards, and reports. File evidence and raw logs/context/diffs/test output live in on-demand resizable right-side drawers with their own scroll areas, keeping the main workspace stable while details are open. Runtime/model details and separate steering fields are intentionally hidden from the DEV surface; the main model bar and task composer are the user-facing controls. Normal patch work no longer requires switching between Log, Chat, Patch, Validation, and Report tabs.
+The OpenClaude workspace now uses one Agent Workspace timeline for plans, answers, patch proposals, previews, validation cards, and reports. File evidence and raw logs/context/diffs/test output live in on-demand resizable right-side drawers with their own scroll areas, keeping the main workspace stable while details are open. Runtime/model details and separate steering fields are intentionally hidden from the OpenClaude surface; the main model bar and task composer are the user-facing controls. Normal patch work no longer requires switching between Log, Chat, Patch, Validation, and Report tabs.
 
-### Developer Agent apply hardening
+### OpenClaude apply hardening
 
-Patch application now handles partially stale unified diffs more safely. If an implementation hunk was already applied but a new test-file hunk still needs to be created, Developer Agent Mode skips only the proven already-applied section and applies the remaining valid section after creating a rollback snapshot. Apply failures now report failed paths and raw `git apply` details instead of only saying that no files changed. New-file `/dev/null` diff sections are validated and applied explicitly.
+Patch application now handles partially stale unified diffs more safely. If an implementation hunk was already applied but a new test-file hunk still needs to be created, OpenClaude skips only the proven already-applied section and applies the remaining valid section after creating a rollback snapshot. Apply failures now report failed paths and raw `git apply` details instead of only saying that no files changed. New-file `/dev/null` diff sections are validated and applied explicitly.
 
-### Developer Agent polish
+### OpenClaude polish
 
-The DEV cockpit now remembers the last valid project root, shows progress and telemetry, highlights the next workflow action, keeps patch apply locked until preview, and uses generic evidence-based planning so patch-management wording does not pull in unrelated Developer Agent UI/type files.
+The OpenClaude workspace now remembers the last valid project root, shows progress and telemetry, highlights the next workflow action, keeps patch apply locked until preview, and uses generic evidence-based planning so patch-management wording does not pull in unrelated OpenClaude UI/type files.
 
 
 Release validation skips `ollama list` by default so deploy checks do not depend on a running Ollama server. Use `scripts/validate_release.ps1 -DeepRuntimeChecks` only when you explicitly want a local Ollama model inventory check.
+
+## OpenClaude
+
+The OpenClaude workspace uses a real terminal frontend when available: Qt WebEngine + xterm.js connected to Windows ConPTY/pywinpty. Run `scripts\setup_openclaude_companion.ps1 -InstallEmbeddedTerminalBackend -InstallTerminalFrontend` before building/deploying on Windows.

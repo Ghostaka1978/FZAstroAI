@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-
 CAMERA_PRESETS: Dict[str, Dict[str, float | int | str]] = {
     # Keep dropdowns ordered from smallest to largest field of view at 700 mm.
     "120": {

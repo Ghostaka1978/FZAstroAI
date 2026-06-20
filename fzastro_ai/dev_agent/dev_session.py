@@ -134,7 +134,7 @@ class DevAgentSession:
                 "- No test claim without validation output.",
                 "- No edit without patch preview unless auto-edit is explicitly enabled.",
                 "- No dangerous command without approval.",
-                "- No hardware, N.I.N.A. sequence start, guiding, capture, or power action from Developer Agent Mode.",
+                "- No hardware, N.I.N.A. sequence start, guiding, capture, or power action from OpenClaude.",
                 "- No modifying `external/` or `bundled_apps/` by default.",
                 "",
                 "## Acceptance criteria",

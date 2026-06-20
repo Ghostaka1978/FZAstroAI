@@ -116,6 +116,36 @@ def refresh_workspace_context(self):
         )
 
 
+def _compact_model_status_message(message):
+    """Return a short combo-box label while preserving full status in tooltips."""
+    clean = str(message or "").strip()
+
+    if not clean:
+        return ""
+
+    lowered = clean.casefold()
+
+    if "ollama" in lowered and ("off" in lowered or "offline" in lowered):
+        return "Ollama off"
+
+    if "refresh" in lowered and ("model" in lowered or "list" in lowered):
+        return "Refreshing..."
+
+    if "unavailable" in lowered or "connection" in lowered:
+        return "Model unavailable"
+
+    if len(clean) <= 24:
+        return clean
+
+    for separator in (" — ", " - ", ": "):
+        if separator in clean:
+            first = clean.split(separator, 1)[0].strip()
+            if 4 <= len(first) <= 24:
+                return first
+
+    return clean[:21].rstrip() + "..."
+
+
 def current_base_url(self):
     app_module = _app_module()
     return app_module.normalize_runtime_base_url(self.server_url.text())
@@ -481,7 +511,8 @@ def _replace_model_items(
     self.model_box.clear()
 
     if status_message:
-        self.model_box.addItem(str(status_message), fallback_model)
+        visible_status = _compact_model_status_message(status_message)
+        self.model_box.addItem(visible_status or str(status_message), fallback_model)
         self.model_box.setCurrentIndex(0)
     else:
         for clean_model in clean_models:

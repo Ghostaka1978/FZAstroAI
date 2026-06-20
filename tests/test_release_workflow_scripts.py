@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RELEASE_VALIDATION_DOC = PROJECT_ROOT / "docs" / "RELEASE_VALIDATION.md"
 

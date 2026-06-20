@@ -9,7 +9,6 @@ from typing import Any
 
 from ..config import APP_DIR
 
-
 AU_LIGHT_MINUTES = 8.316746397269274
 PACKAGE_SKYFIELD_DIR = Path(__file__).resolve().parent / "fzastro" / ".skyfield"
 EPHEMERIS_FILE = "de440s.bsp"

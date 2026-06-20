@@ -8,7 +8,6 @@ from typing import Any, Iterable
 
 from ..config import APP_DIR
 
-
 TARGET_CATALOG_DB = APP_DIR / "target_catalog.sqlite3"
 OPENNGC_SOURCE = "OpenNGC"
 BUILTIN_SOURCE = "Curated"

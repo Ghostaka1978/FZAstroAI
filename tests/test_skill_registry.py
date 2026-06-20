@@ -8,7 +8,6 @@ from fzastro_ai.skill_registry import (
     skill_actions_by_section,
 )
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -169,6 +168,17 @@ def test_new_chat_and_imported_documents_buttons_live_next_to_tools():
     assert 'button.setText(f"Imported Documents ({int(document_count):,})")' in app_text
     assert "runtime_group_layout.addWidget(self.new_chat_button" not in app_text
     assert "skills_group_layout.addWidget(self.new_chat_button" not in app_text
+
+
+def test_compact_model_status_text_keeps_top_bar_from_clipping():
+    model_controls_text = (PROJECT_ROOT / "fzastro_ai" / "model_controls.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "def _compact_model_status_message" in model_controls_text
+    assert 'return "Ollama off"' in model_controls_text
+    assert "self.model_box.addItem(visible_status" in model_controls_text
+    assert '"Ollama is off — refresh is read-only."' not in model_controls_text
 
 
 def test_model_and_profile_controls_share_top_bar_with_web_in_config_sidebar():

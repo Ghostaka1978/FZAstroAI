@@ -3,7 +3,7 @@
 This package is UI-agnostic. It provides safe project scanning, focused context
 selection, project-root-bounded file tools, patch proposal/apply helpers,
 validation presets, persistent project rules, and the structured types used by
-Developer Agent Mode.
+OpenClaude.
 """
 
 from .context_builder import ContextFile, DevContext, build_dev_context

@@ -6,7 +6,6 @@ import html
 import re
 from urllib.parse import urlparse
 
-
 FENCED_CODE_PATTERN = r"(```.*?```|~~~.*?~~~)"
 
 

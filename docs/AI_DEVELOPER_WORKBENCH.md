@@ -1,73 +1,114 @@
-# Developer Agent Mode
+# OpenClaude
 
-Developer Agent Mode is the local, preview-first coding-agent cockpit inside FZAstro AI. It replaces the early Developer Workbench direction with a safer Claude-Code-style workflow: inspect real project files, build a plan, request structured tools, preview patches, apply only after approval, and run real validation output.
+OpenClaude is the dedicated coding workspace in FZAstro AI v2.4.0. This release retires the old experimental Developer Workbench / legacy DEV testbed from the normal UI and replaces it with a terminal-first OpenClaude experience.
 
-## Current workflow
+FZAstro now acts as a workspace-aware OpenClaude host:
+
+- **Session** contains setup/defaults only: workspace folder, selected model and endpoint, git repository details, AGENTS.md status, terminal frontend/backend status, and internal tools.
+- **Claude Terminal** is the primary interface. Type directly into the embedded OpenClaude terminal exactly as in the standalone CLI.
+- FZAstro supplies environment variables, working directory, terminal hosting, telemetry, and setup/deploy checks.
+- OpenClaude owns the coding conversation, file inspection, file creation/editing, command execution, tests, and git interaction inside the selected workspace.
+
+## What was removed from the normal UI
+
+The old legacy DEV surface is not part of the production OpenClaude workspace:
+
+- no Timeline tab
+- no Evidence drawer
+- no Advanced Diagnostics drawer
+- no External Terminal button
+- no Manual Input control
+- no mode/safety controls
+- no legacy scan/plan/ask controls
+- no separate FZAstro Task/reply composer
+- no bottom hard-boundary footer
+
+Those controls belonged to the earlier internal testbed. The production UX is a real OpenClaude terminal with a small setup panel.
+
+## Workspace and git awareness
+
+Session makes the selected workspace explicit before OpenClaude starts. This is important because OpenClaude can create files, edit files, run Python/tests/scripts, and use git in that folder. Session shows the selected path, whether it is a git repository, branch, remote, dirty/clean state, API endpoint/model, hidden API-key status, AGENTS.md status, and terminal frontend status.
+
+FZAstro does not store or display raw GitHub tokens. Prefer Git Credential Manager, Windows Credential Manager, or environment variables such as `GITHUB_TOKEN` when the user wants git/network authentication available to OpenClaude.
+
+## Project rules
+
+FZAstro can create `AGENTS.md` in the selected workspace when missing. This file stores stable project rules such as small patches, inspect relevant files before editing, run tests after code changes, and ask before destructive commands or hardware/N.I.N.A. operations.
+
+## Normal workflow
+
+1. Open **OpenClaude**.
+2. In **Session**, select the intended workspace. Do not point at a live repo unless that is intentional.
+3. Confirm model, endpoint, git status, and terminal backend/frontend readiness.
+4. Open **Claude Terminal** and press **Start**.
+5. Type directly into the OpenClaude prompt.
+
+Example prompts typed directly in the terminal:
 
 ```text
-request -> scan project -> build focused context or project-audit index -> active app model -> hidden JSON tool loop -> visible streamed Markdown/tool progress -> follow-up replies as needed -> plan or PatchProposal -> preview diff -> approved apply -> validation -> final report
+/help
+Inspect this repository and summarize the important files.
+Create one empty Python file named openclaude_test.py and verify it exists.
+Run python -m compileall -q main.py fzastro_ai tests and summarize the result.
 ```
 
-The feature is still intentionally bounded. The local model can inspect, plan, and prepare a patch proposal, but patch application, build scripts, release validation, and unsafe commands remain visible approval-gated actions.
+## Windows OpenClaude prerequisites
 
-## Backend modules
+FZAstro setup/deploy prepares the embedded OpenClaude path. For a source checkout, the expected Windows tools are:
 
-```text
-fzastro_ai/dev_agent/
-  __init__.py
-  action_executor.py      # validates and executes JSON tool actions
-  agent_loop.py           # controlled inspect/plan/patch-proposal loop
-  context_builder.py      # focused context and project-audit package builder
-  dev_session.py          # session preparation and visible plan generation
-  error_analyzer.py       # validation-output summarizer
-  file_tools.py           # project-root-bounded read/search/symbol tools
-  git_tools.py            # git status helpers
-  llm_client.py           # active FZAstro runtime client with streaming; never auto-starts Ollama
-  memory.py               # persistent project rules
-  patch_applier.py        # unified diff proposal/apply/export helpers
-  project_scanner.py      # scanner with ignored/generated folder rules
-  prompt.py               # local coding-agent system prompt and project rules
-  safety.py               # path and command safety gates
-  session_store.py        # session persistence helpers
-  task_classifier.py      # task/path/role classifier
-  test_runner.py          # compile/pytest/build validation presets
-  tool_protocol.py        # structured JSON action parsing
-  types.py                # shared dataclasses/enums
-
-fzastro_ai/ui/dev_workbench_dialog.py
-fzastro_ai/actions/dev_actions.py
+```powershell
+winget install -e --id OpenJS.NodeJS.LTS
+winget install -e --id Git.Git
+winget install -e --id BurntSushi.ripgrep.MSVC
+npm install -g @gitlawb/openclaude@latest
 ```
 
-## UI entry point
+Then verify:
 
-Click **DEV** in the quick actions bar. The cockpit includes:
+```powershell
+node -v
+npm -v
+git --version
+rg --version
+openclaude --version
+```
 
-- project root selector that restores the last valid folder from Developer Agent memory when the DEV panel opens
-- agent mode selector
-- safety mode selector
-- compact one-line project/mode/safety selector row
-- active runtime status copied from the main FZAstro model controls
-- task/reply input
-- steering input for visible guidance such as focus areas, exclusions, depth, or risk priorities; it steers the next agent step without exposing hidden chain-of-thought
-- compact telemetry/status strip mirroring the main app where available: agent state, GPU/VRAM, and CPU/RAM
-- progress bar for scan, context build, streaming/tool-loop, patch preview/apply, validation, and report phases
-- numbered workflow buttons: **1 Scan Project**, **2 Build Plan**, **3 Ask / Reply**, **Stop Agent**, **4 Preview Patch**, **5 Apply Patch**, **6 Compile**, **7 Final Report**. The next recommended action is highlighted as `NEXT`, blocked actions are visually muted, and tooltips explain when an action is waiting for a task, diff, preview, or approval.
-- a reusable **New Chat** control for clearing the agent conversation while keeping the scan/context available
-- a single rendered Markdown **Agent Workspace** timeline for plans, answers, tool progress, patch proposal cards, patch preview cards, validation cards, and final reports so normal work does not require tab switching
-- minimized **Evidence** panel for selected/scanned files; it is collapsed by default and can be expanded only when the user wants to inspect file selection
-- right-side **Advanced Diagnostics** drawer for tool log, context package, raw patch diff, validation output, and report output; it opens on demand as a resizable side panel with its own scroll area so technical trace detail does not push the main workspace down
-- hidden tool loop execution: raw JSON actions are parsed, validated, executed, and stored in conversation history instead of being printed into the chat
-- conversation memory for follow-up replies: when the agent asks a question, type the reply in the task box and click **3 Ask / Reply** again
-- visible stop/timeout handling: **Stop Agent** requests cooperative cancellation and the status strip shows loop step, stopped, timeout, error, and done states
-- patch preview with inline workspace guidance when no unified diff exists; **4 Preview Patch** is a validator for an existing patch, not a patch generator
-- project-aware validation cards shown inline in the workspace, with full raw output retained under Advanced Diagnostics. FZAstro repos use the known FZAstro validation profile; generic Python folders use project-root compileall/pytest automatically.
-- hardened patch apply semantics: `/dev/null` new-file diffs are supported, already-applied sections can be safely skipped while still applying remaining valid sections, failed apply attempts list failed paths plus `git apply` details, and malformed diffs are preflighted before Apply is enabled.
-- generic-project validation and reporting: Compile on non-FZAstro Python folders runs compile plus pytest/clean skip, final reports show the detected profile, and EXE rebuild is required only for FZAstro application Python changes.
-- chat-like composer UX: submitted Ask/Reply text is moved into the Agent Workspace and the composer is cleared for the next reply.
+The embedded terminal uses the selected FZAstro model/provider. For Ollama this means the main app-selected model is passed as `OPENAI_MODEL` with `OPENAI_BASE_URL=http://localhost:11434/v1`.
+
+## Embedded OpenClaude
+
+OpenClaude is now the visible coding workspace for the OpenClaude tab. FZAstro does not expose the old internal scan/plan/ask controls, Timeline, Evidence drawer, Advanced Diagnostics drawer, External Terminal action, or separate Manual Input row in the normal UI.
+
+The intended interaction is Codex-style:
+
+1. open **Session** once and choose the workspace folder,
+2. confirm model/endpoint/git/AGENTS.md/terminal status in Session,
+3. switch to **Claude Terminal**,
+4. click **Start** if OpenClaude is not already running,
+5. type directly into the embedded terminal exactly as in the standalone OpenClaude CLI.
+
+The Session tab is setup-only. The Claude Terminal tab owns the active controls:
+
+- **Status** checks Node.js, npm, OpenClaude, the selected model/endpoint, selected workspace, and Windows ConPTY/pywinpty readiness.
+- **Start / Restart** starts or restarts OpenClaude inside the selected workspace.
+- **Stop** requests terminal cancellation.
+- **Clear** clears the visible terminal buffer.
+- **Status** checks Node.js, npm, OpenClaude, the selected model/endpoint, selected workspace, and Windows ConPTY/pywinpty readiness.
+- **Tools** are kept on the Session tab for patch preview/apply, compile, tests, final report, copy task, patch ZIP export, and new chat.
+
+There is no separate FZAstro chat box in the OpenClaude screen. The terminal is the input. Commands such as `/help`, normal coding requests, shell instructions, and OpenClaude shortcuts are typed directly into the terminal renderer.
+
+FZAstro writes minimal setup/status files under `AppData\Roaming\FZAstroAI\openclaude` for audit/debugging. Stable workspace rules are placed in `AGENTS.md` when missing, so OpenClaude can behave like a normal Codex/Claude-Code-style agent without FZAstro pasting a hidden prompt into the terminal.
+
+The preferred renderer is a real terminal frontend: Qt WebEngine + local `xterm.js` assets connected to Windows ConPTY through `pywinpty`. If WebEngine or the `xterm.js` assets are missing, FZAstro falls back to a basic transcript view and reports that the real terminal frontend is unavailable. Prepare the frontend during setup/deploy with `scripts\setup_openclaude_companion.ps1 -InstallTerminalFrontend`.
+
+OpenClaude can inspect/create/edit files, run Python/tests/scripts, and inspect/update git inside the selected workspace according to the user conversation and `AGENTS.md`. FZAstro no longer exposes separate mode/safety controls for OpenClaude; those behaviors belong to OpenClaude and the project rules.
+
+Packaging note: true embedded terminal mode requires `pywinpty` on Windows. Runtime package setup is intentionally not exposed as an app button. `requirements.txt`, `DEPLOY.bat`, `scripts/deploy.ps1`, `scripts/setup_openclaude_companion.ps1`, `scripts/build_exe.ps1`, and `FZAstroAI.spec` prepare and package the backend during source setup/build/deploy. The app reports backend readiness instead of installing packages at runtime.
 
 ## Focused context vs project audit
 
-**Build Plan** has two context scopes:
+**OpenClaude project context** has two scopes:
 
 - **Focused context** for specific requests such as `fix app.py` or `explain shutdown_controller.py`. It selects a small ranked file set and includes deeper excerpts.
 - **Project audit** for broad requests such as `analyse all my Python files`, `analyse my app`, `full codebase review`, or `identify risks`. It indexes every scanned Python file in the Context tab and includes deep-read excerpts only for the highest-ranked files so the prompt stays bounded. The agent must use follow-up read/search tools before claiming detailed body-level findings for non-excerpted files.
@@ -82,18 +123,18 @@ In **Review Only** mode, broad project audits are still allowed to use safe read
 
 Recommended patch flow:
 
-1. Switch **Mode** to **Patch Files** or **Patch + Run Tests**.
-2. Keep **Safety** on **Ask Before Editing** unless intentionally using a stricter read-only review.
-3. Ask through **3 Ask / Reply**: `Propose a safe patch for <issue>. Do not apply it yet.`
-4. Review the generated diff in the Agent Workspace. Raw diff details remain available under **Advanced Diagnostics -> Patch Diff**.
-5. Click **4 Preview Patch** to validate patch paths, risk, and changed files.
-6. Click **5 Apply Patch** only after the diff is acceptable.
+1. Start OpenClaude in the **Claude Terminal** tab.
+2. Type the task directly in the terminal, for example: `Propose a safe patch for <issue>. Do not apply it yet.`
+3. Let OpenClaude inspect files and produce a changed-file summary or diff.
+4. Use **Session -> Tools -> Preview Diff** when a local diff exists.
+5. Click **Preview Diff** to validate patch paths, risk, and changed files.
+6. Click **Apply Diff** only after the diff is acceptable.
 
-In **Review Only** or **Plan Only**, Step 4 explains that a patch is unavailable and tells the user how to switch modes when they want a diff.
+Review/patch/test behavior is driven by OpenClaude, the user prompt, and `AGENTS.md`; FZAstro no longer exposes separate OpenClaude mode/safety controls.
 
 Follow-up inspection turns are evidence-first. If the model asks for a `read_file` or search tool during a follow-up, the app executes the safe tool, appends the tool result back into the conversation, and explicitly asks the model to continue with a final answer or one more justified tool call. This prevents a turn from ending with only `Tool read_file ... ok` and no conclusion. Invalid tool calls such as an empty `search_text` query are converted into a recovery turn instead of looping until timeout.
 
-The read-only preload covers these areas where matching files exist: entry/app integration, runtime/model integration, shutdown/worker lifecycle, Developer Agent safety, Web Companion boundary, N.I.N.A./hardware boundary, astro planning/data, state/data persistence, and command/tool execution. The final report must name inspected files, separate evidence-backed findings from unverified areas, and avoid claiming full-body inspection for files that were only indexed.
+The read-only preload covers these areas where matching files exist: entry/app integration, runtime/model integration, shutdown/worker lifecycle, OpenClaude safety, Web Companion boundary, N.I.N.A./hardware boundary, astro planning/data, state/data persistence, and command/tool execution. The final report must name inspected files, separate evidence-backed findings from unverified areas, and avoid claiming full-body inspection for files that were only indexed.
 
 ## Structured tool protocol
 
@@ -149,12 +190,12 @@ Hard boundaries:
 5. No patch apply without explicit approval unless Auto-edit Inside Project Only is selected.
 6. No mutation of `external/`, `bundled_apps/`, `.venv`, build output, caches, or generated areas by default.
 7. No dangerous shell command unless explicitly approved.
-8. No hardware, N.I.N.A. sequence start, guiding, capture, or power action from Developer Agent Mode.
-9. Local Ollama is never auto-started by the agent client; Developer Agent Mode uses the active main-app runtime and only sends requests when that runtime is already available.
+8. No hardware, N.I.N.A. sequence start, guiding, capture, or power action from OpenClaude.
+9. Local Ollama is never auto-started by the agent client; OpenClaude uses the active main-app runtime and only sends requests when that runtime is already available.
 
 ## Validation commands
 
-Core validation for Developer Agent Mode:
+Core validation for OpenClaude:
 
 ```powershell
 python -m compileall -q main.py fzastro_ai tests
@@ -168,19 +209,19 @@ Build EXE and Release Validation remain approval-gated because they execute Powe
 Next stages are controlled auto-fix loops, deeper persistent memory/rule editing, richer UI state, and optional cloud fallback through the same main-app runtime. Full autonomy is not enabled by default.
 
 
-### Developer Agent UX polish
+### OpenClaude UX polish
 
-- Developer Agent remembers the last valid project root and restores it on reopen.
+- OpenClaude remembers the last valid project root and restores it on reopen.
 - The cockpit shows a progress bar plus telemetry/status while scanning, planning, streaming, patching, and validating.
 - Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
-- File planning is generic and evidence-driven: task-management words such as `PatchProposal`, `unified`, `diff`, `summary`, `validation`, and `risk` are filtered from relevance scoring so patch tasks select implementation/test evidence instead of Developer Agent meta-files.
+- File planning is generic and evidence-driven: task-management words such as `PatchProposal`, `unified`, `diff`, `summary`, `validation`, and `risk` are filtered from relevance scoring so patch tasks select implementation/test evidence instead of OpenClaude meta-files.
 - Invalid empty tool requests stop with actionable guidance instead of looping until timeout.
 
 
 ### Single-workspace layout
 
-Developer Agent normal workflow now uses one chat-like **Agent Workspace** instead of a Log/Chat/Context/Patch/Validation/Report tab hunt. Evidence files and Advanced Diagnostics open in an on-demand resizable right-side drawer with internal scrolling, while patch/validation/report outcomes are appended as inline cards in the workspace. Runtime/model details and the separate Steering Prompt were removed from the drawer; the main app model bar and the single task/reply composer are the user-facing controls. Validation is project-aware, so generic Python folders run from their selected root instead of inheriting FZAstro-specific commands.
+OpenClaude normal workflow now uses a compact two-tab workspace: **Session** for setup/details and **Claude Terminal** for direct interaction. The main app model bar and embedded terminal are the user-facing controls. Validation is project-aware, so generic Python folders run from their selected root instead of inheriting FZAstro-specific commands.
 
 ### Next-action workflow controls
 
-The workflow row now marks one primary next action at a time. Examples: after scanning, **2 Build Plan** is marked as next; after context is built, **3 Ask / Reply** is marked as next; after a patch proposal exists, **4 Preview Patch** is marked as next; after preview succeeds, **5 Apply Patch** becomes available. This keeps the cockpit explicit without enabling hidden edits.
+The workflow now keeps one primary visible path: type directly in **Claude Terminal**. Session keeps setup and tools available without taking terminal space.

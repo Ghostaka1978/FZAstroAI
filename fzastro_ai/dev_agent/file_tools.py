@@ -15,7 +15,7 @@ class DevFileToolError(ValueError):
 
 
 class DeveloperFileTools:
-    """Safe, project-root-bounded file inspection tools for Developer Agent Mode."""
+    """Safe, project-root-bounded file inspection tools for OpenClaude."""
 
     def __init__(self, project_root: Path | str, *, max_read_bytes: int = 300_000):
         self.project_root = Path(project_root).resolve()

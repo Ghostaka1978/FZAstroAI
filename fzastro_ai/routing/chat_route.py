@@ -21,7 +21,6 @@ from .intent_detection import (
 )
 from .tool_router import ToolPlan, detect_deterministic_tool_plan
 
-
 ChatRouteAction = Literal[
     "daily_brief",
     "forced_web_search",

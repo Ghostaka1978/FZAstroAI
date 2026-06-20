@@ -6,7 +6,7 @@ from typing import Any
 
 
 class AgentMode(str, Enum):
-    """Visible operating modes for Developer Agent Mode."""
+    """Visible operating modes for OpenClaude."""
 
     REVIEW_ONLY = "Review Only"
     PLAN_ONLY = "Plan Only"

@@ -10,7 +10,6 @@ from zoneinfo import ZoneInfo
 
 from .network_utils import get_limited_json
 
-
 OPEN_METEO_FORECAST_BASE = "https://api.open-meteo.com/v1/forecast"
 OPEN_METEO_GEOCODING_BASE = "https://geocoding-api.open-meteo.com/v1/search"
 IP_LOCATION_ENDPOINTS = (
