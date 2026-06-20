@@ -810,6 +810,7 @@ def _run_ollama_stop_commands(commands, timeout):
                 stderr=subprocess.DEVNULL,
                 timeout=command_timeout,
                 check=False,
+                **_hidden_subprocess_kwargs(),
             )
         except Exception as exc:
             last_error = str(exc)

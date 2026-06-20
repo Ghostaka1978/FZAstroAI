@@ -724,3 +724,42 @@ def test_runtime_listener_probe_hides_console_windows_on_windows(monkeypatch):
     assert captured["stdin"] is runtime.subprocess.DEVNULL
     assert captured["stderr"] is runtime.subprocess.DEVNULL
     assert captured["stdout"] is runtime.subprocess.PIPE
+
+
+def test_ollama_stop_commands_hide_console_windows_on_windows(monkeypatch):
+    captured = {}
+
+    class FakeStartupInfo:
+        def __init__(self):
+            self.dwFlags = 0
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(runtime.sys, "platform", "win32")
+    monkeypatch.setattr(
+        runtime.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False
+    )
+    monkeypatch.setattr(runtime.subprocess, "STARTF_USESHOWWINDOW", 1, raising=False)
+    monkeypatch.setattr(
+        runtime.subprocess, "STARTUPINFO", FakeStartupInfo, raising=False
+    )
+    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+
+    error = runtime._run_ollama_stop_commands(
+        [["taskkill", "/IM", "ollama.exe", "/T"]], timeout=0.2
+    )
+
+    assert error == ""
+    assert captured["command"] == ["taskkill", "/IM", "ollama.exe", "/T"]
+    assert captured["creationflags"] == 0x08000000
+    assert captured["startupinfo"].dwFlags & 1
+    assert captured["stdin"] is runtime.subprocess.DEVNULL
+    assert captured["stdout"] is runtime.subprocess.DEVNULL
+    assert captured["stderr"] is runtime.subprocess.DEVNULL
