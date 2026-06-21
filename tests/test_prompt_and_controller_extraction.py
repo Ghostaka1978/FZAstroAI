@@ -22,7 +22,7 @@ def test_shutdown_controller_extracted_from_main_window():
     controller_path = (
         PROJECT_ROOT / "fzastro_ai" / "controllers" / "shutdown_controller.py"
     )
-    app_tree = ast.parse(app_path.read_text(encoding="utf-8"))
+    app_tree = ast.parse(app_path.read_text(encoding="utf-8-sig"))
     app_class = next(
         node
         for node in app_tree.body

@@ -159,7 +159,7 @@ def test_new_chat_and_imported_documents_buttons_live_next_to_tools():
     assert "composer_toolbar_layout.addWidget(self.news_button" in app_text
     assert "self.composer_markets_button, 0, Qt.AlignVCenter" in app_text
     assert (
-        '"New Chat", "newChatButton", "Start a new empty chat", width=68, height=24'
+        '"New Chat", "newChatButton", "Start a new empty chat", width=84, height=34'
         in app_text
     )
     assert 'QPushButton("Imported Documents (0)")' in app_text

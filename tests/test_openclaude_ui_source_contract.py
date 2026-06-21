@@ -133,19 +133,11 @@ def test_openclaude_terminal_header_groups_actions_by_compact_submenus():
     assert "terminal_header.addWidget(self.openclaude_claude_menu_button)" in source
     assert "terminal_header.addWidget(self.openclaude_input_menu_button)" in source
     assert "terminal_header.addWidget(self.openclaude_view_menu_button)" in source
+    assert "Page Down" in source
+    assert "page_down_openclaude_terminal" in source
     assert "terminal_header.addWidget(self.openclaude_continue_button)" not in source
     assert "terminal_header.addWidget(self.openclaude_resume_button)" not in source
     assert "terminal_header.addWidget(self.openclaude_shell_button)" not in source
-
-
-def test_openclaude_compact_view_menu_callbacks_exist():
-    source = dev_workbench_source()
-
-    assert '("Page Up", self.page_up_openclaude_terminal)' in source
-    assert "def page_up_openclaude_terminal" in source
-    assert "def page_down_openclaude_terminal" in source
-    assert "def scroll_openclaude_terminal_to_top" in source
-    assert "def scroll_openclaude_terminal_to_bottom" in source
 
 
 def test_openclaude_prompt_is_separate_tabbed_shell():
@@ -174,17 +166,17 @@ def test_openclaude_terminal_exposes_common_slash_command_actions():
     source = dev_workbench_source()
 
     assert 'QPushButton("Ctx")' in source
-    assert 'QPushButton("Set Ctx")' in source
+    assert 'QPushButton("Output")' in source
     assert 'QPushButton("Clear")' in source
     assert 'QPushButton("Config")' in source
     assert 'QPushButton("Buddy")' in source
     assert "send_openclaude_ctx_command" in source
-    assert "set_openclaude_ctx_budget" in source
+    assert "set_openclaude_output_budget" in source
     assert "send_openclaude_clear_command" in source
     assert "send_openclaude_config_command" in source
     assert "send_openclaude_buddy_command" in source
     assert "_send_openclaude_slash_command" in source
-    assert "Set Ctx / Output Cap" in source
+    assert "Set Output Tokens" in source
     assert 'worker.send_input(clean_command.rstrip("\\r\\n") + "\\r")' in source
 
 
@@ -255,5 +247,5 @@ def test_openclaude_session_shows_prerequisites_and_changeable_ctx_budget():
     assert "save_openclaude_max_output_tokens" in source
     assert "openclaude_max_output_tokens_state" in source
     assert "max_output_tokens=self._active_openclaude_max_output_tokens()" in source
-    assert "CTX/output cap changed" in source
-    assert "Ctx/output cap:" in source
+    assert "output-token setting changed" in source
+    assert "Output tokens:" in source

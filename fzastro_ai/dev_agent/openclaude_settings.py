@@ -79,8 +79,8 @@ def _coerce_token_budget(value: Any) -> str:
 
     This stores the OpenClaude/Claude Code output-token cap, which is the
     user-facing CTX/output budget control in the FZAstro UI. Keep values inside
-    common provider limits so changing the setting cannot recreate the 32k
-    output ceiling failure by accident.
+    a conservative provider-safe range so changing the setting cannot recreate
+    the 32k output ceiling failure by accident.
     """
 
     raw = str(value or "").strip()
@@ -90,7 +90,7 @@ def _coerce_token_budget(value: Any) -> str:
         number = int(raw)
     except (TypeError, ValueError):
         return ""
-    number = max(1024, min(32000, number))
+    number = max(1024, min(24000, number))
     return str(number)
 
 
@@ -222,7 +222,7 @@ def save_openclaude_max_output_tokens(
     max_output_tokens: str | int,
     settings_file: Path | str | None = None,
 ) -> OpenClaudeApiSettings:
-    """Save or clear the OpenClaude CTX/output token budget.
+    """Save or clear the OpenClaude output-token budget.
 
     The value is stored with OpenClaude local settings under AppData and is
     applied to ``CLAUDE_CODE_MAX_OUTPUT_TOKENS`` when a new terminal starts.
@@ -248,7 +248,7 @@ def save_openclaude_max_output_tokens(
 def openclaude_max_output_tokens_state(
     settings: OpenClaudeApiSettings, *, default: str = "16000"
 ) -> str:
-    """Return a UI-safe status line for the CTX/output token budget."""
+    """Return a UI-safe status line for the output-token budget."""
 
     active = _coerce_token_budget(settings.max_output_tokens) or _coerce_token_budget(
         default

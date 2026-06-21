@@ -835,11 +835,13 @@ class DevWorkbenchDialog(QWidget):
             "Send /ctx to the active OpenClaude terminal."
         )
         self.openclaude_ctx_button.clicked.connect(self.send_openclaude_ctx_command)
-        self.openclaude_set_ctx_button = QPushButton("Set Ctx")
+        self.openclaude_set_ctx_button = QPushButton("Output")
         self.openclaude_set_ctx_button.setToolTip(
-            "Change the OpenClaude CTX/output token cap used for the next terminal start."
+            "Change CLAUDE_CODE_MAX_OUTPUT_TOKENS for the next Claude terminal start."
         )
-        self.openclaude_set_ctx_button.clicked.connect(self.set_openclaude_ctx_budget)
+        self.openclaude_set_ctx_button.clicked.connect(
+            self.set_openclaude_output_budget
+        )
         self.openclaude_slash_clear_button = QPushButton("Clear")
         self.openclaude_slash_clear_button.setToolTip(
             "Send /clear to the active OpenClaude terminal."
@@ -1175,8 +1177,8 @@ class DevWorkbenchDialog(QWidget):
             "Claude",
             [
                 ("Help", self.send_openclaude_help_command),
-                ("Ctx", self.send_openclaude_ctx_command),
-                ("Set Ctx / Output Cap", self.set_openclaude_ctx_budget),
+                ("Show Ctx", self.send_openclaude_ctx_command),
+                ("Set Output Tokens", self.set_openclaude_output_budget),
                 ("Clear", self.send_openclaude_clear_command),
                 ("Config", self.send_openclaude_config_command),
                 ("Buddy", self.send_openclaude_buddy_command),
@@ -1195,6 +1197,7 @@ class DevWorkbenchDialog(QWidget):
             "View",
             [
                 ("Page Up", self.page_up_openclaude_terminal),
+                ("Page Down", self.page_down_openclaude_terminal),
                 ("Top", self.scroll_openclaude_terminal_to_top),
                 ("Bottom", self.scroll_openclaude_terminal_to_bottom),
                 ("Screenshot", self.save_openclaude_terminal_screenshot),
@@ -1772,7 +1775,7 @@ class DevWorkbenchDialog(QWidget):
             if str(snapshot.get("git_token_state", "")) != current_git_state:
                 stale_reasons.append("Git token changed")
             if str(snapshot.get("max_output_tokens", "")) != str(max_output_tokens):
-                stale_reasons.append("CTX/output cap changed")
+                stale_reasons.append("output-token setting changed")
             if stale_reasons:
                 details.append(
                     "Restart required: running OpenClaude was launched with older settings ("
@@ -1801,7 +1804,7 @@ class DevWorkbenchDialog(QWidget):
             f"Prompt: {'running' if getattr(self, '_openclaude_prompt_running', False) else 'stopped'} | "
             f"Model: {runtime.model or DEFAULT_MODEL_NAME} | "
             f"PowerShell tool: {DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL} | "
-            f"Ctx/output cap: {max_output_tokens}"
+            f"Output tokens: {max_output_tokens}"
         )
         if hasattr(self, "session_summary_label"):
             self.session_summary_label.setText(summary)
@@ -2256,8 +2259,8 @@ class DevWorkbenchDialog(QWidget):
             settings.max_output_tokens or DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
         )
 
-    def set_openclaude_ctx_budget(self):
-        """Change the OpenClaude CTX/output token cap used on next start."""
+    def set_openclaude_output_budget(self):
+        """Change the OpenClaude output-token cap used on next start."""
 
         current_text = self._active_openclaude_max_output_tokens()
         try:
@@ -2266,11 +2269,11 @@ class DevWorkbenchDialog(QWidget):
             current = int(DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS)
         value, ok = QInputDialog.getInt(
             self,
-            "OpenClaude CTX / output cap",
-            "CLAUDE_CODE_MAX_OUTPUT_TOKENS for the next OpenClaude start:",
+            "OpenClaude output tokens",
+            "Max output tokens for the next Claude start (safe range 1024-24000):",
             current,
             1024,
-            32000,
+            24000,
             512,
         )
         if not ok:
@@ -2279,9 +2282,14 @@ class DevWorkbenchDialog(QWidget):
         active = normalize_claude_code_max_output_tokens(settings.max_output_tokens)
         self._refresh_session_details()
         self._append_openclaude_terminal_output(
-            f"\n[fzastro] OpenClaude CTX/output cap set to {active}. Restart Claude to apply it to the terminal environment.\n"
+            f"\n[fzastro] OpenClaude max output tokens set to {active}. Restart Claude to apply it to the terminal environment.\n"
         )
-        self._set_agent_status(f"OpenClaude CTX/output cap set to {active}")
+        self._set_agent_status(f"OpenClaude max output tokens set to {active}")
+
+    def set_openclaude_ctx_budget(self):
+        """Backward-compatible alias for older tests/actions."""
+
+        self.set_openclaude_output_budget()
 
     def send_openclaude_clear_command(self):
         """Clear OpenClaude's active conversation/context via its native command."""

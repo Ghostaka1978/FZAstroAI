@@ -41,7 +41,7 @@ def normalize_claude_code_max_output_tokens(value: object) -> str:
         number = int(raw)
     except (TypeError, ValueError):
         return DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
-    number = max(1024, min(32000, number))
+    number = max(1024, min(24000, number))
     return str(number)
 
 

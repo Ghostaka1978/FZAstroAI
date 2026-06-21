@@ -228,9 +228,23 @@ def test_main_composer_uses_claude_quick_button_not_llm_bench():
         encoding="utf-8-sig"
     )
 
-    assert 'self.claude_button = QPushButton("CLAUDE")' in app_source
+    assert 'self.claude_button = QPushButton("Claude")' in app_source
     assert "self.claude_button.clicked.connect(self.open_dev_workbench)" in app_source
     assert _has_toolbar_add_widget_call(app_source, "claude_button")
+    toolbar_source = app_source[
+        app_source.index(
+            "composer_toolbar_layout.addWidget(composer_tools_label"
+        ) : app_source.index("composer_toolbar_layout.addStretch(1)")
+    ]
+    composer_order = [
+        toolbar_source.index("composer_toolbar_layout.addWidget(self.new_chat_button"),
+        toolbar_source.index("self.composer_paste_code_button"),
+        toolbar_source.index("self.composer_actions_button, 0, Qt.AlignVCenter"),
+        toolbar_source.index("self.composer_astro_button, 0, Qt.AlignVCenter"),
+        toolbar_source.index("composer_toolbar_layout.addWidget(self.claude_button"),
+        toolbar_source.index("composer_toolbar_layout.addWidget(self.news_button"),
+    ]
+    assert composer_order == sorted(composer_order)
     assert "self.llm_benchmark_button = QPushButton" not in app_source
     assert not _has_toolbar_add_widget_call(app_source, "llm_benchmark_button")
 

@@ -1133,7 +1133,7 @@ class FZAstroAI(
         title_box_layout.addWidget(subtitle)
 
         self.new_chat_button = self._create_toolbar_button(
-            "New Chat", "newChatButton", "Start a new empty chat", width=68, height=24
+            "New Chat", "newChatButton", "Start a new empty chat", width=84, height=34
         )
         self.new_chat_button.setAccessibleName("Start new chat")
         self.new_chat_button.clicked.connect(self.new_chat)
@@ -1269,16 +1269,16 @@ class FZAstroAI(
         quick_bar_layout.setSpacing(6)
 
         self.news_button = QPushButton("Daily News")
-        self.news_button.setObjectName("dailyNewsButton")
-        self.news_button.setFixedHeight(36)
+        self.news_button.setObjectName("composerToolButton")
+        self.news_button.setFixedHeight(34)
         self.news_button.setMinimumWidth(108)
         self.news_button.setCursor(Qt.PointingHandCursor)
         self.news_button.clicked.connect(self.daily_news)
         self.news_button.setToolTip("Generate the daily news briefing")
 
-        self.claude_button = QPushButton("CLAUDE")
-        self.claude_button.setObjectName("stockPriceButton")
-        self.claude_button.setFixedSize(86, 36)
+        self.claude_button = QPushButton("Claude")
+        self.claude_button.setObjectName("composerClaudeButton")
+        self.claude_button.setFixedSize(84, 34)
         self.claude_button.setCursor(Qt.PointingHandCursor)
         self.claude_button.clicked.connect(self.open_dev_workbench)
         self.claude_button.setToolTip(
@@ -1743,13 +1743,13 @@ class FZAstroAI(
             self.composer_paste_code_button, 0, Qt.AlignVCenter
         )
         composer_toolbar_layout.addWidget(
-            self.composer_astro_button, 0, Qt.AlignVCenter
-        )
-        composer_toolbar_layout.addWidget(
             self.composer_actions_button, 0, Qt.AlignVCenter
         )
-        composer_toolbar_layout.addWidget(self.news_button, 0, Qt.AlignVCenter)
+        composer_toolbar_layout.addWidget(
+            self.composer_astro_button, 0, Qt.AlignVCenter
+        )
         composer_toolbar_layout.addWidget(self.claude_button, 0, Qt.AlignVCenter)
+        composer_toolbar_layout.addWidget(self.news_button, 0, Qt.AlignVCenter)
         composer_toolbar_layout.addWidget(
             self.composer_markets_button, 0, Qt.AlignVCenter
         )

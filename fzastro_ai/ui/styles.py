@@ -2297,6 +2297,115 @@ def get_main_stylesheet():
                 padding: 8px 10px;
             }
 
+
+
+            /* Composer / top app bar button standardization (v2.4.3). */
+            QPushButton#composerToolButton,
+            QPushButton#composerAstroButton,
+            QPushButton#composerClaudeButton,
+            QPushButton#newChatButton {
+                min-height: 34px;
+                max-height: 34px;
+                padding: 0 12px;
+                border-radius: 10px;
+                font-size: 11px;
+                font-weight: 760;
+                letter-spacing: 0.1px;
+            }
+
+            QPushButton#composerToolButton,
+            QPushButton#newChatButton {
+                background: #121a24;
+                color: #c6d1de;
+                border: 1px solid #2b3a4d;
+            }
+
+            QPushButton#composerToolButton:hover,
+            QPushButton#newChatButton:hover {
+                background: #192535;
+                color: #ffffff;
+                border-color: #668bb4;
+            }
+
+            QPushButton#composerToolButton:pressed,
+            QPushButton#newChatButton:pressed {
+                background: #0e151f;
+                border-color: #8ab8e3;
+            }
+
+            QPushButton#composerAstroButton {
+                background: #17253a;
+                color: #e8f3ff;
+                border: 1px solid #416486;
+            }
+
+            QPushButton#composerAstroButton:hover {
+                background: #1e3350;
+                color: #ffffff;
+                border-color: #7ba7d4;
+            }
+
+            QPushButton#composerClaudeButton {
+                background: #182438;
+                color: #f4f0ff;
+                border: 1px solid #6d5fa8;
+                font-weight: 820;
+            }
+
+            QPushButton#composerClaudeButton:hover {
+                background: #243457;
+                color: #ffffff;
+                border-color: #9c8df0;
+            }
+
+            QPushButton#composerClaudeButton:pressed {
+                background: #121b2e;
+                border-color: #b9adff;
+            }
+
+            QPushButton#composerToolButton::menu-indicator,
+            QPushButton#composerAstroButton::menu-indicator,
+            QPushButton#composerClaudeButton::menu-indicator {
+                image: none;
+                width: 0;
+            }
+
+            QPushButton#cockpitTopMenuButton,
+            QPushButton#cockpitSystemMenuButton,
+            QPushButton#cockpitProfileMenuButton {
+                background: #151d27;
+                color: #dce6f2;
+                border: 1px solid #33445a;
+                border-radius: 11px;
+                min-height: 34px;
+                max-height: 34px;
+                padding: 0 12px;
+                font-size: 11px;
+                font-weight: 780;
+            }
+
+            QPushButton#cockpitTopMenuButton:hover,
+            QPushButton#cockpitSystemMenuButton:hover,
+            QPushButton#cockpitProfileMenuButton:hover {
+                background: #1a2634;
+                color: #ffffff;
+                border-color: #5f82aa;
+            }
+
+            QPushButton#cockpitTopMenuButton:pressed,
+            QPushButton#cockpitSystemMenuButton:pressed,
+            QPushButton#cockpitProfileMenuButton:pressed {
+                background: #111820;
+                border-color: #77a1cf;
+            }
+
+            QPushButton#cockpitTopMenuButton::menu-indicator,
+            QPushButton#cockpitSystemMenuButton::menu-indicator,
+            QPushButton#cockpitProfileMenuButton::menu-indicator {
+                image: none;
+                width: 0;
+            }
+
             /* End Codex dark overlay (FZAstro) */
 
 

@@ -141,5 +141,5 @@ def test_openclaude_max_output_tokens_is_clamped_and_preserved_when_key_clears(
     cleared = clear_openclaude_api_key(settings_file=settings_file)
 
     assert cleared.api_key == ""
-    assert cleared.max_output_tokens == "32000"
+    assert cleared.max_output_tokens == "24000"
     assert settings_file.exists()

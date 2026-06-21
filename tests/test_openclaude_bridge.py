@@ -334,5 +334,5 @@ def test_launcher_script_reads_git_api_token_without_embedding_secret(tmp_path):
 def test_openclaude_max_output_tokens_normalizer_clamps_provider_budget():
     assert normalize_claude_code_max_output_tokens("512") == "1024"
     assert normalize_claude_code_max_output_tokens("16000") == "16000"
-    assert normalize_claude_code_max_output_tokens("999999") == "32000"
+    assert normalize_claude_code_max_output_tokens("999999") == "24000"
     assert normalize_claude_code_max_output_tokens("not-a-number") == "16000"

@@ -79,7 +79,7 @@ def test_config_honors_fzastro_app_dir_in_fresh_process(tmp_path):
 
 def test_app_does_not_redefine_config_or_runtime_constants():
     app_path = PROJECT_ROOT / "fzastro_ai" / "app.py"
-    module = ast.parse(app_path.read_text(encoding="utf-8"))
+    module = ast.parse(app_path.read_text(encoding="utf-8-sig"))
     forbidden_assignments = {
         "API_KEY",
         "APP_DIR",
