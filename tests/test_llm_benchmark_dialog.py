@@ -166,3 +166,83 @@ def test_llm_benchmark_delete_selected_history_record(monkeypatch):
         dialog.deleteLater()
         fake_window.deleteLater()
         app.processEvents()
+
+
+def test_llm_benchmark_setup_panel_is_collapsed_dropdown(monkeypatch):
+    qt_widgets, app = _make_qt_app(monkeypatch)
+
+    import fzastro_ai.ui.llm_benchmark_dialog as dialog_module
+
+    monkeypatch.setattr(
+        dialog_module.QTimer, "singleShot", lambda *_args, **_kwargs: None
+    )
+
+    fake_window = _make_fake_window(qt_widgets, ["qwen3.6:35b"], current_index=0)
+    dialog = dialog_module.LlmBenchmarkDialog(fake_window)
+
+    try:
+        assert hasattr(dialog, "setup_toggle_button")
+        assert hasattr(dialog, "benchmark_setup_panel")
+        assert dialog.benchmark_setup_panel.isHidden()
+        assert "Benchmark Setup" in dialog.setup_toggle_button.text()
+        assert dialog.setup_summary_label.text()
+
+        dialog.setup_toggle_button.setChecked(True)
+        app.processEvents()
+
+        assert not dialog.benchmark_setup_panel.isHidden()
+        assert "▴" in dialog.setup_toggle_button.text()
+    finally:
+        dialog.close()
+        fake_window.close()
+        dialog.deleteLater()
+        fake_window.deleteLater()
+        app.processEvents()
+
+
+def test_llm_benchmark_history_selection_shows_response(monkeypatch):
+    qt_widgets, app = _make_qt_app(monkeypatch)
+
+    import fzastro_ai.ui.llm_benchmark_dialog as dialog_module
+
+    monkeypatch.setattr(
+        dialog_module.QTimer, "singleShot", lambda *_args, **_kwargs: None
+    )
+
+    fake_window = _make_fake_window(qt_widgets, ["qwen3.6:35b"], current_index=0)
+    dialog = dialog_module.LlmBenchmarkDialog(fake_window)
+
+    try:
+        dialog.history = [
+            {
+                "id": "record-response-1",
+                "started_at": "2026-06-15T16:00:00+00:00",
+                "model": "qwen3.6:35b",
+                "persona_name": "Raw model",
+                "preset": "Quick Q&A (short)",
+                "prompt": "Prompt Alpha",
+                "response": "Alpha model response body.",
+                "tokens_per_second": 30.0,
+                "time_to_first_token_s": 1.0,
+                "total_time_s": 3.0,
+                "generation_time_s": 2.0,
+                "prompt_tokens": 10,
+                "completion_tokens": 60,
+            }
+        ]
+        dialog.refresh_history_tables()
+        dialog.history_table.selectRow(0)
+        app.processEvents()
+
+        assert (
+            "Alpha model response body."
+            in dialog.history_response_browser.toPlainText()
+        )
+        assert "Prompt Alpha" in dialog.history_response_browser.toPlainText()
+        assert "Alpha model response body." in dialog.response_browser.toPlainText()
+    finally:
+        dialog.close()
+        fake_window.close()
+        dialog.deleteLater()
+        fake_window.deleteLater()
+        app.processEvents()

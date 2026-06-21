@@ -1138,10 +1138,10 @@ class FZAstroAI(
         self.new_chat_button.setAccessibleName("Start new chat")
         self.new_chat_button.clicked.connect(self.new_chat)
 
-        self.dev_workbench_button = QPushButton("OpenClaude")
+        self.dev_workbench_button = QPushButton("Claude")
         self.dev_workbench_button.setObjectName("cockpitSkillButton")
         self.dev_workbench_button.setProperty("accent", "true")
-        self.dev_workbench_button.setFixedSize(104, 36)
+        self.dev_workbench_button.setFixedSize(84, 36)
         self.dev_workbench_button.setCursor(Qt.PointingHandCursor)
         self.dev_workbench_button.clicked.connect(self.open_dev_workbench)
         self.dev_workbench_button.setToolTip(

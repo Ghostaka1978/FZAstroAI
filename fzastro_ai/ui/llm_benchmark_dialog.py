@@ -36,10 +36,12 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
     QTextBrowser,
+    QToolButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -741,21 +743,10 @@ class LlmBenchmarkDialog(QDialog):
         controls_layout.addWidget(self.temperature_spin, 3, 4)
         controls_layout.addWidget(self.max_tokens_spin, 3, 5)
 
-        actions_row = QHBoxLayout()
-        actions_row.setContentsMargins(0, 4, 0, 0)
-        actions_row.setSpacing(8)
-        actions_row.addStretch(1)
-        actions_row.addWidget(self.export_button)
-        actions_row.addWidget(self.clear_history_button)
-        actions_row.addWidget(self.stop_button)
-        actions_row.addWidget(self.run_all_button)
-        actions_row.addWidget(self.run_button)
-        controls_layout.addLayout(actions_row, 4, 0, 1, 6)
-
         self.prompt_summary_label = QLabel("")
         self.prompt_summary_label.setObjectName("settingsCardSubtitle")
         self.prompt_summary_label.setWordWrap(True)
-        controls_layout.addWidget(self.prompt_summary_label, 5, 0, 1, 6)
+        controls_layout.addWidget(self.prompt_summary_label, 4, 0, 1, 6)
 
         self.custom_prompt_caption = QLabel("CUSTOM PROMPT")
         self.custom_prompt_caption.setObjectName("fieldCaption")
@@ -767,8 +758,8 @@ class LlmBenchmarkDialog(QDialog):
         self.custom_prompt_edit.setMinimumHeight(72)
         self.custom_prompt_edit.setMaximumHeight(96)
         self.custom_prompt_edit.textChanged.connect(self._custom_prompt_changed)
-        controls_layout.addWidget(self.custom_prompt_caption, 6, 0, 1, 6)
-        controls_layout.addWidget(self.custom_prompt_edit, 7, 0, 1, 6)
+        controls_layout.addWidget(self.custom_prompt_caption, 5, 0, 1, 6)
+        controls_layout.addWidget(self.custom_prompt_edit, 6, 0, 1, 6)
 
         self.prompt_list = QListWidget(self)
         self.prompt_list.hide()
@@ -779,7 +770,58 @@ class LlmBenchmarkDialog(QDialog):
         controls_layout.setColumnStretch(3, 0)
         controls_layout.setColumnStretch(4, 0)
         controls_layout.setColumnStretch(5, 2)
-        root_layout.addWidget(controls_card)
+
+        setup_bar = QFrame()
+        setup_bar.setObjectName("benchmarkControlsCard")
+        setup_layout = QHBoxLayout(setup_bar)
+        setup_layout.setContentsMargins(12, 6, 12, 6)
+        setup_layout.setSpacing(8)
+
+        self.setup_toggle_button = QToolButton()
+        self.setup_toggle_button.setObjectName("openclaudeMenuButton")
+        self.setup_toggle_button.setText("Benchmark Setup ▾")
+        self.setup_toggle_button.setCheckable(True)
+        self.setup_toggle_button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.setup_toggle_button.setCursor(Qt.PointingHandCursor)
+        self.setup_toggle_button.setToolTip(
+            "Show or hide benchmark model, preset, and generation settings."
+        )
+        self.setup_toggle_button.toggled.connect(self._toggle_benchmark_setup)
+
+        self.setup_summary_label = QLabel("")
+        self.setup_summary_label.setObjectName("settingsCardSubtitle")
+        self.setup_summary_label.setWordWrap(False)
+        self.setup_summary_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        setup_layout.addWidget(self.setup_toggle_button, 0)
+        setup_layout.addWidget(self.setup_summary_label, 1)
+        setup_layout.addWidget(self.export_button)
+        setup_layout.addWidget(self.clear_history_button)
+        setup_layout.addWidget(self.stop_button)
+        setup_layout.addWidget(self.run_all_button)
+        setup_layout.addWidget(self.run_button)
+        root_layout.addWidget(setup_bar)
+
+        self.benchmark_setup_panel = controls_card
+        self.benchmark_setup_panel.setVisible(False)
+        root_layout.addWidget(self.benchmark_setup_panel)
+
+        for widget in (
+            self.preset_box,
+            self.suite_depth_box,
+            self.persona_box,
+            self.repeat_spin,
+            self.temperature_spin,
+            self.max_tokens_spin,
+        ):
+            signal = getattr(widget, "currentIndexChanged", None) or getattr(
+                widget, "valueChanged", None
+            )
+            if signal is not None:
+                try:
+                    signal.connect(lambda *_args: self._update_setup_summary())
+                except Exception:
+                    pass
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("benchmarkTabs")
@@ -818,6 +860,36 @@ class LlmBenchmarkDialog(QDialog):
             "system_label", self.system_telemetry_label, "CPU/RAM telemetry unavailable"
         )
         self.refresh_active_model_label(set_status=False)
+
+    def _toggle_benchmark_setup(self, checked: bool):
+        panel = getattr(self, "benchmark_setup_panel", None)
+        if panel is not None:
+            panel.setVisible(bool(checked))
+        button = getattr(self, "setup_toggle_button", None)
+        if button is not None:
+            button.setText("Benchmark Setup ▴" if checked else "Benchmark Setup ▾")
+        self._update_setup_summary()
+
+    def _update_setup_summary(self):
+        label = getattr(self, "setup_summary_label", None)
+        if label is None:
+            return
+        try:
+            preset = self.preset_box.currentText().strip() or "Preset"
+            depth = self.selected_suite_depth().title()
+            repeat = self.selected_repeat_count()
+            persona = self.selected_persona_payload().get("name") or "Raw model"
+            model = self.selected_model_name() or "No active model"
+            max_tokens = int(self.max_tokens_spin.value())
+            temperature = float(self.temperature_spin.value())
+        except Exception:
+            return
+        summary = (
+            f"{preset} · {depth} · repeat {repeat} · temp {temperature:.2f} · "
+            f"max {max_tokens} · {persona} · {model}"
+        )
+        label.setText(summary)
+        label.setToolTip(summary)
 
     def _build_dashboard_tab(self):
         layout = QVBoxLayout(self.dashboard_tab)
@@ -860,6 +932,9 @@ class LlmBenchmarkDialog(QDialog):
         layout.addWidget(result_label)
 
         self.latest_table = self._create_results_table()
+        self.latest_table.itemSelectionChanged.connect(
+            self.show_latest_selection_response
+        )
         layout.addWidget(self.latest_table, 1)
 
         response_label = QLabel("MODEL RESPONSE")
@@ -902,7 +977,7 @@ class LlmBenchmarkDialog(QDialog):
             self.open_history_context_menu
         )
         self.history_table.itemSelectionChanged.connect(
-            self.update_history_action_state
+            self.handle_history_selection_changed
         )
         self.delete_history_shortcut = QShortcut(
             QKeySequence.Delete, self.history_table
@@ -910,10 +985,32 @@ class LlmBenchmarkDialog(QDialog):
         self.delete_history_shortcut.activated.connect(
             self.delete_selected_history_records
         )
-        layout.addWidget(self.history_table)
+        history_splitter = QSplitter(Qt.Vertical)
+        history_splitter.setChildrenCollapsible(False)
+        history_splitter.addWidget(self.history_table)
+
+        response_card = QFrame()
+        response_card.setObjectName("settingsCard")
+        response_layout = QVBoxLayout(response_card)
+        response_layout.setContentsMargins(8, 8, 8, 8)
+        response_layout.setSpacing(6)
+        response_label = QLabel("SELECTED RESPONSE")
+        response_label.setObjectName("fieldCaption")
+        response_layout.addWidget(response_label)
+        self.history_response_browser = QTextBrowser()
+        self.history_response_browser.setObjectName("helpCheatSheetBrowser")
+        self.history_response_browser.setMinimumHeight(160)
+        self.history_response_browser.setMarkdown(
+            "Select a history row to preview its prompt, metrics, and model response."
+        )
+        response_layout.addWidget(self.history_response_browser, 1)
+        history_splitter.addWidget(response_card)
+        history_splitter.setStretchFactor(0, 3)
+        history_splitter.setStretchFactor(1, 2)
+        layout.addWidget(history_splitter, 1)
 
         hint = QLabel(
-            "Select a history row and press Delete, right-click it, or use Delete Selected to remove individual records."
+            "Select a history row to preview the response. Press Delete, right-click it, or use Delete Selected to remove records."
         )
         hint.setObjectName("settingsCardSubtitle")
         hint.setWordWrap(True)
@@ -1021,6 +1118,7 @@ class LlmBenchmarkDialog(QDialog):
             self.status_label.setText(
                 f"Ready: {display_model}" if model else "No model"
             )
+        self._update_setup_summary()
 
     def refresh_personas_from_app(self):
         current_key = self.selected_persona_key()
@@ -1121,6 +1219,7 @@ class LlmBenchmarkDialog(QDialog):
                 "which is best for pure speed baselines."
             )
         self.persona_box.setToolTip(tip)
+        self._update_setup_summary()
 
     def selected_preset(self):
         selected_name = self.preset_box.currentText().strip()
@@ -1194,6 +1293,7 @@ class LlmBenchmarkDialog(QDialog):
                 self.custom_prompt_edit.setPlaceholderText(
                     "Type a custom benchmark prompt here…"
                 )
+            self._update_setup_summary()
             return
 
         self.max_tokens_spin.setValue(preset.max_tokens)
@@ -1222,11 +1322,13 @@ class LlmBenchmarkDialog(QDialog):
             )
             item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
             self.prompt_list.addItem(item)
+        self._update_setup_summary()
 
     def _custom_prompt_changed(self):
         if self.custom_prompt_edit.toPlainText().strip():
             self.preset_box.setCurrentText("Custom Prompt")
             self.prompt_list.clear()
+        self._update_setup_summary()
 
     def benchmark_jobs(self):
         custom_prompt = self.custom_prompt_edit.toPlainText().strip()
@@ -1373,6 +1475,68 @@ class LlmBenchmarkDialog(QDialog):
         self.update_history_action_state()
         if not running and self.status_label.text() in {"Stopping…", "Running…"}:
             self.status_label.setText("Idle")
+
+    def _selected_result_id_from_table(self, table: QTableWidget | None) -> str:
+        if table is None:
+            return ""
+        try:
+            selected = table.selectedItems()
+            if not selected:
+                return ""
+            row = selected[0].row()
+            item = table.item(row, 0)
+            return str(item.data(Qt.UserRole) or "") if item is not None else ""
+        except RuntimeError:
+            return ""
+
+    def _result_by_id(self, result_id: str) -> dict | None:
+        clean_id = str(result_id or "").strip()
+        if not clean_id:
+            return None
+        for result in self.history:
+            if str(result.get("id") or "") == clean_id:
+                return result
+        return None
+
+    def _set_result_response_browser(
+        self, browser: QTextBrowser | None, result: dict | None
+    ) -> None:
+        if browser is None:
+            return
+        if result is None:
+            browser.setMarkdown(
+                "Select a benchmark result row to preview its prompt, metrics, and model response."
+            )
+            return
+        browser.setMarkdown(self.result_response_markdown(result))
+
+    def show_latest_selection_response(self):
+        result_id = self._selected_result_id_from_table(
+            getattr(self, "latest_table", None)
+        )
+        result = self._result_by_id(result_id)
+        if result is not None:
+            self.current_response_result_id = result_id
+        self._set_result_response_browser(
+            getattr(self, "response_browser", None), result
+        )
+
+    def handle_history_selection_changed(self):
+        self.update_history_action_state()
+        result_id = self._selected_result_id_from_table(
+            getattr(self, "history_table", None)
+        )
+        result = self._result_by_id(result_id)
+        if result is not None:
+            self.current_response_result_id = result_id
+        self._set_result_response_browser(
+            getattr(self, "history_response_browser", None), result
+        )
+        # Keep the Dashboard response pane synchronized too, without forcing a tab switch.
+        if result is not None:
+            self._set_result_response_browser(
+                getattr(self, "response_browser", None), result
+            )
 
     def result_response_markdown(self, result: dict) -> str:
         quality_score = _fmt_quality(result.get("quality_score"))
@@ -1771,6 +1935,9 @@ class LlmBenchmarkDialog(QDialog):
             self.response_browser.setMarkdown(
                 "Run a benchmark to see the model output here."
             )
+            self._set_result_response_browser(
+                getattr(self, "history_response_browser", None), None
+            )
         self.refresh_history_tables()
         self.refresh_dashboard()
         self.status_label.setText(f"Deleted {deleted_count} history {noun}")
@@ -1795,6 +1962,9 @@ class LlmBenchmarkDialog(QDialog):
         self.latest_table.setRowCount(0)
         self.response_browser.setMarkdown(
             "Run a benchmark to see the model output here."
+        )
+        self._set_result_response_browser(
+            getattr(self, "history_response_browser", None), None
         )
         self.refresh_history_tables()
         self.refresh_dashboard()

@@ -143,9 +143,9 @@ class WorkspaceTabsMixin:
         )
         self._add_workspace_app_action(
             menu,
-            "OpenClaude",
+            "Claude",
             "open_dev_workbench",
-            "OpenClaude",
+            "OpenClaude coding terminal",
         )
         self._add_workspace_app_action(
             menu,
