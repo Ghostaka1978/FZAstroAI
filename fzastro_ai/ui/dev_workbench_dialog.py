@@ -2302,6 +2302,23 @@ class DevWorkbenchDialog(QWidget):
         if hasattr(self, "openclaude_terminal_output"):
             self.openclaude_terminal_output.clear()
 
+    def page_up_openclaude_terminal(self):
+        """Scroll the embedded Claude terminal back by one page."""
+
+        if hasattr(self, "openclaude_terminal_output"):
+            self.openclaude_terminal_output.scroll_page_up()
+
+    def page_down_openclaude_terminal(self):
+        """Scroll the embedded Claude terminal forward by one page when supported."""
+
+        if not hasattr(self, "openclaude_terminal_output"):
+            return
+        terminal = self.openclaude_terminal_output
+        if hasattr(terminal, "scroll_page_down"):
+            terminal.scroll_page_down()
+        else:
+            terminal.scroll_to_bottom()
+
     def scroll_openclaude_terminal_to_top(self):
         if hasattr(self, "openclaude_terminal_output"):
             self.openclaude_terminal_output.scroll_to_top()

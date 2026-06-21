@@ -138,6 +138,16 @@ def test_openclaude_terminal_header_groups_actions_by_compact_submenus():
     assert "terminal_header.addWidget(self.openclaude_shell_button)" not in source
 
 
+def test_openclaude_compact_view_menu_callbacks_exist():
+    source = dev_workbench_source()
+
+    assert '("Page Up", self.page_up_openclaude_terminal)' in source
+    assert "def page_up_openclaude_terminal" in source
+    assert "def page_down_openclaude_terminal" in source
+    assert "def scroll_openclaude_terminal_to_top" in source
+    assert "def scroll_openclaude_terminal_to_bottom" in source
+
+
 def test_openclaude_prompt_is_separate_tabbed_shell():
     source = dev_workbench_source()
 
