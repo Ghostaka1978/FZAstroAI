@@ -13,6 +13,7 @@ from fzastro_ai.dev_agent.openclaude_bridge import (
     build_openclaude_task_prompt,
     openclaude_workspace_isolation_lines,
     get_openclaude_tool_status,
+    normalize_claude_code_max_output_tokens,
     launch_openclaude_companion,
     looks_like_fzastro_source_root,
     openclaude_artifact_paths,
@@ -37,6 +38,7 @@ def test_openclaude_environment_uses_selected_runtime(tmp_path):
         model="rafw007/qwen3-coder:latest",
         base_url="http://localhost:11434/v1",
         api_key="ollama",
+        max_output_tokens="24000",
     )
 
     env = build_openclaude_environment(config)
@@ -45,7 +47,7 @@ def test_openclaude_environment_uses_selected_runtime(tmp_path):
     assert env["OPENAI_MODEL"] == "rafw007/qwen3-coder:latest"
     assert env["OPENAI_BASE_URL"] == "http://localhost:11434/v1"
     assert env["OPENAI_API_KEY"] == "ollama"
-    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "16000"
+    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "24000"
     assert "FZASTRO_OPENCLAUDE_API_KEY_FILE" not in env
     assert env["FZASTRO_OPENCLAUDE_SETTINGS_FILE"].endswith("openclaude_settings.json")
     assert env["FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE"].endswith("openclaude_settings.json")
@@ -327,3 +329,10 @@ def test_launcher_script_reads_git_api_token_without_embedding_secret(tmp_path):
     assert "$env:GITHUB_TOKEN = [string]$apiSettings.git_api_token" in script
     assert "$env:GH_TOKEN = [string]$apiSettings.git_api_token" in script
     assert "$env:GIT_TERMINAL_PROMPT = '0'" in script
+
+
+def test_openclaude_max_output_tokens_normalizer_clamps_provider_budget():
+    assert normalize_claude_code_max_output_tokens("512") == "1024"
+    assert normalize_claude_code_max_output_tokens("16000") == "16000"
+    assert normalize_claude_code_max_output_tokens("999999") == "32000"
+    assert normalize_claude_code_max_output_tokens("not-a-number") == "16000"

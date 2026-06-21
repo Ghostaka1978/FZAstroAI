@@ -169,14 +169,12 @@ OpenClaude update: broad analysis requests such as `analyse all Python files` no
 
 ### External prerequisites
 
-The packaged FZAstro AI EXE includes the Python application, UI modules, pywinpty/ConPTY embedded-terminal backend, terminal frontend assets, astronomy resources, and Web Companion resources. It does **not** bundle large external model/runtime applications.
+FZAstro ships support for Ollama and OpenClaude, but does not bundle their external runtimes. Install these once on the workstation when you want those optional features:
 
-Install these on the target Windows machine when you want the related feature:
+- **Ollama** for local Ollama models and the `http://localhost:11434` model service.
+- **Node.js/npm + OpenClaude CLI** for the embedded OpenClaude coding workspace.
 
-- **Ollama**: required for local Ollama-backed chat/model profiles and local OpenClaude model endpoints.
-- **Node.js/npm + OpenClaude CLI**: required for the OpenClaude workspace. Install OpenClaude with `npm install -g @gitlawb/openclaude@latest`.
-
-Build/deploy scripts install Python imports from `requirements.txt` and package the embedded terminal backend/frontend. Runtime tools such as Ollama and OpenClaude are detected at startup and shown as feature prerequisites rather than silently bundled into the EXE.
+The app and build scripts detect these tools and report missing prerequisites without crashing; Python imports and packaged resources are handled by the build environment.
 
 ### Codex-style OpenClaude prerequisites
 

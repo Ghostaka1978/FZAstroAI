@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import os
+import shutil
 import re
 import subprocess
 import threading
@@ -16,10 +17,12 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
@@ -27,6 +30,7 @@ from PySide6.QtWidgets import (
     QTextBrowser,
     QSplitter,
     QTabWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -39,8 +43,10 @@ from ..dev_agent.openclaude_settings import (
     load_openclaude_api_settings,
     openclaude_api_key_state,
     openclaude_git_token_state,
+    openclaude_max_output_tokens_state,
     save_openclaude_api_key,
     save_openclaude_git_api_token,
+    save_openclaude_max_output_tokens,
 )
 from ..dev_agent import DevAgentSession
 from ..dev_agent.memory import (
@@ -59,6 +65,8 @@ from ..dev_agent.openclaude_bridge import (
     DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS,
     DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL,
     audit_openclaude_project_root,
+    get_openclaude_tool_status,
+    normalize_claude_code_max_output_tokens,
     openclaude_workspace_isolation_lines,
     build_openclaude_task_prompt,
     launch_openclaude_companion,
@@ -827,6 +835,11 @@ class DevWorkbenchDialog(QWidget):
             "Send /ctx to the active OpenClaude terminal."
         )
         self.openclaude_ctx_button.clicked.connect(self.send_openclaude_ctx_command)
+        self.openclaude_set_ctx_button = QPushButton("Set Ctx")
+        self.openclaude_set_ctx_button.setToolTip(
+            "Change the OpenClaude CTX/output token cap used for the next terminal start."
+        )
+        self.openclaude_set_ctx_button.clicked.connect(self.set_openclaude_ctx_budget)
         self.openclaude_slash_clear_button = QPushButton("Clear")
         self.openclaude_slash_clear_button.setToolTip(
             "Send /clear to the active OpenClaude terminal."
@@ -1134,32 +1147,66 @@ class DevWorkbenchDialog(QWidget):
             label.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
             return label
 
-        terminal_header.addWidget(_terminal_section_label("SESSION"))
-        terminal_header.addWidget(self.openclaude_launch_button)
-        terminal_header.addWidget(self.openclaude_continue_button)
-        terminal_header.addWidget(self.openclaude_resume_button)
-        terminal_header.addWidget(self.openclaude_shell_button)
-        terminal_header.addWidget(self.openclaude_stop_button)
-        terminal_header.addSpacing(12)
-        terminal_header.addWidget(_terminal_section_label("CLAUDE"))
-        terminal_header.addWidget(self.openclaude_help_button)
-        terminal_header.addWidget(self.openclaude_ctx_button)
-        terminal_header.addWidget(self.openclaude_slash_clear_button)
-        terminal_header.addWidget(self.openclaude_config_button)
-        terminal_header.addWidget(self.openclaude_buddy_button)
-        terminal_header.addSpacing(12)
-        terminal_header.addWidget(_terminal_section_label("INPUT"))
-        terminal_header.addWidget(self.openclaude_paste_button)
-        terminal_header.addWidget(self.openclaude_paste_image_button)
-        terminal_header.addWidget(self.openclaude_attach_image_button)
-        terminal_header.addWidget(self.openclaude_send_screenshot_button)
-        terminal_header.addSpacing(12)
-        terminal_header.addWidget(_terminal_section_label("VIEW"))
-        terminal_header.addWidget(self.openclaude_page_up_button)
-        terminal_header.addWidget(self.openclaude_top_button)
-        terminal_header.addWidget(self.openclaude_bottom_button)
-        terminal_header.addWidget(self.openclaude_screenshot_button)
-        terminal_header.addWidget(self.openclaude_clear_button)
+        def _menu_button(label: str, actions: list[tuple[str, Any]]) -> QToolButton:
+            button = QToolButton()
+            button.setText(label)
+            button.setObjectName("openclaudeMenuButton")
+            button.setCursor(Qt.PointingHandCursor)
+            button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            button.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            menu = QMenu(button)
+            for action_label, callback in actions:
+                action = menu.addAction(action_label)
+                action.triggered.connect(lambda checked=False, cb=callback: cb())
+            button.setMenu(menu)
+            return button
+
+        self.openclaude_session_menu_button = _menu_button(
+            "Session",
+            [
+                ("Start / Restart", self.restart_embedded_openclaude_terminal),
+                ("Continue", self.run_openclaude_continue),
+                ("Resume", self.run_openclaude_resume_last),
+                ("Prompt Tab", self.start_openclaude_shell_prompt),
+                ("Stop Claude", self.stop_embedded_openclaude_terminal),
+            ],
+        )
+        self.openclaude_claude_menu_button = _menu_button(
+            "Claude",
+            [
+                ("Help", self.send_openclaude_help_command),
+                ("Ctx", self.send_openclaude_ctx_command),
+                ("Set Ctx / Output Cap", self.set_openclaude_ctx_budget),
+                ("Clear", self.send_openclaude_clear_command),
+                ("Config", self.send_openclaude_config_command),
+                ("Buddy", self.send_openclaude_buddy_command),
+            ],
+        )
+        self.openclaude_input_menu_button = _menu_button(
+            "Input",
+            [
+                ("Paste", self.paste_clipboard_into_openclaude_terminal),
+                ("Paste Image", self.paste_clipboard_image_to_openclaude),
+                ("Attach Image", self.attach_image_file_to_openclaude),
+                ("Send Shot", self.send_terminal_screenshot_to_openclaude),
+            ],
+        )
+        self.openclaude_view_menu_button = _menu_button(
+            "View",
+            [
+                ("Page Up", self.page_up_openclaude_terminal),
+                ("Top", self.scroll_openclaude_terminal_to_top),
+                ("Bottom", self.scroll_openclaude_terminal_to_bottom),
+                ("Screenshot", self.save_openclaude_terminal_screenshot),
+                ("Clear Output", self.clear_openclaude_terminal_output),
+            ],
+        )
+
+        terminal_header.addWidget(_terminal_section_label("OPENCLAUDE"))
+        terminal_header.addWidget(self.openclaude_session_menu_button)
+        terminal_header.addWidget(self.openclaude_claude_menu_button)
+        terminal_header.addWidget(self.openclaude_input_menu_button)
+        terminal_header.addWidget(self.openclaude_view_menu_button)
         terminal_header.addStretch(1)
         terminal_layout.addLayout(terminal_header)
         self.openclaude_terminal_output = OpenClaudeTerminalWidget()
@@ -1655,6 +1702,12 @@ class DevWorkbenchDialog(QWidget):
             fallback_api_key=str(self._call_runtime("current_api_key", API_KEY)),
         )
         git_state = openclaude_git_token_state(settings)
+        max_output_tokens = self._active_openclaude_max_output_tokens()
+        openclaude_tools = get_openclaude_tool_status()
+        openclaude_missing = (
+            ", ".join(openclaude_tools.missing) if openclaude_tools.missing else "none"
+        )
+        ollama_path = shutil.which("ollama") or "missing"
         details = [
             f"Workspace: {root} {'✓' if exists else 'not found'}",
             "Workspace warning: OpenClaude works directly in this folder. Use a test clone if you do not want the live checkout edited.",
@@ -1662,7 +1715,10 @@ class DevWorkbenchDialog(QWidget):
             "OpenClaude environment:",
             "CLAUDE_CODE_USE_OPENAI=1",
             f"CLAUDE_CODE_USE_POWERSHELL_TOOL={DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL}",
-            f"CLAUDE_CODE_MAX_OUTPUT_TOKENS={DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS}",
+            f"CLAUDE_CODE_MAX_OUTPUT_TOKENS={max_output_tokens}",
+            openclaude_max_output_tokens_state(
+                settings, default=DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
+            ),
             f"OPENAI_BASE_URL={runtime.base_url or BASE_URL}",
             f"OPENAI_MODEL={runtime.model or DEFAULT_MODEL_NAME}",
             api_state,
@@ -1680,6 +1736,13 @@ class DevWorkbenchDialog(QWidget):
             "GIT_CONFIG_NOSYSTEM=1",
             "GIT_CONFIG credential.helper=disabled for OpenClaude terminal",
             "Git credential safety: repository API token only; no interactive/system credential prompts",
+            "",
+            "External prerequisites:",
+            f"OpenClaude CLI: {'ready' if openclaude_tools.is_ready else 'missing ' + openclaude_missing}",
+            f"Node.js: {'ready' if openclaude_tools.node_path else 'missing'}",
+            f"npm: {'ready' if openclaude_tools.npm_path else 'missing'}",
+            f"Ollama CLI: {ollama_path}",
+            "Prerequisite policy: external tools are detected and reported; FZAstro does not bundle Ollama, Node.js, npm, or OpenClaude CLI.",
             f"Claude Terminal state: {'running' if getattr(self, '_openclaude_terminal_running', False) else 'stopped'}",
             f"Prompt tab state: {'running' if getattr(self, '_openclaude_prompt_running', False) else 'stopped'}",
             "",
@@ -1708,6 +1771,8 @@ class DevWorkbenchDialog(QWidget):
                 stale_reasons.append("endpoint changed")
             if str(snapshot.get("git_token_state", "")) != current_git_state:
                 stale_reasons.append("Git token changed")
+            if str(snapshot.get("max_output_tokens", "")) != str(max_output_tokens):
+                stale_reasons.append("CTX/output cap changed")
             if stale_reasons:
                 details.append(
                     "Restart required: running OpenClaude was launched with older settings ("
@@ -1736,7 +1801,7 @@ class DevWorkbenchDialog(QWidget):
             f"Prompt: {'running' if getattr(self, '_openclaude_prompt_running', False) else 'stopped'} | "
             f"Model: {runtime.model or DEFAULT_MODEL_NAME} | "
             f"PowerShell tool: {DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL} | "
-            f"Max output: {DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS}"
+            f"Ctx/output cap: {max_output_tokens}"
         )
         if hasattr(self, "session_summary_label"):
             self.session_summary_label.setText(summary)
@@ -1762,6 +1827,7 @@ class DevWorkbenchDialog(QWidget):
             base_url=str(runtime.base_url or BASE_URL),
             api_key=str(runtime.api_key or API_KEY),
             git_api_token=self._active_openclaude_git_api_token(),
+            max_output_tokens=self._active_openclaude_max_output_tokens(),
             install_if_missing=install_if_missing,
         )
 
@@ -2184,6 +2250,39 @@ class DevWorkbenchDialog(QWidget):
 
         self._send_openclaude_slash_command("/ctx", "Ctx")
 
+    def _active_openclaude_max_output_tokens(self) -> str:
+        settings = self._reload_openclaude_api_settings()
+        return normalize_claude_code_max_output_tokens(
+            settings.max_output_tokens or DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
+        )
+
+    def set_openclaude_ctx_budget(self):
+        """Change the OpenClaude CTX/output token cap used on next start."""
+
+        current_text = self._active_openclaude_max_output_tokens()
+        try:
+            current = int(current_text)
+        except ValueError:
+            current = int(DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS)
+        value, ok = QInputDialog.getInt(
+            self,
+            "OpenClaude CTX / output cap",
+            "CLAUDE_CODE_MAX_OUTPUT_TOKENS for the next OpenClaude start:",
+            current,
+            1024,
+            32000,
+            512,
+        )
+        if not ok:
+            return
+        settings = save_openclaude_max_output_tokens(str(value))
+        active = normalize_claude_code_max_output_tokens(settings.max_output_tokens)
+        self._refresh_session_details()
+        self._append_openclaude_terminal_output(
+            f"\n[fzastro] OpenClaude CTX/output cap set to {active}. Restart Claude to apply it to the terminal environment.\n"
+        )
+        self._set_agent_status(f"OpenClaude CTX/output cap set to {active}")
+
     def send_openclaude_clear_command(self):
         """Clear OpenClaude's active conversation/context via its native command."""
 
@@ -2202,6 +2301,14 @@ class DevWorkbenchDialog(QWidget):
     def clear_openclaude_terminal_output(self):
         if hasattr(self, "openclaude_terminal_output"):
             self.openclaude_terminal_output.clear()
+
+    def scroll_openclaude_terminal_to_top(self):
+        if hasattr(self, "openclaude_terminal_output"):
+            self.openclaude_terminal_output.scroll_to_top()
+
+    def scroll_openclaude_terminal_to_bottom(self):
+        if hasattr(self, "openclaude_terminal_output"):
+            self.openclaude_terminal_output.scroll_to_bottom()
 
     def clear_openclaude_prompt_output(self):
         if hasattr(self, "openclaude_prompt_output"):
@@ -2445,6 +2552,9 @@ class DevWorkbenchDialog(QWidget):
             "model": str(config.model or DEFAULT_MODEL_NAME),
             "base_url": str(config.base_url or BASE_URL),
             "git_token_state": git_token_state,
+            "max_output_tokens": normalize_claude_code_max_output_tokens(
+                config.max_output_tokens
+            ),
         }
 
     def restart_embedded_openclaude_terminal(self):

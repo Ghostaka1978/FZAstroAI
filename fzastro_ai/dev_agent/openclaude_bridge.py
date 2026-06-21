@@ -31,6 +31,20 @@ DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS = "16000"
 DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL = "1"
 
 
+def normalize_claude_code_max_output_tokens(value: object) -> str:
+    """Return a safe Claude Code output-token cap for OpenClaude launches."""
+
+    raw = str(value or "").strip()
+    if not raw:
+        return DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
+    try:
+        number = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
+    number = max(1024, min(32000, number))
+    return str(number)
+
+
 @dataclass(frozen=True)
 class OpenClaudeToolStatus:
     """Resolved local OpenClaude toolchain state."""
@@ -54,6 +68,7 @@ class OpenClaudeLaunchConfig:
     base_url: str = BASE_URL
     api_key: str = API_KEY
     git_api_token: str = ""
+    max_output_tokens: str = DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
     install_if_missing: bool = False
 
 
@@ -361,6 +376,9 @@ def build_openclaude_environment(config: OpenClaudeLaunchConfig) -> dict[str, st
     base_url = str(config.base_url or BASE_URL).strip() or BASE_URL
     api_key = str(config.api_key or API_KEY).strip() or API_KEY
     git_api_token = str(config.git_api_token or "").strip()
+    max_output_tokens = normalize_claude_code_max_output_tokens(
+        config.max_output_tokens
+    )
     root = validate_openclaude_project_root(config.project_root)
     env = {
         "CLAUDE_CODE_USE_OPENAI": "1",
@@ -370,7 +388,7 @@ def build_openclaude_environment(config: OpenClaudeLaunchConfig) -> dict[str, st
         "OPENAI_API_KEY": api_key,
         # Keep OpenClaude/Claude Code below provider ceilings. Some local/OpenAI-compatible
         # providers hard-fail when Claude Code requests the 32k default output budget.
-        "CLAUDE_CODE_MAX_OUTPUT_TOKENS": DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS": max_output_tokens,
         "FZASTRO_OPENCLAUDE_SETTINGS_FILE": str(OPENCLAUDE_SETTINGS_FILE),
         "FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE": str(OPENCLAUDE_SETTINGS_FILE),
         "FZASTRO_PROJECT_ROOT": str(root),

@@ -5,7 +5,9 @@ from fzastro_ai.dev_agent.openclaude_settings import (
     clear_openclaude_api_key,
     load_openclaude_api_settings,
     openclaude_api_key_state,
+    openclaude_max_output_tokens_state,
     save_openclaude_api_key,
+    save_openclaude_max_output_tokens,
 )
 
 
@@ -113,4 +115,31 @@ def test_openclaude_git_api_token_clear_preserves_model_key(tmp_path):
 
     assert cleared.api_key == "sk-model"
     assert cleared.git_api_token == ""
+    assert settings_file.exists()
+
+
+def test_openclaude_max_output_tokens_can_be_changed_without_secrets(tmp_path):
+    settings_file = tmp_path / "settings.json"
+
+    saved = save_openclaude_max_output_tokens("24000", settings_file=settings_file)
+    loaded = load_openclaude_api_settings(settings_file=settings_file)
+
+    assert saved.max_output_tokens == "24000"
+    assert loaded.max_output_tokens == "24000"
+    assert loaded.has_max_output_tokens
+    state = openclaude_max_output_tokens_state(loaded, default="16000")
+    assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS: 24000" in state
+
+
+def test_openclaude_max_output_tokens_is_clamped_and_preserved_when_key_clears(
+    tmp_path,
+):
+    settings_file = tmp_path / "settings.json"
+
+    save_openclaude_api_key("sk-model", settings_file=settings_file)
+    save_openclaude_max_output_tokens("999999", settings_file=settings_file)
+    cleared = clear_openclaude_api_key(settings_file=settings_file)
+
+    assert cleared.api_key == ""
+    assert cleared.max_output_tokens == "32000"
     assert settings_file.exists()

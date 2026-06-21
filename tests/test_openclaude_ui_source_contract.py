@@ -120,15 +120,22 @@ def test_openclaude_terminal_has_recovery_action_buttons():
     assert 'worker.send_input(clean_command.rstrip("\\r\\n") + "\\r")' in source
 
 
-def test_openclaude_terminal_header_groups_actions_by_purpose():
+def test_openclaude_terminal_header_groups_actions_by_compact_submenus():
     source = dev_workbench_source()
 
-    assert '_terminal_section_label("SESSION")' in source
-    assert '_terminal_section_label("INPUT")' in source
-    assert '_terminal_section_label("VIEW")' in source
-    assert "terminal_header.addWidget(self.openclaude_continue_button)" in source
-    assert "terminal_header.addWidget(self.openclaude_resume_button)" in source
-    assert "terminal_header.addWidget(self.openclaude_shell_button)" in source
+    assert "QToolButton" in source
+    assert "QMenu" in source
+    assert "self.openclaude_session_menu_button = _menu_button(" in source
+    assert "self.openclaude_claude_menu_button = _menu_button(" in source
+    assert "self.openclaude_input_menu_button = _menu_button(" in source
+    assert "self.openclaude_view_menu_button = _menu_button(" in source
+    assert "terminal_header.addWidget(self.openclaude_session_menu_button)" in source
+    assert "terminal_header.addWidget(self.openclaude_claude_menu_button)" in source
+    assert "terminal_header.addWidget(self.openclaude_input_menu_button)" in source
+    assert "terminal_header.addWidget(self.openclaude_view_menu_button)" in source
+    assert "terminal_header.addWidget(self.openclaude_continue_button)" not in source
+    assert "terminal_header.addWidget(self.openclaude_resume_button)" not in source
+    assert "terminal_header.addWidget(self.openclaude_shell_button)" not in source
 
 
 def test_openclaude_prompt_is_separate_tabbed_shell():
@@ -153,19 +160,21 @@ def test_session_tab_shows_powershell_tool_environment():
     assert "Prompt tab state:" in source
 
 
-def test_openclaude_terminal_exposes_common_slash_command_buttons():
+def test_openclaude_terminal_exposes_common_slash_command_actions():
     source = dev_workbench_source()
 
     assert 'QPushButton("Ctx")' in source
+    assert 'QPushButton("Set Ctx")' in source
     assert 'QPushButton("Clear")' in source
     assert 'QPushButton("Config")' in source
     assert 'QPushButton("Buddy")' in source
     assert "send_openclaude_ctx_command" in source
+    assert "set_openclaude_ctx_budget" in source
     assert "send_openclaude_clear_command" in source
     assert "send_openclaude_config_command" in source
     assert "send_openclaude_buddy_command" in source
     assert "_send_openclaude_slash_command" in source
-    assert 'terminal_header.addWidget(_terminal_section_label("CLAUDE"))' in source
+    assert "Set Ctx / Output Cap" in source
     assert 'worker.send_input(clean_command.rstrip("\\r\\n") + "\\r")' in source
 
 
@@ -224,3 +233,17 @@ def test_build_packages_python_openclaude_backend_and_treats_external_tools_as_r
     assert "External prerequisites" in docs_source
     assert "OpenClaude CLI" in docs_source
     assert "Ollama" in docs_source
+
+
+def test_openclaude_session_shows_prerequisites_and_changeable_ctx_budget():
+    source = dev_workbench_source()
+
+    assert "External prerequisites:" in source
+    assert "OpenClaude CLI:" in source
+    assert "Ollama CLI:" in source
+    assert "Prerequisite policy: external tools are detected and reported" in source
+    assert "save_openclaude_max_output_tokens" in source
+    assert "openclaude_max_output_tokens_state" in source
+    assert "max_output_tokens=self._active_openclaude_max_output_tokens()" in source
+    assert "CTX/output cap changed" in source
+    assert "Ctx/output cap:" in source

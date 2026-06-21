@@ -17,7 +17,7 @@ from typing import Any
 from ..config import API_KEY, APP_DIR
 from ..json_store import atomic_write_json, preserve_corrupt_file
 
-OPENCLAUDE_SETTINGS_SCHEMA_VERSION = 2
+OPENCLAUDE_SETTINGS_SCHEMA_VERSION = 3
 OPENCLAUDE_SETTINGS_FILE = APP_DIR / "openclaude" / "openclaude_settings.json"
 # Backwards-compatible internal alias. Do not expose this name in UI/env output.
 OPENCLAUDE_API_SETTINGS_FILE = OPENCLAUDE_SETTINGS_FILE
@@ -34,6 +34,7 @@ class OpenClaudeApiSettings:
 
     api_key: str = ""
     git_api_token: str = ""
+    max_output_tokens: str = ""
     path: str = str(OPENCLAUDE_SETTINGS_FILE)
 
     @property
@@ -43,6 +44,10 @@ class OpenClaudeApiSettings:
     @property
     def has_git_api_token(self) -> bool:
         return bool(str(self.git_api_token or "").strip())
+
+    @property
+    def has_max_output_tokens(self) -> bool:
+        return bool(str(self.max_output_tokens or "").strip())
 
 
 def _settings_path(settings_file: Path | str | None = None) -> Path:
@@ -67,6 +72,33 @@ def _private_file(path: Path) -> None:
 
 def _coerce_secret(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _coerce_token_budget(value: Any) -> str:
+    """Return a safe persisted token budget or an empty string.
+
+    This stores the OpenClaude/Claude Code output-token cap, which is the
+    user-facing CTX/output budget control in the FZAstro UI. Keep values inside
+    common provider limits so changing the setting cannot recreate the 32k
+    output ceiling failure by accident.
+    """
+
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        number = int(raw)
+    except (TypeError, ValueError):
+        return ""
+    number = max(1024, min(32000, number))
+    return str(number)
+
+
+def _payload_has_persisted_settings(payload: dict[str, Any]) -> bool:
+    return any(
+        _coerce_secret(payload.get(key))
+        for key in ("api_key", "git_api_token", "max_output_tokens")
+    )
 
 
 def _read_settings_payload(path: Path) -> dict[str, Any]:
@@ -96,17 +128,22 @@ def load_openclaude_api_settings(
 
     path = _settings_path(settings_file)
     if not path.exists():
-        return OpenClaudeApiSettings(api_key="", git_api_token="", path=str(path))
+        return OpenClaudeApiSettings(
+            api_key="", git_api_token="", max_output_tokens="", path=str(path)
+        )
     try:
         data = _read_settings_payload(path)
         return OpenClaudeApiSettings(
             api_key=_coerce_secret(data.get("api_key")),
             git_api_token=_coerce_secret(data.get("git_api_token")),
+            max_output_tokens=_coerce_token_budget(data.get("max_output_tokens")),
             path=str(path),
         )
     except Exception:
         preserve_corrupt_file(path, "load_openclaude_api_settings")
-        return OpenClaudeApiSettings(api_key="", git_api_token="", path=str(path))
+        return OpenClaudeApiSettings(
+            api_key="", git_api_token="", max_output_tokens="", path=str(path)
+        )
 
 
 def save_openclaude_api_key(
@@ -130,9 +167,7 @@ def save_openclaude_api_key(
         payload["api_key"] = clean
     else:
         payload.pop("api_key", None)
-    if not _coerce_secret(payload.get("git_api_token")) and not _coerce_secret(
-        payload.get("api_key")
-    ):
+    if not _payload_has_persisted_settings(payload):
         return clear_openclaude_settings_file(path)
     _write_settings_payload(path, payload)
     return load_openclaude_api_settings(path)
@@ -169,9 +204,7 @@ def save_openclaude_git_api_token(
         payload["git_api_token"] = clean
     else:
         payload.pop("git_api_token", None)
-    if not _coerce_secret(payload.get("git_api_token")) and not _coerce_secret(
-        payload.get("api_key")
-    ):
+    if not _payload_has_persisted_settings(payload):
         return clear_openclaude_settings_file(path)
     _write_settings_payload(path, payload)
     return load_openclaude_api_settings(path)
@@ -185,6 +218,44 @@ def clear_openclaude_git_api_token(
     return save_openclaude_git_api_token("", settings_file=settings_file)
 
 
+def save_openclaude_max_output_tokens(
+    max_output_tokens: str | int,
+    settings_file: Path | str | None = None,
+) -> OpenClaudeApiSettings:
+    """Save or clear the OpenClaude CTX/output token budget.
+
+    The value is stored with OpenClaude local settings under AppData and is
+    applied to ``CLAUDE_CODE_MAX_OUTPUT_TOKENS`` when a new terminal starts.
+    """
+
+    clean = _coerce_token_budget(max_output_tokens)
+    path = _settings_path(settings_file)
+    try:
+        payload = _read_settings_payload(path)
+    except Exception:
+        preserve_corrupt_file(path, "save_openclaude_max_output_tokens")
+        payload = {}
+    if clean:
+        payload["max_output_tokens"] = clean
+    else:
+        payload.pop("max_output_tokens", None)
+    if not _payload_has_persisted_settings(payload):
+        return clear_openclaude_settings_file(path)
+    _write_settings_payload(path, payload)
+    return load_openclaude_api_settings(path)
+
+
+def openclaude_max_output_tokens_state(
+    settings: OpenClaudeApiSettings, *, default: str = "16000"
+) -> str:
+    """Return a UI-safe status line for the CTX/output token budget."""
+
+    active = _coerce_token_budget(settings.max_output_tokens) or _coerce_token_budget(
+        default
+    )
+    return f"CLAUDE_CODE_MAX_OUTPUT_TOKENS: {active}"
+
+
 def clear_openclaude_settings_file(
     settings_file: Path | str | None = None,
 ) -> OpenClaudeApiSettings:
@@ -196,7 +267,9 @@ def clear_openclaude_settings_file(
             path.unlink()
     except Exception:
         pass
-    return OpenClaudeApiSettings(api_key="", git_api_token="", path=str(path))
+    return OpenClaudeApiSettings(
+        api_key="", git_api_token="", max_output_tokens="", path=str(path)
+    )
 
 
 def openclaude_api_key_state(

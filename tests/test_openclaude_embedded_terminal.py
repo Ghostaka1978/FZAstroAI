@@ -55,6 +55,7 @@ def test_embedded_command_uses_selected_model_and_openclaude_path(
         model="rafw007/qwen36-a3b-claude-coder:latest",
         base_url="http://localhost:11434/v1",
         api_key="ollama",
+        max_output_tokens="12000",
     )
 
     command = build_openclaude_embedded_command(
@@ -75,6 +76,7 @@ def test_embedded_command_uses_selected_model_and_openclaude_path(
         assert command.command[0].endswith("openclaude")
     assert command.env["OPENAI_MODEL"] == "rafw007/qwen36-a3b-claude-coder:latest"
     assert command.env["OPENAI_BASE_URL"] == "http://localhost:11434/v1"
+    assert command.env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "12000"
     assert command.support.backend == "pywinpty-conpty"
 
 
