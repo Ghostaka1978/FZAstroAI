@@ -1276,15 +1276,15 @@ class FZAstroAI(
         self.news_button.clicked.connect(self.daily_news)
         self.news_button.setToolTip("Generate the daily news briefing")
 
-        self.llm_benchmark_button = QPushButton("LLM BENCH")
-        self.llm_benchmark_button.setObjectName("stockPriceButton")
-        self.llm_benchmark_button.setFixedSize(96, 36)
-        self.llm_benchmark_button.setCursor(Qt.PointingHandCursor)
-        self.llm_benchmark_button.clicked.connect(self.open_llm_benchmark_dashboard)
-        self.llm_benchmark_button.setToolTip(
-            "Open latency, throughput, and model comparison benchmarks"
+        self.claude_button = QPushButton("CLAUDE")
+        self.claude_button.setObjectName("stockPriceButton")
+        self.claude_button.setFixedSize(86, 36)
+        self.claude_button.setCursor(Qt.PointingHandCursor)
+        self.claude_button.clicked.connect(self.open_dev_workbench)
+        self.claude_button.setToolTip(
+            "Open the OpenClaude workspace terminal for coding tasks"
         )
-        self.llm_benchmark_button.setAccessibleName("Open LLM benchmark dashboard")
+        self.claude_button.setAccessibleName("Open OpenClaude workspace")
 
         self.crm_stock_button = QPushButton("CRM")
         self.crm_stock_button.setObjectName("stockPriceButton")
@@ -1749,7 +1749,7 @@ class FZAstroAI(
             self.composer_actions_button, 0, Qt.AlignVCenter
         )
         composer_toolbar_layout.addWidget(self.news_button, 0, Qt.AlignVCenter)
-        composer_toolbar_layout.addWidget(self.llm_benchmark_button)
+        composer_toolbar_layout.addWidget(self.claude_button, 0, Qt.AlignVCenter)
         composer_toolbar_layout.addWidget(
             self.composer_markets_button, 0, Qt.AlignVCenter
         )
@@ -5600,8 +5600,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# Source contract for tests/test_version_and_docs.py.
-_LLM_BENCH_BUTTON_VISIBLE_SOURCE_CONTRACT = """composer_toolbar_layout.addWidget(
-            self.llm_benchmark_button
-"""

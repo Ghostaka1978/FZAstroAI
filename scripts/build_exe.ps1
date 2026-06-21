@@ -594,6 +594,9 @@ $ReleaseDir = Join-Path $BuildRoot "release"
 $MainScript = Join-Path $ProjectRoot "main.py"
 $IconPath = Join-Path $ProjectRoot "favicon.ico"
 $RequirementsFile = Join-Path $ProjectRoot "requirements.txt"
+$OpenClaudeRunScript = Join-Path $ScriptsRoot "run_openclaude.ps1"
+$OpenClaudeSetupScript = Join-Path $ScriptsRoot "setup_openclaude_companion.ps1"
+$OpenClaudeTerminalResources = Join-Path $ProjectRoot "fzastro_ai\resources\terminal"
 $VersionFile = Join-Path $ProjectRoot "VERSION.txt"
 $FzastroToolsDir = Join-Path $ProjectRoot "fzastro_ai\astro_tools\fzastro"
 $FzastroToolsDestination = "fzastro_ai\astro_tools\fzastro"
@@ -610,7 +613,7 @@ $script:WorkflowLogPath = $BuildLog
 Write-Host "FZAstro AI Version 2 EXE Build"
 Write-Host "Python: $ResolvedPython"
 Write-Host "Logs:   $BuildLog"
-Initialize-StageProgress -Activity "Build EXE" -TotalSteps 15
+Initialize-StageProgress -Activity "Build EXE" -TotalSteps 16
 Show-StageStep "Preflight checks"
 
 if (-not (Test-Path $MainScript)) { throw "Main script not found: $MainScript" }
@@ -647,6 +650,12 @@ else {
     New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
     Write-BuildLog -Path $BuildLog -Value "Dependency install skipped."
 }
+
+Show-StageStep "Prepare embedded OpenClaude runtime"
+if (-not (Test-Path -LiteralPath $OpenClaudeSetupScript)) {
+    throw "OpenClaude companion setup script not found: $OpenClaudeSetupScript"
+}
+Invoke-LoggedCommand -Description "OpenClaude embedded terminal setup" -CommandPath "powershell" -Arguments @("-ExecutionPolicy", "Bypass", "-File", $OpenClaudeSetupScript, "-PythonExe", $ResolvedPython, "-InstallEmbeddedTerminalBackend", "-InstallTerminalFrontend") -LogPath $BuildLog -VerboseOutput:$VerboseOutput
 
 Show-StageStep "Install Playwright Chromium browser"
 $PlaywrightLocalBrowsersDir = ""
@@ -685,12 +694,15 @@ if ($script:PythonSnippetExitCode -ne 0) { throw "Startup import check failed. S
 Show-StageStep "Check critical imports"
 $ImportCheck = @'
 import importlib
+import sys
 modules = [
     "PySide6", "openai", "requests", "bs4", "ddgs", "playwright",
     "markdown", "pygments", "PyPDF2", "fitz", "PIL", "pytesseract", "openpyxl", "PyInstaller",
     "astropy", "astroquery", "numpy", "matplotlib", "skyfield", "black",
     "vosk", "sounddevice"
 ]
+if sys.platform.startswith("win"):
+    modules.append("winpty")
 missing = []
 for name in modules:
     try:
@@ -785,9 +797,6 @@ $NinaSequenceTemplatePath = Join-Path $NinaTemplatesDir "osc_advanced_sequence_t
 if (-not (Test-Path -LiteralPath $NinaSequenceTemplatePath)) {
     throw "N.I.N.A. sequence template resource not found: $NinaSequenceTemplatePath"
 }
-$OpenClaudeRunScript = Join-Path $ScriptsRoot "run_openclaude.ps1"
-$OpenClaudeSetupScript = Join-Path $ScriptsRoot "setup_openclaude_companion.ps1"
-$OpenClaudeTerminalResources = Join-Path $ProjectRoot "fzastro_ai\resources\terminal"
 foreach ($OpenClaudeScript in @($OpenClaudeRunScript, $OpenClaudeSetupScript)) {
     if (-not (Test-Path -LiteralPath $OpenClaudeScript)) {
         throw "OpenClaude companion script not found: $OpenClaudeScript"
@@ -867,8 +876,11 @@ if ($LASTEXITCODE -eq 0 -and $WinptyCheck) {
     )
     Write-Host "Including pywinpty/winpty for embedded OpenClaude terminal."
 }
+elseif ($IsWindows -or $env:OS -eq "Windows_NT") {
+    throw "pywinpty/winpty is required for the packaged embedded OpenClaude terminal. Build setup should have installed it from requirements.txt. See log: $BuildLog"
+}
 else {
-    Write-Host "pywinpty/winpty is not installed in this Python environment; embedded OpenClaude terminal will use external fallback in the EXE." -ForegroundColor Yellow
+    Write-Host "pywinpty/winpty is Windows-only; skipping embedded OpenClaude terminal backend collection on this platform." -ForegroundColor Yellow
 }
 
 Invoke-LoggedCommand -Description "PyInstaller build" -CommandPath $ResolvedPython -Arguments $PyInstallerArgs -LogPath $BuildLog -VerboseOutput:$VerboseOutput

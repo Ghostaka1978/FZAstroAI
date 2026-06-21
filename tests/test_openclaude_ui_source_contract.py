@@ -189,3 +189,38 @@ def test_openclaude_terminal_output_is_buffered_for_ui_responsiveness():
         "Buffering keeps the UI responsive during high-frequency TUI repaint bursts."
         in source
     )
+
+
+def test_openclaude_terminals_are_stopped_before_window_close_and_exe_cleanup():
+    source = dev_workbench_source()
+    shutdown_source = (
+        Path(__file__).resolve().parents[1]
+        / "fzastro_ai"
+        / "controllers"
+        / "shutdown_controller.py"
+    ).read_text(encoding="utf-8-sig")
+
+    assert "def shutdown_embedded_terminals_for_close" in source
+    assert "def prepare_for_app_shutdown" in source
+    assert "def closeEvent" in source
+    assert "_MEI extraction directory" in source
+    assert "self._stop_openclaude_workspace_on_exit()" in shutdown_source
+    assert "Stopping OpenClaude terminals" in shutdown_source
+
+
+def test_build_packages_python_openclaude_backend_and_treats_external_tools_as_runtime_prereqs():
+    build_source = (
+        Path(__file__).resolve().parents[1] / "scripts" / "build_exe.ps1"
+    ).read_text(encoding="utf-8-sig")
+    docs_source = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "Prepare embedded OpenClaude runtime" in build_source
+    assert "-InstallEmbeddedTerminalBackend" in build_source
+    assert "-InstallTerminalFrontend" in build_source
+    assert 'modules.append("winpty")' in build_source
+    assert "pywinpty/winpty is required" in build_source
+    assert "External prerequisites" in docs_source
+    assert "OpenClaude CLI" in docs_source
+    assert "Ollama" in docs_source

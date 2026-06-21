@@ -1,4 +1,5 @@
-﻿import re
+import ast
+import re
 from pathlib import Path
 
 from fzastro_ai.config import APP_MILESTONE, APP_VERSION, APP_VERSION_LABEL
@@ -134,7 +135,12 @@ def test_llm_benchmark_feature_is_documented_and_wired():
     assert "selected_persona_payload" in benchmark_source
     assert "Raw model (no persona)" in benchmark_source
     assert "open_llm_benchmark_dialog" in app_source
-    assert "llm_benchmark_button" in app_source
+    assert "open_llm_benchmark_dashboard" in app_source
+    workspace_tabs_source = (
+        PROJECT_ROOT / "fzastro_ai" / "ui" / "workspace_tabs.py"
+    ).read_text(encoding="utf-8-sig")
+    assert "LLM BENCH" in workspace_tabs_source
+    assert "llm_benchmark_button" not in app_source
     assert "https://github.com/Ghostaka1978/FZAstroAI" in app_source
     assert "https://github.com/Ghostaka1978/FZAstroAI" in readme
     assert "https://github.com/Ghostaka1978/FZAstroAI" in release_docs
@@ -191,16 +197,49 @@ def test_v2_astro_tools_suite_is_documented():
     assert "provider-timeout" in about_dialog or "provider timeouts" in readme
 
 
-def test_llm_benchmark_quick_button_is_visible_and_smoke_test_default():
-    app_source = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8")
+def _has_toolbar_add_widget_call(source: str, button_name: str) -> bool:
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (
+            isinstance(func, ast.Attribute)
+            and func.attr == "addWidget"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "composer_toolbar_layout"
+        ):
+            continue
+        if not node.args:
+            continue
+        arg = node.args[0]
+        if (
+            isinstance(arg, ast.Attribute)
+            and arg.attr == button_name
+            and isinstance(arg.value, ast.Name)
+            and arg.value.id == "self"
+        ):
+            return True
+    return False
+
+
+def test_main_composer_uses_claude_quick_button_not_llm_bench():
+    app_source = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert 'self.claude_button = QPushButton("CLAUDE")' in app_source
+    assert "self.claude_button.clicked.connect(self.open_dev_workbench)" in app_source
+    assert _has_toolbar_add_widget_call(app_source, "claude_button")
+    assert "self.llm_benchmark_button = QPushButton" not in app_source
+    assert not _has_toolbar_add_widget_call(app_source, "llm_benchmark_button")
+
+
+def test_llm_benchmark_dialog_uses_active_model_and_fast_default():
     benchmark_source = (
         PROJECT_ROOT / "fzastro_ai" / "ui" / "llm_benchmark_dialog.py"
-    ).read_text(encoding="utf-8")
+    ).read_text(encoding="utf-8-sig")
 
-    assert "self.llm_benchmark_button = QPushButton" in app_source
-    assert (
-        "composer_toolbar_layout.addWidget(\n" "            self.llm_benchmark_button"
-    ) in app_source
     assert "ACTIVE MODEL" in benchmark_source
     assert "self.active_model_label" in benchmark_source
     assert "refresh_models_from_runtime" not in benchmark_source

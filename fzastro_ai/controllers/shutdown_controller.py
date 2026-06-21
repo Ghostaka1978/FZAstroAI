@@ -170,18 +170,36 @@ class ShutdownControllerMixin:
             log_debug("FZAstroAI shutdown progress close failed", exc)
 
     def _finalize_app_exit(self):
-        self._begin_shutdown_progress(maximum=4)
+        self._begin_shutdown_progress(maximum=5)
 
         try:
-            self._update_shutdown_progress(1, "Stopping Web Companion API...")
+            self._update_shutdown_progress(1, "Stopping OpenClaude terminals...")
+            self._stop_openclaude_workspace_on_exit()
+            self._update_shutdown_progress(2, "Stopping Web Companion API...")
             self._stop_web_companion_on_exit()
-            self._update_shutdown_progress(2, "Cleaning temporary files...")
+            self._update_shutdown_progress(3, "Cleaning temporary files...")
             self._cleanup_exit_temp_artifacts()
-            self._update_shutdown_progress(3, "Stopping local Ollama and GPU runner...")
+            self._update_shutdown_progress(4, "Stopping local Ollama and GPU runner...")
             self._stop_owned_ollama_process_on_exit()
-            self._update_shutdown_progress(4, "Shutdown complete.")
+            self._update_shutdown_progress(5, "Shutdown complete.")
         finally:
             self._finish_shutdown_progress()
+
+    def _stop_openclaude_workspace_on_exit(self):
+        """Stop embedded OpenClaude/Prompt terminals before EXE temp cleanup."""
+
+        dialog = getattr(self, "dev_workbench_dialog", None)
+        if dialog is None:
+            return
+        shutdown = getattr(dialog, "prepare_for_app_shutdown", None)
+        if not callable(shutdown):
+            return
+        try:
+            shutdown()
+        except RuntimeError as exc:
+            log_debug("OpenClaude workspace shutdown skipped", exc)
+        except Exception as exc:
+            log_exception("OpenClaude workspace shutdown failed", exc)
 
     def _stop_web_companion_on_exit(self):
         """Stop the Web Companion/API listener before the desktop app exits."""

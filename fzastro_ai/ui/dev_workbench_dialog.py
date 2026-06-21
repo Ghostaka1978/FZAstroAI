@@ -2790,6 +2790,69 @@ class DevWorkbenchDialog(QWidget):
         self._set_progress(None, "stopping project prompt")
         self._append_openclaude_prompt_output("\n[Prompt stop requested]\n")
 
+    def _stop_terminal_worker_for_close(
+        self, worker_attr: str, thread_attr: str
+    ) -> None:
+        """Best-effort stop for an embedded PTY before the app/window exits.
+
+        PyInstaller one-file cleanup can fail on Windows when a child terminal
+        still has handles open against the temporary _MEI extraction directory.
+        Closing the ConPTY before accepting the window close keeps shutdown
+        deterministic and avoids the visible PyInstaller temp-dir warning.
+        """
+
+        worker = getattr(self, worker_attr, None)
+        thread = getattr(self, thread_attr, None)
+        if worker is not None:
+            try:
+                worker.request_stop()
+            except Exception:
+                pass
+
+        if thread is None:
+            return
+
+        try:
+            if thread.isRunning():
+                thread.quit()
+                if not thread.wait(2500):
+                    try:
+                        thread.terminate()
+                        thread.wait(1000)
+                    except Exception:
+                        pass
+        except RuntimeError:
+            pass
+        except Exception:
+            pass
+
+    def shutdown_embedded_terminals_for_close(self) -> None:
+        """Stop Claude and Prompt PTYs before the workspace tab or app closes."""
+
+        try:
+            self._openclaude_terminal_output_timer.stop()
+        except Exception:
+            pass
+        self._stop_terminal_worker_for_close("openclaude_worker", "openclaude_thread")
+        self._stop_terminal_worker_for_close(
+            "openclaude_prompt_worker", "openclaude_prompt_thread"
+        )
+        self.openclaude_worker = None
+        self.openclaude_thread = None
+        self.openclaude_prompt_worker = None
+        self.openclaude_prompt_thread = None
+        self._set_openclaude_terminal_running(False)
+        self._set_openclaude_prompt_running(False)
+
+    def prepare_for_app_shutdown(self) -> None:
+        """Called by the main window before PyInstaller temp cleanup runs."""
+
+        self.shutdown_embedded_terminals_for_close()
+
+    def closeEvent(self, event):
+        self.shutdown_embedded_terminals_for_close()
+        super().closeEvent(event)
+
     def open_openclaude_external_terminal(self):
         self._refresh_root()
         config = self._openclaude_launch_config(install_if_missing=False)
