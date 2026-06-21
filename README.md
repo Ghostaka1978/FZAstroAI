@@ -87,24 +87,81 @@ These release captures show the main desktop workspace, polished tool outputs, a
 
 ## External prerequisites
 
-FZAstro ships support for local model and coding-agent workflows, but it does **not** bundle external runtimes or model blobs.
+FZAstro ships support for local model and coding-agent workflows, but it does **not** bundle external runtimes, system installers, global npm packages, or model blobs. The packaged app should still open without these tools; missing items are shown in Session/status panels rather than causing a crash.
 
-Optional workstation tools:
+For a full local workstation with Ollama chat and OpenClaude coding, install these once before using the packaged EXE:
 
-- **Ollama** - required only for Ollama local models and the `http://localhost:11434` service.
-- **Node.js/npm + OpenClaude CLI** - required only for the embedded OpenClaude coding workspace.
-- **Git + ripgrep** - recommended for OpenClaude workspace inspection and project search.
+### 1. Install Ollama
 
-The app should run without those tools. Missing tools are reported in Session/status panels rather than crashing. If you already installed Ollama and OpenClaude, the packaged FZAstro EXE is enough to host the UI, prepare the embedded terminal backend/frontend, and connect to those external services.
+Ollama is required only when you want FZAstro to use local Ollama models through `http://localhost:11434`. It is not bundled with FZAstro.
 
-Install optional OpenClaude tooling once on a Windows developer workstation:
+```powershell
+winget install -e --id Ollama.Ollama
+```
+
+After installing, open a new PowerShell and verify:
+
+```powershell
+ollama --version
+ollama list
+```
+
+Pull at least one model yourself, for example:
+
+```powershell
+ollama pull qwen2.5-coder
+```
+
+### 2. Install Node.js / npm
+
+Node.js and npm are required for the OpenClaude CLI. They are not installed by FZAstro deploy/build scripts because they modify the system PATH/global toolchain.
 
 ```powershell
 winget install -e --id OpenJS.NodeJS.LTS
-winget install -e --id Git.Git
-winget install -e --id BurntSushi.ripgrep.MSVC
+```
+
+Close and reopen PowerShell, then verify:
+
+```powershell
+node --version
+npm --version
+```
+
+### 3. Install OpenClaude CLI
+
+OpenClaude is required only for the embedded **CLAUDE** coding workspace. Install it after Node.js/npm are working.
+
+```powershell
 npm install -g @gitlawb/openclaude@latest
 ```
+
+Verify:
+
+```powershell
+openclaude --version
+```
+
+Recommended developer tools for better OpenClaude workspace search:
+
+```powershell
+winget install -e --id Git.Git
+winget install -e --id BurntSushi.ripgrep.MSVC
+```
+
+### What FZAstro build/deploy handles
+
+FZAstro build/deploy handles Python-side and packaged-app requirements: Python dependencies, PyInstaller resources, the embedded terminal backend (`pywinpty`/`winpty`), and terminal frontend assets. It should **not** silently install Ollama, Node.js, npm, or global OpenClaude on a user's machine. If an explicit setup flag is used to install OpenClaude, Node.js/npm must already be installed.
+
+Summary:
+
+| Item | Installed by FZAstro build/deploy? | Needed for |
+|---|---:|---|
+| Python dependencies / PyInstaller resources | Yes | Packaged app |
+| Embedded terminal backend/frontend | Yes | OpenClaude terminal UI |
+| Ollama | No | Ollama local models |
+| Node.js / npm | No | OpenClaude CLI installation |
+| OpenClaude CLI | No by default; optional explicit setup only | CLAUDE workspace |
+| Git / ripgrep | No | Better project search/status |
 
 ## OpenClaude runtime model
 
@@ -180,7 +237,7 @@ py -3.11 -m venv .venv
 .\DEPLOY.bat
 ```
 
-`DEPLOY.bat` is the root-folder deploy button. It runs `scripts/deploy.ps1 -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -RunValidation -GitRelease`, so a successful deploy can prepare the OpenClaude companion when Node/npm are available and create the local Git release commit and annotated tag from `VERSION.txt`. Add `-GitPush` when you want the branch and tag pushed.
+`DEPLOY.bat` is the root-folder deploy button. For release builds it should prepare FZAstro internals, run validation, and create the local Git release commit/tag from `VERSION.txt`. It may prepare the OpenClaude embedded terminal backend/frontend, but it does not install Node.js/npm or Ollama. Use OpenClaude install flags only on a developer machine where Node.js/npm are already installed and you explicitly want the global OpenClaude CLI installed or updated. Add `-GitPush` when you want the branch and tag pushed.
 
 ```powershell
 .\DEPLOY.bat -GitPush
@@ -189,8 +246,15 @@ py -3.11 -m venv .venv
 PowerShell equivalent:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -RunValidation -GitRelease
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -RunValidation -GitRelease -GitPush
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -SetupOpenClaudeCompanion -RunValidation -GitRelease
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -SetupOpenClaudeCompanion -RunValidation -GitRelease -GitPush
+
+# Optional developer-machine CLI setup only; requires Node.js/npm first.
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_openclaude_companion.ps1 `
+  -PythonExe .\.venv\Scripts\python.exe `
+  -InstallOpenClaudeIfMissing `
+  -InstallEmbeddedTerminalBackend `
+  -InstallTerminalFrontend
 ```
 
 `build_exe.ps1` handles Python imports and packaged resources for a clean build environment. It prepares the embedded OpenClaude terminal backend/frontend, installs/checks `pywinpty`, packages `winpty`, formats with Black, runs automated tests, and writes logs under `..\FZAstroAI_BUILD\logs`.
