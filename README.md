@@ -1,19 +1,20 @@
 # FZAstro AI v2.4.0 - OpenClaude Terminal Production
 
-FZAstro AI is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document knowledge, persistent local memory, Python execution, web/news/market tools, hardware telemetry, LLM benchmarking, dedicated OpenClaude workspace terminal, Web Companion, and integrated astronomy planning.
+FZAstro AI is a Windows PySide6 desktop AI workstation for astrophotography, local LLM workflows, document knowledge, persistent memory, Python execution, web/news/market tools, hardware telemetry, benchmarking, Web Companion, N.I.N.A. planning, and an embedded OpenClaude workspace terminal.
 
-Release identity: **FZAstro AI v2.4.0 (OpenClaude Terminal Production)**.
+Release identity: **FZAstro AI v2.4.0 (OpenClaude Terminal Production)**.  
+Current maintenance tag: **v2.4.2-openclaude-launch-fix**.  
 GitHub repository: https://github.com/Ghostaka1978/FZAstroAI
 
-## v2.4.0 release highlight
+## Current release focus
 
-FZAstro AI v2.4.0 is a major OpenClaude release. The old experimental Developer Workbench / legacy DEV testbed has been removed from the normal app surface. In its place, FZAstro now provides a dedicated **OpenClaude** workspace tab with a real embedded terminal, Session setup, visible workspace/git/provider context, and project rules through `AGENTS.md`. OpenClaude owns the interactive coding flow directly inside the selected workspace; FZAstro supplies the workspace, model endpoint, terminal host, telemetry, and release-safe setup/deploy support.
+FZAstro AI v2.4.x makes OpenClaude the dedicated coding-agent surface. The old experimental DEV testbed is removed from the normal app surface. OpenClaude now runs as a real embedded terminal with Session status, workspace isolation, compact Claude command menus, Prompt tab, image/clipboard attachment handoff, configurable output/CTX budget, and close-safe terminal cleanup.
 
-Release tag: `v2.4.0`.
+The main chat toolbar now uses **CLAUDE** as the quick coding action. **LLM Benchmark Dashboard** remains available from Apps / workspace actions as **LLM BENCH**.
 
 ## Screenshots
 
-These v2.4.0 captures show the main desktop workspace, polished tool outputs, astronomy planning tabs, N.I.N.A. handoff, benchmarking, and the Web Companion.
+These release captures show the main desktop workspace, polished tool outputs, astronomy planning tabs, N.I.N.A. handoff, benchmarking, and the Web Companion.
 
 <table>
   <tr>
@@ -23,7 +24,7 @@ These v2.4.0 captures show the main desktop workspace, polished tool outputs, as
     </td>
     <td width="50%">
       <img src="docs/screenshots/fzastro-daily-news.png" alt="Daily News Brief with structured article cards">
-      <br><sub>Daily News Brief with source counts, structured categories, article summaries, and open links.</sub>
+      <br><sub>Daily News Brief with source counts, categories, summaries, and open links.</sub>
     </td>
   </tr>
   <tr>
@@ -39,11 +40,11 @@ These v2.4.0 captures show the main desktop workspace, polished tool outputs, as
   <tr>
     <td width="50%">
       <img src="docs/screenshots/fzastro-targets-planner.png" alt="TARGETS planner with sky preview and capture controls">
-      <br><sub>TARGETS planner with ranked objects, large sky preview, and capture handoff controls.</sub>
+      <br><sub>TARGETS planner with ranked objects, sky preview, and capture handoff controls.</sub>
     </td>
     <td width="50%">
       <img src="docs/screenshots/fzastro-seeing-planner.png" alt="SEEING Astro Night Planner">
-      <br><sub>SEEING Astro Night Planner with hourly rows, cloud, Moon, seeing, transparency, and dark periods.</sub>
+      <br><sub>SEEING Astro Night Planner with hourly cloud, Moon, seeing, transparency, and dark-period context.</sub>
     </td>
   </tr>
   <tr>
@@ -74,15 +75,72 @@ These v2.4.0 captures show the main desktop workspace, polished tool outputs, as
   </tr>
 </table>
 
-## Major production areas
+## Major areas
 
-- **Tabbed workspace** - Chat, LOOKUP, SEEING, SUN NOW, N.I.N.A., TARGETS, Help/About, and system panels open as main-window tabs with a shared style.
+- **Main workspace** - tabbed Chat, LOOKUP, SEEING, SUN NOW, N.I.N.A., TARGETS, Help/About, and system panels.
 - **Astro Tools Suite** - SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP.
-- **FZASTRO IMAGING / N.I.N.A. bridge** - safe Advanced Sequencer JSON export, bundled FZAstro Imaging launcher, N.I.N.A. API handoff, explicit ARM + START VIA API control, and session reports.
-- **LLM Benchmark Dashboard** - LLM BENCH opens a polished control layout with Dashboard, History, Compare, and benchmark controls.
-- **OpenClaude** - dedicated Codex-style workspace terminal backed by Windows ConPTY/pywinpty and an xterm.js frontend. The legacy Developer Workbench / DEV testbed has been removed from the normal UI; Session shows workspace/git/provider details, while all coding interaction happens directly inside the terminal.
-- **Document knowledge** - import/search local documents with SQLite-backed storage.
-- **Web Companion** - local browser/LAN companion for iPad/mobile workflows.
+- **FZASTRO IMAGING / N.I.N.A. bridge** - review-first Advanced Sequencer export, N.I.N.A. API handoff, ARM + START VIA API control, and session reports.
+- **OpenClaude workspace** - embedded Windows ConPTY/pywinpty terminal with xterm.js frontend, compact command menus, Prompt tab, Session status, workspace isolation, and safe shutdown.
+- **LLM Benchmark Dashboard** - available as **LLM BENCH** from Apps/workspace actions, with telemetry, history, compare views, persona/calibration checks, and raw-model scoring.
+- **Document knowledge** - local document import/search with SQLite-backed storage.
+- **Web Companion** - local browser/LAN companion for mobile and iPad workflows.
+
+## External prerequisites
+
+FZAstro ships support for local model and coding-agent workflows, but it does **not** bundle external runtimes or model blobs.
+
+Optional workstation tools:
+
+- **Ollama** - required only for Ollama local models and the `http://localhost:11434` service.
+- **Node.js/npm + OpenClaude CLI** - required only for the embedded OpenClaude coding workspace.
+- **Git + ripgrep** - recommended for OpenClaude workspace inspection and project search.
+
+The app should run without those tools. Missing tools are reported in Session/status panels rather than crashing. If you already installed Ollama and OpenClaude, the packaged FZAstro EXE is enough to host the UI, prepare the embedded terminal backend/frontend, and connect to those external services.
+
+Install optional OpenClaude tooling once on a Windows developer workstation:
+
+```powershell
+winget install -e --id OpenJS.NodeJS.LTS
+winget install -e --id Git.Git
+winget install -e --id BurntSushi.ripgrep.MSVC
+npm install -g @gitlawb/openclaude@latest
+```
+
+## OpenClaude runtime model
+
+OpenClaude uses the model/provider selected by FZAstro and launches with a controlled environment:
+
+```text
+CLAUDE_CODE_USE_OPENAI=1
+CLAUDE_CODE_USE_POWERSHELL_TOOL=1
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=<saved CTX/output cap>
+OPENAI_BASE_URL=<selected endpoint>
+OPENAI_MODEL=<selected model>
+OPENAI_API_KEY=<stored/local key>
+```
+
+Workspace isolation is enforced with selected-root and Git-boundary variables:
+
+```text
+FZASTRO_PROJECT_ROOT=<selected workspace>
+OPENCLAUDE_WORKSPACE_ROOT=<selected workspace>
+FZASTRO_WORKSPACE_BOUNDARY=<selected workspace>
+GIT_CEILING_DIRECTORIES=<workspace parent>
+GIT_TERMINAL_PROMPT=0
+GIT_CONFIG_NOSYSTEM=1
+```
+
+The **Set Ctx / Output Cap** action changes the saved `CLAUDE_CODE_MAX_OUTPUT_TOKENS` value. Running OpenClaude sessions must be restarted to use a changed cap.
+
+## OpenClaude UI
+
+- **CLAUDE** on the main chat toolbar opens the OpenClaude workspace.
+- **Session** is status/setup only: workspace, provider/environment, prerequisites, Git state, AGENTS.md, and terminal readiness.
+- **Claude Terminal** hosts the live OpenClaude TUI.
+- **Prompt** is a separate PowerShell tab at the same workspace path.
+- Compact menus reduce clipping: **Session**, **Claude**, **Input**, and **View**.
+- Claude command actions such as `/help`, `/ctx`, `/clear`, `/config`, and `/buddy` auto-submit with Enter.
+- Closing FZAstro while OpenClaude is active stops embedded terminals before PyInstaller temp cleanup, reducing `_MEI` shutdown warnings.
 
 ## Astro Tools Suite
 
@@ -94,27 +152,27 @@ Astropy/IERS runtime handling disables unsafe live IERS downloads in the app pat
 
 ## FZASTRO IMAGING / N.I.N.A. workflow
 
-FZASTRO IMAGING CONTROL is designed as a review-first operations cockpit:
+FZASTRO IMAGING CONTROL is a review-first operations cockpit:
 
-1. **OPEN TARGETS** — choose a target from structured TARGETS/SEEING context.
-2. **CONFIRM + LOAD INTO N.I.N.A.** — generate the confirmed `.nina-sequence.json`, copy a plain `.json` into the configured N.I.N.A. sequence folder, verify `/sequence/list-available`, load with `GET /sequence/load?sequenceName=...`, and verify `/sequence/state`.
-3. **EQUIPMENT PREP / POWER ON** — use basic generated prep steps or load a user-provided `FZAstro_EquipmentPrepSample.json` for N.I.N.A. review only.
-4. **ARM + START VIA API** — after explicit confirmation, start the loaded sequence using `GET /sequence/start`.
-5. **SESSION REPORT** — write Markdown/JSON reports and show target, conditions, capture, site, API, last-image, and safety highlights in the UI.
+1. **OPEN TARGETS** - choose a target from structured TARGETS/SEEING context.
+2. **CONFIRM + LOAD INTO N.I.N.A.** - generate the confirmed `.nina-sequence.json`, copy a plain `.json` into the configured N.I.N.A. sequence folder, verify `/sequence/list-available`, load with `GET /sequence/load?sequenceName=...`, and verify `/sequence/state`.
+3. **EQUIPMENT PREP / POWER ON** - use basic generated prep steps or load a user-provided `FZAstro_EquipmentPrepSample.json` for N.I.N.A. review only.
+4. **ARM + START VIA API** - after explicit confirmation, start the loaded sequence using `GET /sequence/start`.
+5. **SESSION REPORT** - write Markdown/JSON reports and show target, conditions, capture, site, API, last-image, and safety highlights in the UI.
 
-The workflow never starts automatically after load. START remains a separate user-confirmed hardware-action request.
+The workflow never starts automatically after load. START remains a separate user-confirmed hardware action.
 
 ## LLM Benchmark Dashboard
 
-The **LLM Benchmark Dashboard** is available from **LLM BENCH**. It includes telemetry, history, comparison views, persona/calibration checks, and quality scoring. The benchmark workflow includes **Run All Presets**, **Delete Selected**, Composite scoring, and raw-model testing with **Raw model (no persona)**.
+The **LLM Benchmark Dashboard** remains available as **LLM BENCH** from Apps/workspace actions. It includes telemetry, history, comparison views, persona/calibration checks, quality scoring, **Run All Presets**, **Delete Selected**, Composite scoring, and raw-model testing with **Raw model (no persona)**.
 
 ## Distance ladder calculations
 
-FZAstro AI includes **Distance ladder calculations** for astronomy object context. The distance-ladder path can use parallax, Gaia, NED-D, Hubble, and `hubble(z)` style fallback logic where available. Use `FZASTRO_USE_DISTANCE_LADDER` to enable or control this feature in supported workflows.
+FZAstro AI includes **Distance ladder calculations** for astronomy object context. The distance-ladder path can use parallax, Gaia, NED-D, Hubble, and `hubble(z)` fallback logic where available. Use `FZASTRO_USE_DISTANCE_LADDER` to enable or control this feature in supported workflows.
 
 ## Build and release workflow
 
-Use a Python 3.11 virtual environment for the packaged app build and validation workflow:
+Use Python 3.11 for the packaged app build and validation workflow. The scripts enforce Python 3.11 even when newer interpreters such as **Python 3.14** are installed.
 
 ```powershell
 py -3.11 -m venv .venv
@@ -122,7 +180,7 @@ py -3.11 -m venv .venv
 .\DEPLOY.bat
 ```
 
-`DEPLOY.bat` is the root-folder deploy button. It runs `scripts/deploy.ps1 -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -RunValidation -GitRelease`, so a successful deploy also prepares the OpenClaude companion when Node/npm are available and creates the local release commit and annotated tag from `VERSION.txt` (`v2.4.0` for this release). Add `-GitPush` when you want the branch and tag pushed:
+`DEPLOY.bat` is the root-folder deploy button. It runs `scripts/deploy.ps1 -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -RunValidation -GitRelease`, so a successful deploy can prepare the OpenClaude companion when Node/npm are available and create the local Git release commit and annotated tag from `VERSION.txt`. Add `-GitPush` when you want the branch and tag pushed.
 
 ```powershell
 .\DEPLOY.bat -GitPush
@@ -135,17 +193,27 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -SetupOpenClaudeCo
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy.ps1 -SetupOpenClaudeCompanion -InstallOpenClaudeIfMissing -RunValidation -GitRelease -GitPush
 ```
 
-The scripts enforce Python 3.11 for the build even if newer interpreters such as **Python 3.14** are installed on the system. `scripts/reset_venv.ps1` recreates the venv, sets `FZASTRO_PYTHON`, and uses the sibling build folder one folder above the project root: `..\FZAstroAI_BUILD`.
+`build_exe.ps1` handles Python imports and packaged resources for a clean build environment. It prepares the embedded OpenClaude terminal backend/frontend, installs/checks `pywinpty`, packages `winpty`, formats with Black, runs automated tests, and writes logs under `..\FZAstroAI_BUILD\logs`.
 
-`deploy.ps1` is the scripted release workflow command. It can run `scripts/setup_openclaude_companion.ps1` before the build, then calls `scripts/clean_build.ps1`, which starts `build_exe.ps1` automatically, then validation can run `scripts/validate_release.ps1`. The cleanup/build/validation scripts use a progress bar, `VerboseOutput`, and logs under `..\FZAstroAI_BUILD\logs`. Optional external checks for Ollama, Tesseract, Playwright, Node.js/npm, and OpenClaude use warnings/status output so a missing companion tool does not block deployment unless explicitly required.
-
-The source handoff keeps the root folder lean: `main.py`, `DEPLOY.bat`, version/config files, README, requirements, pytest/Black config, icon/spec files used by the build, and the main `fzastro_ai/`, `docs/`, `scripts/`, and `tests/` folders. Generated caches, local virtual environments, external N.I.N.A. worktrees, bundled runtime binaries, and installer leftovers are not part of the clean source package.
+External tools remain external prerequisites. Build/deploy should detect Ollama, Node/npm, Git, ripgrep, and OpenClaude and report missing items as warnings/status unless a command explicitly requires them. Release validation skips `ollama list` by default so deploy checks do not depend on a running Ollama server. Use `scripts/validate_release.ps1 -DeepRuntimeChecks` only when you want the optional Ollama model list check.
 
 Important build variables:
 
 - `FZASTRO_PROJECT_ROOT`
 - `FZASTRO_BUILD_ROOT`
 - `FZASTRO_PYTHON`
+
+## Clean source tree
+
+Keep the project root lean:
+
+- Root: `main.py`, `DEPLOY.bat`, `VERSION.txt`, README, requirements, pytest/Black config, icon/spec files.
+- Source: `fzastro_ai/`
+- Docs: `docs/`
+- Scripts: `scripts/`
+- Tests: `tests/`
+
+Do not commit generated caches, local virtual environments, external N.I.N.A. worktrees, bundled runtime binaries, build output, installer leftovers, or root `.ps1` scratch scripts.
 
 ## Runtime storage
 
@@ -158,69 +226,23 @@ Runtime data is stored under `%APPDATA%\FZAstroAI` by default. Important files i
 - `daily_news_cache.json`
 - `llm_benchmark_history.json`
 - `nina_integration.json`
+- `openclaude_settings.json`
 - `logs/fzastroai.log`
 
 Set `FZASTRO_APP_DIR` to override the runtime data folder for testing or portable runs.
 
-OpenClaude update: broad analysis requests such as `analyse all Python files` now build a project-audit index of every scanned `.py` file while keeping deep-read excerpts bounded.
+## Validation
 
-
-
-
-### External prerequisites
-
-FZAstro ships support for Ollama and OpenClaude, but does not bundle their external runtimes. Install these once on the workstation when you want those optional features:
-
-- **Ollama** for local Ollama models and the `http://localhost:11434` model service.
-- **Node.js/npm + OpenClaude CLI** for the embedded OpenClaude coding workspace.
-
-The app and build scripts detect these tools and report missing prerequisites without crashing; Python imports and packaged resources are handled by the build environment.
-
-### Codex-style OpenClaude prerequisites
-
-For source/developer setups on Windows, install Node.js, Git, ripgrep, and OpenClaude once. FZAstro deploy/setup scripts validate these tools and prepare the embedded ConPTY backend; the app UI does not install Python packages at runtime.
+Recommended local validation before release:
 
 ```powershell
-winget install -e --id OpenJS.NodeJS.LTS
-winget install -e --id Git.Git
-winget install -e --id BurntSushi.ripgrep.MSVC
-npm install -g @gitlawb/openclaude@latest
+.\.venv\Scripts\python.exe -m compileall -q main.py fzastro_ai tests
+.\.venv\Scripts\python.exe -m pytest -q
+.\scripts\build_exe.ps1
 ```
 
-### Embedded OpenClaude
+For focused OpenClaude checks:
 
-The OpenClaude workspace now uses OpenClaude as the coding-agent path with the selected FZAstro model and endpoint. Normal chat still uses the direct runtime (`FZAstro AI -> Ollama/OpenAI-compatible API`), while coding tasks use (`FZAstro OpenClaude -> embedded OpenClaude terminal -> Ollama`). On Windows, FZAstro embeds the interactive OpenClaude CLI through ConPTY/pywinpty in the Agent Workspace. Runtime package setup is kept out of the app UI: `pywinpty` is installed and packaged by requirements/setup/build/deploy, while the app only reports whether the embedded backend is ready. If the embedded backend is unavailable or unstable, the external terminal launcher remains available. FZAstro generates the runtime launcher and structured OpenClaude task prompt under `AppData\Roaming\FZAstroAI\openclaude`, so frozen EXE deployments do not depend on source-relative scripts.
-
-### OpenClaude UX polish
-
-- OpenClaude remembers the last valid project root and restores it on reopen.
-- The OpenClaude page shows compact telemetry plus a colored running/stopped state indicator; the old progress bar is removed so the terminal keeps maximum space.
-- Claude Terminal supports text paste, scrollback navigation, terminal screenshot saving, clipboard image handoff, image-file attachment, and current-terminal screenshot handoff through workspace-local `.fzastro/openclaude_attachments` files.
-- Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
-- Web Companion/LAN token/security tasks are routed to launcher/server/app/test files instead of unrelated UI files.
-- Invalid empty tool requests stop with actionable guidance instead of looping until timeout.
-
-
-### OpenClaude single workspace
-
-The OpenClaude workspace now uses one Agent Workspace timeline for plans, answers, patch proposals, previews, validation cards, and reports. File evidence and raw logs/context/diffs/test output live in on-demand resizable right-side drawers with their own scroll areas, keeping the main workspace stable while details are open. Runtime/model details and separate steering fields are intentionally hidden from the OpenClaude surface; the main model bar and task composer are the user-facing controls. Normal patch work no longer requires switching between Log, Chat, Patch, Validation, and Report tabs.
-
-### OpenClaude apply hardening
-
-Patch application now handles partially stale unified diffs more safely. If an implementation hunk was already applied but a new test-file hunk still needs to be created, OpenClaude skips only the proven already-applied section and applies the remaining valid section after creating a rollback snapshot. Apply failures now report failed paths and raw `git apply` details instead of only saying that no files changed. New-file `/dev/null` diff sections are validated and applied explicitly.
-
-### OpenClaude polish
-
-The OpenClaude workspace now remembers the last valid project root, shows progress and telemetry, highlights the next workflow action, keeps patch apply locked until preview, and uses generic evidence-based planning so patch-management wording does not pull in unrelated OpenClaude UI/type files.
-
-
-Release validation skips `ollama list` by default so deploy checks do not depend on a running Ollama server. Use `scripts/validate_release.ps1 -DeepRuntimeChecks` only when you explicitly want a local Ollama model inventory check.
-
-## OpenClaude
-
-The OpenClaude workspace uses a real terminal frontend when available: Qt WebEngine + xterm.js connected to Windows ConPTY/pywinpty. Run `scripts\setup_openclaude_companion.ps1 -InstallEmbeddedTerminalBackend -InstallTerminalFrontend` before building/deploying on Windows.
-
-
-### OpenClaude session cleanup
-
-Session is setup/status only: workspace, provider/environment, git state, AGENTS.md, and terminal frontend/backend readiness. Patch/test/report controls from the old DEV testbed are not exposed in Session; normal work happens directly in the Claude Terminal. Dirty git checkouts are shown with a warning so live workspace changes are visible before using OpenClaude.
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_openclaude_bridge.py tests/test_openclaude_embedded_terminal.py tests/test_openclaude_ui_source_contract.py tests/test_openclaude_settings.py
+```
