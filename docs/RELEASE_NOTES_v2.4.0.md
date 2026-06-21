@@ -11,8 +11,9 @@ FZAstro AI v2.4.0 is a major OpenClaude release. The old experimental Developer 
 - Dedicated **OpenClaude** quick-action tab.
 - Real embedded terminal-first OpenClaude workflow.
 - Session panel shows workspace, model/endpoint, git branch/remote/dirty state, hidden API-key state, AGENTS.md status, and terminal frontend/backend status.
-- Claude Terminal provides maximum terminal space with compact Start/Restart, Stop, Clear, and Status controls.
+- Claude Terminal provides maximum terminal space with compact Start/Restart, Stop, Clear, Paste, Page Up, Bottom, Screenshot, Paste Image, Attach Image, and Send Shot controls.
 - OpenClaude uses the selected workspace directly and can inspect/create/edit files, run Python/tests/scripts, and interact with git according to the user prompt and project rules.
+- Screenshot/image handoff saves user-approved images under `.fzastro/openclaude_attachments` inside the selected workspace, then sends OpenClaude an explicit file-path prompt with a non-vision-model warning.
 - FZAstro setup/deploy prepares OpenClaude prerequisites including Node/npm lookup, global OpenClaude install checks, pywinpty/ConPTY backend, and local xterm.js frontend assets.
 - Help, About, README, validation docs, and release workflow now identify this as **OpenClaude Terminal Production**.
 

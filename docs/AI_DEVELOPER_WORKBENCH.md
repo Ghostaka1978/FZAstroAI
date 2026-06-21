@@ -95,6 +95,12 @@ The Session tab is setup/status-only. The Claude Terminal tab stays clean and ow
 - **Restart** restarts OpenClaude when it is already running.
 - **Stop** requests terminal cancellation.
 - **Clear** clears the visible terminal buffer.
+- **Paste** sends clipboard text to the running terminal.
+- **Page Up** and **Bottom** let the user inspect scrollback without forcing live output back to the bottom.
+- **Screenshot** saves a visible terminal PNG and copies the saved path.
+- **Paste Image** saves a clipboard screenshot/image under `.fzastro/openclaude_attachments` in the selected workspace and sends OpenClaude a path handoff prompt.
+- **Attach Image** copies a selected PNG/JPG/WebP/BMP into that workspace attachment folder and sends the same path handoff.
+- **Send Shot** captures the current terminal view into the workspace attachment folder and sends its path to OpenClaude.
 
 There is no separate **Status** button in the terminal header. Diagnostics are refreshed in Session so status text cannot pollute the OpenClaude terminal transcript. Session also reports the active terminal start settings and warns when the running process is stale after a workspace/model/endpoint/Git-token change.
 
@@ -215,6 +221,7 @@ Next stages are controlled auto-fix loops, deeper persistent memory/rule editing
 
 - OpenClaude remembers the last valid project root and restores it on reopen.
 - The OpenClaude page shows compact telemetry plus a colored running/stopped state indicator; the old progress bar is removed so the terminal keeps maximum space.
+- Terminal ergonomics include text paste, stable scrollback, terminal screenshot capture, clipboard image handoff, file image handoff, and current-terminal screenshot handoff into `.fzastro/openclaude_attachments`. The terminal remains raw; screenshots are passed as workspace-local files plus an explicit prompt so non-vision models must say when they cannot decode pixels.
 - Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
 - File planning is generic and evidence-driven: task-management words such as `PatchProposal`, `unified`, `diff`, `summary`, `validation`, and `risk` are filtered from relevance scoring so patch tasks select implementation/test evidence instead of OpenClaude meta-files.
 - Invalid empty tool requests stop with actionable guidance instead of looping until timeout.

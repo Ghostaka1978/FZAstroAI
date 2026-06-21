@@ -1,5 +1,4 @@
-﻿"""Compatibility wrapper for :mod:
-zastro_ai.voice.command_router.
+"""Compatibility wrapper for :mod:`fzastro_ai.voice.command_router`.
 
 The implementation was moved during package cleanup. This module keeps older
 imports working without importing from outside the package root.

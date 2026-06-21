@@ -1,5 +1,4 @@
-﻿"""Compatibility wrapper for :mod:
-zastro_ai.workers.web_search_worker.
+"""Compatibility wrapper for :mod:`fzastro_ai.workers.web_search_worker`.
 
 The implementation was moved during package cleanup. This module keeps older
 imports working without importing from outside the package root.

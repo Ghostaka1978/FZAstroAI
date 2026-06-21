@@ -1,0 +1,11 @@
+--- fzastro_ai/app.py	2026-06-20 22:16:40.000000000 +0000
++++ /mnt/data/llm_bench_button_test_patch/fzastro_ai/app.py	2026-06-20 23:46:18.469082745 +0000
+@@ -1750,7 +1750,7 @@
+         )
+         composer_toolbar_layout.addWidget(self.news_button, 0, Qt.AlignVCenter)
+         composer_toolbar_layout.addWidget(
+-            self.llm_benchmark_button, 0, Qt.AlignVCenter
++            self.llm_benchmark_button
+         )
+         composer_toolbar_layout.addWidget(
+             self.composer_markets_button, 0, Qt.AlignVCenter

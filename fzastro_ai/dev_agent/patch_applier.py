@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from .safety import DEFAULT_MUTATION_BLOCKED_DIRS
+from .subprocess_utils import hidden_subprocess_kwargs
 from .types import PatchProposal, RiskLevel
 
 
@@ -158,6 +159,7 @@ def _run_git_apply_check(
         text=True,
         capture_output=True,
         timeout=timeout_seconds,
+        **hidden_subprocess_kwargs(),
     )
 
 
@@ -173,6 +175,7 @@ def _run_git_apply(
         text=True,
         capture_output=True,
         timeout=timeout_seconds,
+        **hidden_subprocess_kwargs(),
     )
 
 

@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from .openclaude_bridge import (
     OpenClaudeBridgeError,
@@ -105,13 +105,15 @@ def build_openclaude_embedded_command(
     config: OpenClaudeLaunchConfig,
     *,
     env: Mapping[str, str] | None = None,
+    openclaude_args: Sequence[str] | None = None,
+    shell_only: bool = False,
 ) -> OpenClaudeEmbeddedCommand:
     """Build the command and environment for an embedded OpenClaude terminal."""
 
     root = validate_openclaude_project_root(config.project_root)
     support = get_embedded_terminal_support()
     status = get_openclaude_tool_status(env=env)
-    if not status.openclaude_path:
+    if not status.openclaude_path and not shell_only:
         raise OpenClaudeBridgeError(
             "OpenClaude is not installed. Install with: npm install -g @gitlawb/openclaude@latest"
         )
@@ -130,24 +132,41 @@ def build_openclaude_embedded_command(
             existing_path = entry + os.pathsep + existing_path
     process_env["PATH"] = existing_path
 
-    # Run through the generated PowerShell launcher rather than spawning the
-    # npm .cmd shim directly.  For the embedded terminal we intentionally do
-    # NOT use -NoExit: OpenClaude owns the terminal.  If the user exits
-    # OpenClaude or presses Ctrl+C until it closes, the PTY should close cleanly
-    # instead of dropping into an orphaned PowerShell prompt that repeats ^C.
+    args = tuple(str(part) for part in (openclaude_args or ()) if str(part).strip())
+
+    # Run through the generated PowerShell launcher rather than spawning the npm
+    # .cmd shim directly. Keep PowerShell alive after OpenClaude exits so the
+    # embedded pane returns to a usable project prompt instead of becoming a dead
+    # transcript. Recovery buttons can then send commands immediately.
     launcher_path = write_openclaude_launcher(config)
     if os.name == "nt":
-        command = (
-            "powershell.exe",
-            "-NoLogo",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(launcher_path),
-        )
+        if shell_only:
+            command = (
+                "powershell.exe",
+                "-NoExit",
+                "-NoLogo",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+            )
+        else:
+            command = (
+                "powershell.exe",
+                "-NoExit",
+                "-NoLogo",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(launcher_path),
+                *args,
+            )
     else:
-        command = (status.openclaude_path,)
+        command = (
+            ((os.environ.get("SHELL") or "sh"),)
+            if shell_only
+            else (status.openclaude_path, *args)
+        )
 
     return OpenClaudeEmbeddedCommand(
         command=command,
@@ -181,6 +200,7 @@ def format_embedded_terminal_status(config: OpenClaudeLaunchConfig) -> str:
             f"**Project:** `{Path(config.project_root).expanduser()}`",
             f"**Model:** `{config.model}`",
             f"**Endpoint:** `{config.base_url}`",
+            "**PowerShell tool:** `CLAUDE_CODE_USE_POWERSHELL_TOOL=1`",
             "",
             "## Behavior",
             "- The embedded terminal uses Windows ConPTY through pywinpty when available.",

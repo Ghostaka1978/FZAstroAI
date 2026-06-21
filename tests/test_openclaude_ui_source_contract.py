@@ -14,8 +14,9 @@ def test_claude_terminal_has_no_status_button_in_header():
     source = dev_workbench_source()
 
     assert "terminal_header.addWidget(self.openclaude_status_button)" not in source
-    assert "self.openclaude_status_button.setVisible(False)" in source
-    assert "OpenClaude terminal state:" in source
+    assert "config_layout.addLayout(session_action_row)" in source
+    assert "self.openclaude_status_button.setVisible(True)" in source
+    assert "Claude Terminal state:" in source
 
 
 def test_session_git_identity_is_explicitly_workspace_scoped():
@@ -68,5 +69,123 @@ def test_session_tab_uses_scroll_area_for_long_diagnostics():
     assert "self.session_config_panel = self.session_config_scroll" in source
     assert (
         "self.session_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)"
+        in source
+    )
+
+
+def test_openclaude_terminal_exposes_image_handoff_controls():
+    source = dev_workbench_source()
+
+    assert 'QPushButton("Paste Image")' in source
+    assert 'QPushButton("Attach Image")' in source
+    assert 'QPushButton("Send Shot")' in source
+    assert "paste_clipboard_image_to_openclaude" in source
+    assert "attach_image_file_to_openclaude" in source
+    assert "send_terminal_screenshot_to_openclaude" in source
+    assert "build_image_handoff_prompt" in source
+    assert "openclaude_paste_image_button" in source
+    assert "openclaude_attach_image_button" in source
+    assert "openclaude_send_screenshot_button" in source
+
+
+def test_openclaude_terminal_exposes_jump_to_top_scrollback():
+    source = dev_workbench_source()
+
+    assert 'QPushButton("Top")' in source
+    assert "openclaude_top_button" in source
+    assert "scroll_to_top()" in source
+    assert "Jump to the oldest retained OpenClaude terminal scrollback." in source
+
+
+def test_openclaude_dev_git_diagnostics_hide_helper_consoles():
+    source = dev_workbench_source()
+
+    assert "from ..dev_agent.subprocess_utils import hidden_subprocess_kwargs" in source
+    assert "**hidden_subprocess_kwargs()" in source
+
+
+def test_openclaude_terminal_has_recovery_action_buttons():
+    source = dev_workbench_source()
+
+    assert 'QPushButton("Continue")' in source
+    assert 'QPushButton("Resume")' in source
+    assert 'QPushButton("Prompt")' in source
+    assert 'QPushButton("Help")' in source
+    assert "run_openclaude_continue" in source
+    assert "run_openclaude_resume_last" in source
+    assert "start_openclaude_shell_prompt" in source
+    assert "send_openclaude_help_command" in source
+    assert "openclaude --continue" in source
+    assert "openclaude --resume" in source
+    assert 'worker.send_input(clean_command.rstrip("\\r\\n") + "\\r")' in source
+
+
+def test_openclaude_terminal_header_groups_actions_by_purpose():
+    source = dev_workbench_source()
+
+    assert '_terminal_section_label("SESSION")' in source
+    assert '_terminal_section_label("INPUT")' in source
+    assert '_terminal_section_label("VIEW")' in source
+    assert "terminal_header.addWidget(self.openclaude_continue_button)" in source
+    assert "terminal_header.addWidget(self.openclaude_resume_button)" in source
+    assert "terminal_header.addWidget(self.openclaude_shell_button)" in source
+
+
+def test_openclaude_prompt_is_separate_tabbed_shell():
+    source = dev_workbench_source()
+
+    assert "self.openclaude_prompt_frame = QFrame()" in source
+    assert (
+        'self.workspace_tabs.addTab(self.openclaude_prompt_frame, "Prompt")' in source
+    )
+    assert "self.openclaude_prompt_output = OpenClaudeTerminalWidget()" in source
+    assert "start_openclaude_prompt_terminal" in source
+    assert "self.openclaude_prompt_worker" in source
+    assert "shell_only=True" in source
+
+
+def test_session_tab_shows_powershell_tool_environment():
+    source = dev_workbench_source()
+
+    assert "CLAUDE_CODE_USE_POWERSHELL_TOOL=" in source
+    assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS=" in source
+    assert "session_summary_label" in source
+    assert "Prompt tab state:" in source
+
+
+def test_openclaude_terminal_exposes_common_slash_command_buttons():
+    source = dev_workbench_source()
+
+    assert 'QPushButton("Ctx")' in source
+    assert 'QPushButton("Clear")' in source
+    assert 'QPushButton("Config")' in source
+    assert 'QPushButton("Buddy")' in source
+    assert "send_openclaude_ctx_command" in source
+    assert "send_openclaude_clear_command" in source
+    assert "send_openclaude_config_command" in source
+    assert "send_openclaude_buddy_command" in source
+    assert "_send_openclaude_slash_command" in source
+    assert 'terminal_header.addWidget(_terminal_section_label("CLAUDE"))' in source
+    assert 'worker.send_input(clean_command.rstrip("\\r\\n") + "\\r")' in source
+
+
+def test_session_tab_keeps_prompt_and_help_out_of_visible_actions():
+    source = dev_workbench_source()
+
+    assert "session_action_row.addWidget(self.session_help_button)" not in source
+    assert "session_action_row.addWidget(self.session_prompt_button)" not in source
+    assert 'session_action_row.addWidget(QLabel("Shell:"))' not in source
+    assert "self.session_help_button.setVisible(False)" in source
+    assert "self.session_prompt_button.setVisible(False)" in source
+
+
+def test_openclaude_terminal_output_is_buffered_for_ui_responsiveness():
+    source = dev_workbench_source()
+
+    assert "_openclaude_terminal_output_buffer" in source
+    assert "_flush_openclaude_terminal_output" in source
+    assert "timer.start(24)" in source
+    assert (
+        "Buffering keeps the UI responsive during high-frequency TUI repaint bursts."
         in source
     )

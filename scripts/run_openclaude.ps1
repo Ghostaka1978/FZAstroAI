@@ -56,6 +56,8 @@ if (-not $openclaude) {
 }
 
 $env:CLAUDE_CODE_USE_OPENAI = "1"
+$env:CLAUDE_CODE_USE_POWERSHELL_TOOL = "1"
+if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) { $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = "16000" }
 $env:OPENAI_BASE_URL = $BaseUrl
 $env:OPENAI_MODEL = $Model
 $env:OPENAI_API_KEY = $ApiKey

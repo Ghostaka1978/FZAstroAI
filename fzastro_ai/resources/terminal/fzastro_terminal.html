@@ -113,6 +113,7 @@
     window.fztermPasteText = function (text) { sendToPython(String(text || '')); fallback.focus(); };
     window.fztermScrollPageUp = function () { fallbackAutoFollow = false; fallback.scrollTop = Math.max(0, fallback.scrollTop - fallback.clientHeight); fallback.focus(); };
     window.fztermScrollPageDown = function () { fallback.scrollTop = Math.min(fallback.scrollHeight, fallback.scrollTop + fallback.clientHeight); fallbackAutoFollow = fallbackAtBottom(); fallback.focus(); };
+    window.fztermScrollTop = function () { fallback.scrollTop = 0; fallbackAutoFollow = false; fallback.focus(); };
     window.fztermScrollBottom = function () { fallback.scrollTop = fallback.scrollHeight; fallbackAutoFollow = true; fallback.focus(); };
     window.fztermCopySelection = function () { copyTextToClipboard(window.getSelection ? window.getSelection().toString() : ''); };
     fallback.focus();
@@ -224,6 +225,7 @@
     window.fztermPasteText = function (text) { const payload = String(text || ''); if (term.paste) { term.paste(payload); } else { sendToPython(payload); } term.focus(); };
     window.fztermScrollPageUp = function () { term.scrollPages(-1); xtermAutoFollow = false; term.focus(); };
     window.fztermScrollPageDown = function () { term.scrollPages(1); xtermAutoFollow = isXtermAtBottom(); term.focus(); };
+    window.fztermScrollTop = function () { term.scrollToTop(); xtermAutoFollow = false; term.focus(); };
     window.fztermScrollBottom = function () { term.scrollToBottom(); xtermAutoFollow = true; term.focus(); };
     window.fztermCopySelection = function () { copyTextToClipboard(term.getSelection ? term.getSelection() : ''); term.focus(); };
     term.focus();
@@ -240,6 +242,7 @@
   window.fztermPasteText = function (text) { sendToPython(String(text || '')); fallback.focus(); };
   window.fztermScrollPageUp = function () { fallbackAutoFollow = false; fallback.scrollTop = Math.max(0, fallback.scrollTop - fallback.clientHeight); fallback.focus(); };
   window.fztermScrollPageDown = function () { fallback.scrollTop = Math.min(fallback.scrollHeight, fallback.scrollTop + fallback.clientHeight); fallbackAutoFollow = fallbackAtBottom(); fallback.focus(); };
+  window.fztermScrollTop = function () { fallback.scrollTop = 0; fallbackAutoFollow = false; fallback.focus(); };
   window.fztermScrollBottom = function () { fallback.scrollTop = fallback.scrollHeight; fallbackAutoFollow = true; fallback.focus(); };
   window.fztermCopySelection = function () { copyTextToClipboard(window.getSelection ? window.getSelection().toString() : ''); };
 

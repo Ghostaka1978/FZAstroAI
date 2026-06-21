@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..config import API_KEY, BASE_URL, DEFAULT_MODEL_NAME
+from ..dev_agent.subprocess_utils import hidden_subprocess_kwargs
 from ..dev_agent.openclaude_settings import (
     clear_openclaude_api_key,
     clear_openclaude_git_api_token,
@@ -55,6 +56,8 @@ from ..dev_agent.llm_client import (
 from ..dev_agent.openclaude_bridge import (
     OpenClaudeBridgeError,
     OpenClaudeLaunchConfig,
+    DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS,
+    DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL,
     audit_openclaude_project_root,
     openclaude_workspace_isolation_lines,
     build_openclaude_task_prompt,
@@ -69,6 +72,14 @@ from ..dev_agent.openclaude_embedded_terminal import (
     build_openclaude_embedded_command,
     command_to_cmdline,
     get_embedded_terminal_support,
+)
+from ..dev_agent.openclaude_attachments import (
+    OpenClaudeAttachmentError,
+    OpenClaudeImageAttachment,
+    build_image_handoff_prompt,
+    copy_image_attachment,
+    make_clipboard_image_attachment_path,
+    make_terminal_screenshot_attachment_path,
 )
 from .openclaude_terminal_widget import OpenClaudeTerminalWidget
 from ..dev_agent.patch_applier import (
@@ -129,6 +140,8 @@ class _OpenClaudePtyWorker(QObject):
         auto_send_prompt: bool = True,
         initial_cols: int = 120,
         initial_rows: int = 30,
+        openclaude_args: tuple[str, ...] | None = None,
+        shell_only: bool = False,
     ):
         super().__init__()
         self.config = config
@@ -136,6 +149,8 @@ class _OpenClaudePtyWorker(QObject):
         self.auto_send_prompt = auto_send_prompt
         self.initial_cols = max(40, int(initial_cols or 120))
         self.initial_rows = max(10, int(initial_rows or 30))
+        self.openclaude_args = tuple(openclaude_args or ())
+        self.shell_only = bool(shell_only)
         self._latest_cols = self.initial_cols
         self._latest_rows = self.initial_rows
         self._stop_requested = threading.Event()
@@ -243,7 +258,11 @@ class _OpenClaudePtyWorker(QObject):
 
     def run(self) -> None:
         try:
-            context = build_openclaude_embedded_command(self.config)
+            context = build_openclaude_embedded_command(
+                self.config,
+                openclaude_args=self.openclaude_args,
+                shell_only=self.shell_only,
+            )
             if not context.support.supported:
                 self.failed.emit(
                     context.support.reason
@@ -460,13 +479,28 @@ class DevWorkbenchDialog(QWidget):
         self.agent_worker: _DevAgentWorker | None = None
         self.openclaude_thread: QThread | None = None
         self.openclaude_worker: _OpenClaudePtyWorker | None = None
+        self.openclaude_prompt_thread: QThread | None = None
+        self.openclaude_prompt_worker: _OpenClaudePtyWorker | None = None
         self._openclaude_terminal_running = False
+        self._openclaude_prompt_running = False
         self._openclaude_terminal_cols = 120
         self._openclaude_terminal_rows = 30
+        self._openclaude_prompt_cols = 120
+        self._openclaude_prompt_rows = 30
         self._openclaude_prompt_echo_lines: set[str] = set()
         self._openclaude_prompt_echo_notice_shown = False
         self._openclaude_spinner_notice_shown = False
         self._openclaude_launch_snapshot: dict[str, str] | None = None
+        self._openclaude_last_resume_id = ""
+        self._openclaude_last_resume_command = ""
+        self._openclaude_terminal_output_buffer: list[str] = []
+        self._openclaude_terminal_output_buffer_chars = 0
+        self._openclaude_terminal_output_timer = QTimer(self)
+        self._openclaude_terminal_output_timer.setSingleShot(True)
+        self._openclaude_terminal_output_timer.timeout.connect(
+            self._flush_openclaude_terminal_output
+        )
+        self._workspace_git_summary_cache: tuple[str, float, list[str]] | None = None
         self._agent_run_id = 0
         self._retired_agent_runs: list[tuple[int, QThread, _DevAgentWorker]] = []
         self._agent_stop_requested = False
@@ -591,6 +625,12 @@ class DevWorkbenchDialog(QWidget):
         self.openclaude_api_status_label.setObjectName("sidebarFooter")
         self.openclaude_api_status_label.setWordWrap(True)
         config_layout.addWidget(self.openclaude_api_status_label)
+
+        self.session_summary_label = QLabel("")
+        self.session_summary_label.setObjectName("settingsCardSubtitle")
+        self.session_summary_label.setWordWrap(True)
+        self.session_summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        config_layout.addWidget(self.session_summary_label)
 
         # OpenClaude now owns edit/review behavior inside its terminal. These
         # hidden defaults are retained only for compatibility with older helper
@@ -728,11 +768,114 @@ class DevWorkbenchDialog(QWidget):
         self.copy_context_button.clicked.connect(self.copy_context_package)
         self.openclaude_status_button = QPushButton("Refresh Session")
         self.openclaude_status_button.clicked.connect(self.check_openclaude_companion)
-        self.openclaude_status_button.setVisible(False)
+        self.openclaude_status_button.setVisible(True)
         self.openclaude_launch_button = QPushButton("Start / Restart")
+        self.openclaude_launch_button.setToolTip(
+            "Start OpenClaude, or restart the current embedded terminal."
+        )
         self.openclaude_launch_button.clicked.connect(
             self.restart_embedded_openclaude_terminal
         )
+        self.openclaude_continue_button = QPushButton("Continue")
+        self.openclaude_continue_button.setToolTip(
+            "Run openclaude --continue immediately."
+        )
+        self.openclaude_continue_button.clicked.connect(self.run_openclaude_continue)
+        self.openclaude_resume_button = QPushButton("Resume")
+        self.openclaude_resume_button.setToolTip(
+            "Run the last detected openclaude --resume <session-id> command."
+        )
+        self.openclaude_resume_button.clicked.connect(self.run_openclaude_resume_last)
+        self.openclaude_shell_button = QPushButton("Prompt")
+        self.openclaude_shell_button.setToolTip(
+            "Open a normal project PowerShell prompt in a separate Prompt tab at the selected workspace."
+        )
+        self.openclaude_shell_button.clicked.connect(self.start_openclaude_shell_prompt)
+        self.openclaude_prompt_start_button = QPushButton("Start Prompt")
+        self.openclaude_prompt_start_button.setToolTip(
+            "Start a normal PowerShell prompt at the selected workspace."
+        )
+        self.openclaude_prompt_start_button.clicked.connect(
+            self.start_openclaude_shell_prompt
+        )
+        self.openclaude_prompt_stop_button = QPushButton("Stop Prompt")
+        self.openclaude_prompt_stop_button.setToolTip(
+            "Stop the separate Prompt tab shell."
+        )
+        self.openclaude_prompt_stop_button.clicked.connect(
+            self.stop_openclaude_prompt_terminal
+        )
+        self.openclaude_prompt_clear_button = QPushButton("Clear")
+        self.openclaude_prompt_clear_button.clicked.connect(
+            self.clear_openclaude_prompt_output
+        )
+        self.openclaude_prompt_top_button = QPushButton("Top")
+        self.openclaude_prompt_top_button.clicked.connect(
+            lambda: self.openclaude_prompt_output.scroll_to_top()
+        )
+        self.openclaude_prompt_bottom_button = QPushButton("Bottom")
+        self.openclaude_prompt_bottom_button.clicked.connect(
+            lambda: self.openclaude_prompt_output.scroll_to_bottom()
+        )
+        self.openclaude_help_button = QPushButton("Help")
+        self.openclaude_help_button.setToolTip(
+            "Send /help to the active OpenClaude terminal."
+        )
+        self.openclaude_help_button.clicked.connect(self.send_openclaude_help_command)
+        self.openclaude_ctx_button = QPushButton("Ctx")
+        self.openclaude_ctx_button.setToolTip(
+            "Send /ctx to the active OpenClaude terminal."
+        )
+        self.openclaude_ctx_button.clicked.connect(self.send_openclaude_ctx_command)
+        self.openclaude_slash_clear_button = QPushButton("Clear")
+        self.openclaude_slash_clear_button.setToolTip(
+            "Send /clear to the active OpenClaude terminal."
+        )
+        self.openclaude_slash_clear_button.clicked.connect(
+            self.send_openclaude_clear_command
+        )
+        self.openclaude_config_button = QPushButton("Config")
+        self.openclaude_config_button.setToolTip(
+            "Send /config to the active OpenClaude terminal."
+        )
+        self.openclaude_config_button.clicked.connect(
+            self.send_openclaude_config_command
+        )
+        self.openclaude_buddy_button = QPushButton("Buddy")
+        self.openclaude_buddy_button.setToolTip(
+            "Send /buddy to the active OpenClaude terminal."
+        )
+        self.openclaude_buddy_button.clicked.connect(self.send_openclaude_buddy_command)
+
+        self.session_start_button = QPushButton("Start Claude")
+        self.session_start_button.clicked.connect(
+            self.restart_embedded_openclaude_terminal
+        )
+        self.session_continue_button = QPushButton("Continue")
+        self.session_continue_button.clicked.connect(self.run_openclaude_continue)
+        self.session_resume_button = QPushButton("Resume")
+        self.session_resume_button.clicked.connect(self.run_openclaude_resume_last)
+        # Retained as hidden compatibility attributes only. The Session tab stays
+        # focused on Claude start/recovery/stop; Prompt and slash commands live
+        # in the terminal tabs where they act.
+        self.session_prompt_button = QPushButton("Open Prompt")
+        self.session_prompt_button.setVisible(False)
+        self.session_prompt_button.clicked.connect(self.start_openclaude_shell_prompt)
+        self.session_help_button = QPushButton("Help")
+        self.session_help_button.setVisible(False)
+        self.session_help_button.clicked.connect(self.send_openclaude_help_command)
+        self.session_stop_button = QPushButton("Stop Claude")
+        self.session_stop_button.clicked.connect(self.stop_embedded_openclaude_terminal)
+        session_action_row = QHBoxLayout()
+        session_action_row.setSpacing(6)
+        session_action_row.addWidget(self.openclaude_status_button)
+        session_action_row.addWidget(QLabel("OpenClaude:"))
+        session_action_row.addWidget(self.session_start_button)
+        session_action_row.addWidget(self.session_continue_button)
+        session_action_row.addWidget(self.session_resume_button)
+        session_action_row.addWidget(self.session_stop_button)
+        session_action_row.addStretch(1)
+        config_layout.addLayout(session_action_row)
         self.openclaude_send_task_button = QPushButton("Send")
         self.openclaude_send_task_button.setVisible(False)
         self.openclaude_send_task_button.clicked.connect(
@@ -754,6 +897,10 @@ class DevWorkbenchDialog(QWidget):
         self.openclaude_page_up_button.clicked.connect(
             lambda: self.openclaude_terminal_output.scroll_page_up()
         )
+        self.openclaude_top_button = QPushButton("Top")
+        self.openclaude_top_button.clicked.connect(
+            lambda: self.openclaude_terminal_output.scroll_to_top()
+        )
         self.openclaude_bottom_button = QPushButton("Bottom")
         self.openclaude_bottom_button.clicked.connect(
             lambda: self.openclaude_terminal_output.scroll_to_bottom()
@@ -761,6 +908,18 @@ class DevWorkbenchDialog(QWidget):
         self.openclaude_screenshot_button = QPushButton("Screenshot")
         self.openclaude_screenshot_button.clicked.connect(
             self.save_openclaude_terminal_screenshot
+        )
+        self.openclaude_paste_image_button = QPushButton("Paste Image")
+        self.openclaude_paste_image_button.clicked.connect(
+            self.paste_clipboard_image_to_openclaude
+        )
+        self.openclaude_attach_image_button = QPushButton("Attach Image")
+        self.openclaude_attach_image_button.clicked.connect(
+            self.attach_image_file_to_openclaude
+        )
+        self.openclaude_send_screenshot_button = QPushButton("Send Shot")
+        self.openclaude_send_screenshot_button.clicked.connect(
+            self.send_terminal_screenshot_to_openclaude
         )
         self.openclaude_external_button = QPushButton("Hidden Fallback")
         self.openclaude_external_button.clicked.connect(
@@ -812,14 +971,37 @@ class DevWorkbenchDialog(QWidget):
             self.fast_tests_button,
             self.feature_tests_button,
             self.full_pytest_button,
+            self.session_start_button,
+            self.session_continue_button,
+            self.session_resume_button,
+            self.session_prompt_button,
+            self.session_help_button,
+            self.session_stop_button,
             self.openclaude_launch_button,
+            self.openclaude_continue_button,
+            self.openclaude_resume_button,
+            self.openclaude_shell_button,
+            self.openclaude_prompt_start_button,
+            self.openclaude_prompt_stop_button,
+            self.openclaude_prompt_clear_button,
+            self.openclaude_prompt_top_button,
+            self.openclaude_prompt_bottom_button,
+            self.openclaude_help_button,
+            self.openclaude_ctx_button,
+            self.openclaude_slash_clear_button,
+            self.openclaude_config_button,
+            self.openclaude_buddy_button,
             self.openclaude_send_task_button,
             self.openclaude_stop_button,
             self.openclaude_clear_button,
             self.openclaude_paste_button,
             self.openclaude_page_up_button,
+            self.openclaude_top_button,
             self.openclaude_bottom_button,
             self.openclaude_screenshot_button,
+            self.openclaude_paste_image_button,
+            self.openclaude_attach_image_button,
+            self.openclaude_send_screenshot_button,
             self.openclaude_external_button,
             self.openclaude_prompt_button,
             self.export_patch_button,
@@ -836,13 +1018,30 @@ class DevWorkbenchDialog(QWidget):
             self.final_report_button,
         )
         self.utility_buttons = (
+            self.openclaude_continue_button,
+            self.openclaude_resume_button,
+            self.openclaude_shell_button,
+            self.openclaude_prompt_start_button,
+            self.openclaude_prompt_stop_button,
+            self.openclaude_prompt_clear_button,
+            self.openclaude_prompt_top_button,
+            self.openclaude_prompt_bottom_button,
+            self.openclaude_help_button,
+            self.openclaude_ctx_button,
+            self.openclaude_slash_clear_button,
+            self.openclaude_config_button,
+            self.openclaude_buddy_button,
             self.openclaude_send_task_button,
             self.openclaude_stop_button,
             self.openclaude_clear_button,
             self.openclaude_paste_button,
             self.openclaude_page_up_button,
+            self.openclaude_top_button,
             self.openclaude_bottom_button,
             self.openclaude_screenshot_button,
+            self.openclaude_paste_image_button,
+            self.openclaude_attach_image_button,
+            self.openclaude_send_screenshot_button,
             self.openclaude_prompt_button,
             self.export_patch_button,
             self.reset_chat_button,
@@ -927,14 +1126,41 @@ class DevWorkbenchDialog(QWidget):
         terminal_layout.setContentsMargins(4, 4, 4, 4)
         terminal_layout.setSpacing(4)
         terminal_header = QHBoxLayout()
-        terminal_header.addStretch(1)
+        terminal_header.setSpacing(6)
+
+        def _terminal_section_label(text: str) -> QLabel:
+            label = QLabel(text)
+            label.setObjectName("sidebarFooter")
+            label.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
+            return label
+
+        terminal_header.addWidget(_terminal_section_label("SESSION"))
+        terminal_header.addWidget(self.openclaude_launch_button)
+        terminal_header.addWidget(self.openclaude_continue_button)
+        terminal_header.addWidget(self.openclaude_resume_button)
+        terminal_header.addWidget(self.openclaude_shell_button)
+        terminal_header.addWidget(self.openclaude_stop_button)
+        terminal_header.addSpacing(12)
+        terminal_header.addWidget(_terminal_section_label("CLAUDE"))
+        terminal_header.addWidget(self.openclaude_help_button)
+        terminal_header.addWidget(self.openclaude_ctx_button)
+        terminal_header.addWidget(self.openclaude_slash_clear_button)
+        terminal_header.addWidget(self.openclaude_config_button)
+        terminal_header.addWidget(self.openclaude_buddy_button)
+        terminal_header.addSpacing(12)
+        terminal_header.addWidget(_terminal_section_label("INPUT"))
         terminal_header.addWidget(self.openclaude_paste_button)
+        terminal_header.addWidget(self.openclaude_paste_image_button)
+        terminal_header.addWidget(self.openclaude_attach_image_button)
+        terminal_header.addWidget(self.openclaude_send_screenshot_button)
+        terminal_header.addSpacing(12)
+        terminal_header.addWidget(_terminal_section_label("VIEW"))
         terminal_header.addWidget(self.openclaude_page_up_button)
+        terminal_header.addWidget(self.openclaude_top_button)
         terminal_header.addWidget(self.openclaude_bottom_button)
         terminal_header.addWidget(self.openclaude_screenshot_button)
-        terminal_header.addWidget(self.openclaude_launch_button)
-        terminal_header.addWidget(self.openclaude_stop_button)
         terminal_header.addWidget(self.openclaude_clear_button)
+        terminal_header.addStretch(1)
         terminal_layout.addLayout(terminal_header)
         self.openclaude_terminal_output = OpenClaudeTerminalWidget()
         self.openclaude_terminal_output.setObjectName("embeddedClaudeTerminalHost")
@@ -954,11 +1180,63 @@ class DevWorkbenchDialog(QWidget):
         self.openclaude_stop_button.setEnabled(False)
         self.openclaude_send_task_button.setEnabled(False)
         self.openclaude_clear_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_continue_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_resume_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_shell_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_help_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_ctx_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_slash_clear_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_config_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_buddy_button.setCursor(Qt.PointingHandCursor)
         self.openclaude_paste_button.setCursor(Qt.PointingHandCursor)
         self.openclaude_page_up_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_top_button.setCursor(Qt.PointingHandCursor)
         self.openclaude_bottom_button.setCursor(Qt.PointingHandCursor)
         self.openclaude_screenshot_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_paste_image_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_attach_image_button.setCursor(Qt.PointingHandCursor)
+        self.openclaude_send_screenshot_button.setCursor(Qt.PointingHandCursor)
         self.workspace_tabs.addTab(self.openclaude_terminal_frame, "Claude Terminal")
+
+        self.openclaude_prompt_frame = QFrame()
+        self.openclaude_prompt_frame.setObjectName("settingsCard")
+        prompt_layout = QVBoxLayout(self.openclaude_prompt_frame)
+        prompt_layout.setContentsMargins(4, 4, 4, 4)
+        prompt_layout.setSpacing(4)
+        prompt_header = QHBoxLayout()
+        prompt_header.setSpacing(6)
+        prompt_title = QLabel("Project PowerShell Prompt")
+        prompt_title.setObjectName("sidebarFooter")
+        prompt_header.addWidget(prompt_title)
+        prompt_header.addWidget(self.openclaude_prompt_start_button)
+        prompt_header.addWidget(self.openclaude_prompt_stop_button)
+        prompt_header.addSpacing(12)
+        prompt_header.addWidget(self.openclaude_prompt_top_button)
+        prompt_header.addWidget(self.openclaude_prompt_bottom_button)
+        prompt_header.addWidget(self.openclaude_prompt_clear_button)
+        prompt_header.addStretch(1)
+        prompt_layout.addLayout(prompt_header)
+        self.openclaude_prompt_hint_label = QLabel(
+            "Normal shell at the selected workspace. Use this for manual commands, openclaude --continue, or openclaude --resume without disturbing the Claude Terminal tab."
+        )
+        self.openclaude_prompt_hint_label.setObjectName("sidebarFooter")
+        self.openclaude_prompt_hint_label.setWordWrap(True)
+        prompt_layout.addWidget(self.openclaude_prompt_hint_label)
+        self.openclaude_prompt_output = OpenClaudeTerminalWidget()
+        self.openclaude_prompt_output.setObjectName("embeddedClaudePromptTerminalHost")
+        self.openclaude_prompt_output.setMinimumHeight(560)
+        self.openclaude_prompt_output.input_received.connect(
+            self._send_raw_openclaude_prompt_input
+        )
+        self.openclaude_prompt_output.resized.connect(
+            self._resize_openclaude_prompt_terminal
+        )
+        self.openclaude_prompt_output.frontend_ready.connect(
+            self._on_openclaude_prompt_frontend_ready
+        )
+        prompt_layout.addWidget(self.openclaude_prompt_output, 1)
+        self.workspace_tabs.addTab(self.openclaude_prompt_frame, "Prompt")
+
         self.workspace_tabs.setCurrentWidget(self.openclaude_terminal_frame)
 
         # No separate chat/composer surface: the OpenClaude terminal is the only
@@ -1247,6 +1525,7 @@ class DevWorkbenchDialog(QWidget):
                 stderr=subprocess.PIPE,
                 timeout=4,
                 check=False,
+                **hidden_subprocess_kwargs(),
             )
         except FileNotFoundError:
             return False, "git executable not found"
@@ -1271,21 +1550,35 @@ class DevWorkbenchDialog(QWidget):
             )
 
     def _workspace_git_summary_lines(self, root: Path) -> list[str]:
+        cache_key = str(Path(root).expanduser())
+        now = time.monotonic()
+        cache = getattr(self, "_workspace_git_summary_cache", None)
+        if cache is not None:
+            cached_key, cached_at, cached_lines = cache
+            if cached_key == cache_key and now - cached_at < 3.0:
+                return list(cached_lines)
+
         try:
             audit = audit_openclaude_project_root(root)
         except OpenClaudeBridgeError as exc:
-            return ["Workspace isolation: blocked", str(exc)]
+            lines = ["Workspace isolation: blocked", str(exc)]
+            self._workspace_git_summary_cache = (cache_key, now, list(lines))
+            return lines
 
         ok, top = self._run_git_command(audit.root, "rev-parse", "--show-toplevel")
         if not ok:
-            return ["Git repo: not detected"]
+            lines = ["Git repo: not detected"]
+            self._workspace_git_summary_cache = (cache_key, now, list(lines))
+            return lines
         git_top = Path(top).expanduser()
         if not self._same_filesystem_path(git_top, audit.root):
-            return [
+            lines = [
                 "Workspace isolation: blocked",
                 f"Git resolved outside selected workspace: {git_top}",
                 f"Selected workspace boundary: {audit.root}",
             ]
+            self._workspace_git_summary_cache = (cache_key, now, list(lines))
+            return lines
 
         ok_branch, branch = self._run_git_command(
             audit.root, "branch", "--show-current"
@@ -1335,6 +1628,7 @@ class DevWorkbenchDialog(QWidget):
                 f"Git auth: {', '.join(auth_bits)}",
             ]
         )
+        self._workspace_git_summary_cache = (cache_key, now, list(lines))
         return lines
 
     def _workspace_git_summary(self, root: Path) -> str:
@@ -1367,6 +1661,8 @@ class DevWorkbenchDialog(QWidget):
             "",
             "OpenClaude environment:",
             "CLAUDE_CODE_USE_OPENAI=1",
+            f"CLAUDE_CODE_USE_POWERSHELL_TOOL={DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL}",
+            f"CLAUDE_CODE_MAX_OUTPUT_TOKENS={DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS}",
             f"OPENAI_BASE_URL={runtime.base_url or BASE_URL}",
             f"OPENAI_MODEL={runtime.model or DEFAULT_MODEL_NAME}",
             api_state,
@@ -1384,7 +1680,8 @@ class DevWorkbenchDialog(QWidget):
             "GIT_CONFIG_NOSYSTEM=1",
             "GIT_CONFIG credential.helper=disabled for OpenClaude terminal",
             "Git credential safety: repository API token only; no interactive/system credential prompts",
-            f"OpenClaude terminal state: {'running' if getattr(self, '_openclaude_terminal_running', False) else 'stopped'}",
+            f"Claude Terminal state: {'running' if getattr(self, '_openclaude_terminal_running', False) else 'stopped'}",
+            f"Prompt tab state: {'running' if getattr(self, '_openclaude_prompt_running', False) else 'stopped'}",
             "",
         ]
         snapshot = getattr(self, "_openclaude_launch_snapshot", None)
@@ -1429,9 +1726,20 @@ class DevWorkbenchDialog(QWidget):
             [
                 "",
                 f"AGENTS.md: {'present' if agents_path.exists() else 'will be created when OpenClaude starts'}",
-                f"Terminal frontend: {terminal_frontend}",
+                f"Claude Terminal frontend: {terminal_frontend}",
+                f"Prompt frontend: {getattr(getattr(self, 'openclaude_prompt_output', None), 'frontend_name', 'not initialized')}",
             ]
         )
+        summary = (
+            f"Workspace: {root} | "
+            f"Claude: {'running' if getattr(self, '_openclaude_terminal_running', False) else 'stopped'} | "
+            f"Prompt: {'running' if getattr(self, '_openclaude_prompt_running', False) else 'stopped'} | "
+            f"Model: {runtime.model or DEFAULT_MODEL_NAME} | "
+            f"PowerShell tool: {DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL} | "
+            f"Max output: {DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS}"
+        )
+        if hasattr(self, "session_summary_label"):
+            self.session_summary_label.setText(summary)
         self.session_details_label.setText("\n".join(details))
 
     def _update_runtime_status(self):
@@ -1458,6 +1766,7 @@ class DevWorkbenchDialog(QWidget):
         )
 
     def check_openclaude_companion(self):
+        self._workspace_git_summary_cache = None
         self._refresh_root()
         self._refresh_session_details()
         self.workspace_tabs.setCurrentWidget(self.session_config_panel)
@@ -1592,11 +1901,52 @@ class DevWorkbenchDialog(QWidget):
                 kept.insert(0, "\n[openclaude] Thinking...\n")
         return "".join(kept)
 
+    def _capture_openclaude_resume_command(self, text: str) -> None:
+        """Remember the latest OpenClaude resume command printed by the CLI."""
+
+        raw = str(text or "")
+        if not raw:
+            return
+        matches = re.findall(
+            r"openclaude\s+--resume\s+([A-Za-z0-9][A-Za-z0-9-]{7,})",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        if not matches:
+            return
+        resume_id = matches[-1].strip()
+        self._openclaude_last_resume_id = resume_id
+        self._openclaude_last_resume_command = f"openclaude --resume {resume_id}"
+        self._update_openclaude_composer_buttons()
+
     def _append_openclaude_terminal_output(self, text: str):
+        self._capture_openclaude_resume_command(text)
         if not hasattr(self, "openclaude_terminal_output"):
             return
+        payload = str(text or "")
+        if not payload:
+            return
+        self._openclaude_terminal_output_buffer.append(payload)
+        self._openclaude_terminal_output_buffer_chars += len(payload)
+        if self._openclaude_terminal_output_buffer_chars >= 32768:
+            self._flush_openclaude_terminal_output()
+            return
+        timer = getattr(self, "_openclaude_terminal_output_timer", None)
+        if timer is not None and not timer.isActive():
+            timer.start(24)
+
+    def _flush_openclaude_terminal_output(self):
+        if not hasattr(self, "openclaude_terminal_output"):
+            return
+        buffer = getattr(self, "_openclaude_terminal_output_buffer", [])
+        if not buffer:
+            return
+        self._openclaude_terminal_output_buffer = []
+        self._openclaude_terminal_output_buffer_chars = 0
+        text = "".join(buffer)
         terminal = self.openclaude_terminal_output
         # xterm.js is a real terminal renderer, so feed it raw PTY bytes/text.
+        # Buffering keeps the UI responsive during high-frequency TUI repaint bursts.
         # The text fallback still needs ANSI/spinner cleanup because it is only a transcript view.
         try:
             is_real_terminal = bool(terminal.is_real_terminal())
@@ -1604,7 +1954,7 @@ class DevWorkbenchDialog(QWidget):
             is_real_terminal = False
         if is_real_terminal:
             if text:
-                terminal.append_output(str(text))
+                terminal.append_output(text)
             return
 
         cleaned = self._strip_terminal_ansi(text)
@@ -1614,8 +1964,32 @@ class DevWorkbenchDialog(QWidget):
             return
         terminal.append_output(cleaned)
 
+    def _append_openclaude_prompt_output(self, text: str):
+        """Append output to the separate Prompt tab without touching Claude scrollback."""
+
+        self._capture_openclaude_resume_command(text)
+        if not hasattr(self, "openclaude_prompt_output"):
+            return
+        terminal = self.openclaude_prompt_output
+        try:
+            is_real_terminal = bool(terminal.is_real_terminal())
+        except Exception:
+            is_real_terminal = False
+        if is_real_terminal:
+            if text:
+                terminal.append_output(str(text))
+            return
+        cleaned = self._strip_terminal_ansi(text)
+        if cleaned:
+            terminal.append_output(cleaned)
+
     def _send_raw_openclaude_terminal_input(self, data: str):
         worker = self.openclaude_worker
+        if worker is not None and data:
+            worker.send_input(data)
+
+    def _send_raw_openclaude_prompt_input(self, data: str):
+        worker = self.openclaude_prompt_worker
         if worker is not None and data:
             worker.send_input(data)
 
@@ -1626,6 +2000,15 @@ class DevWorkbenchDialog(QWidget):
         if worker is not None:
             worker.resize_terminal(
                 self._openclaude_terminal_cols, self._openclaude_terminal_rows
+            )
+
+    def _resize_openclaude_prompt_terminal(self, cols: int, rows: int):
+        self._openclaude_prompt_cols = max(40, int(cols or 120))
+        self._openclaude_prompt_rows = max(10, int(rows or 30))
+        worker = self.openclaude_prompt_worker
+        if worker is not None:
+            worker.resize_terminal(
+                self._openclaude_prompt_cols, self._openclaude_prompt_rows
             )
 
     def _on_openclaude_terminal_frontend_ready(self, frontend_name: str):
@@ -1639,9 +2022,22 @@ class DevWorkbenchDialog(QWidget):
         if frontend_name != "xterm.js":
             self._set_agent_status(f"OpenClaude terminal frontend: {frontend_name}")
 
+    def _on_openclaude_prompt_frontend_ready(self, frontend_name: str):
+        self._log(f"OpenClaude prompt frontend ready: {frontend_name}")
+        self._refresh_session_details()
+        try:
+            self.openclaude_prompt_output.fit()
+        except Exception:
+            pass
+
     def _set_openclaude_terminal_running(self, running: bool):
         self._openclaude_terminal_running = bool(running)
         self._update_action_buttons()
+        self._update_openclaude_composer_buttons()
+        self._refresh_session_details()
+
+    def _set_openclaude_prompt_running(self, running: bool):
+        self._openclaude_prompt_running = bool(running)
         self._update_openclaude_composer_buttons()
         self._refresh_session_details()
 
@@ -1652,23 +2048,164 @@ class DevWorkbenchDialog(QWidget):
             getattr(self, "_openclaude_terminal_running", False)
             and self.openclaude_worker is not None
         )
+        prompt_running = bool(
+            getattr(self, "_openclaude_prompt_running", False)
+            and self.openclaude_prompt_worker is not None
+        )
+        has_resume = bool(getattr(self, "_openclaude_last_resume_command", ""))
         try:
             self.openclaude_launch_button.setEnabled(True)
-            self._set_openclaude_state_badge("running" if running else "idle")
+            self.openclaude_continue_button.setEnabled(True)
+            self.openclaude_resume_button.setEnabled(has_resume)
+            self.openclaude_shell_button.setEnabled(True)
+            self.openclaude_help_button.setEnabled(running)
+            self.openclaude_ctx_button.setEnabled(running)
+            self.openclaude_slash_clear_button.setEnabled(running)
+            self.openclaude_config_button.setEnabled(running)
+            self.openclaude_buddy_button.setEnabled(running)
+            self.session_start_button.setEnabled(True)
+            self.session_continue_button.setEnabled(True)
+            self.session_resume_button.setEnabled(has_resume)
+            self.session_prompt_button.setEnabled(True)
+            self.session_help_button.setEnabled(running)
+            self.session_stop_button.setEnabled(running)
+            self.openclaude_prompt_start_button.setEnabled(True)
+            self.openclaude_prompt_stop_button.setEnabled(prompt_running)
+            self.openclaude_prompt_clear_button.setEnabled(True)
+            self.openclaude_prompt_top_button.setEnabled(True)
+            self.openclaude_prompt_bottom_button.setEnabled(True)
+            state = "running" if running else ("prompt" if prompt_running else "idle")
+            self._set_openclaude_state_badge(state)
             self.openclaude_send_task_button.setVisible(False)
             self.openclaude_send_task_button.setEnabled(False)
             self.openclaude_stop_button.setEnabled(running)
             self.openclaude_clear_button.setEnabled(True)
             self.openclaude_paste_button.setEnabled(running)
             self.openclaude_page_up_button.setEnabled(True)
+            self.openclaude_top_button.setEnabled(True)
             self.openclaude_bottom_button.setEnabled(True)
             self.openclaude_screenshot_button.setEnabled(True)
+            self.openclaude_paste_image_button.setEnabled(True)
+            self.openclaude_attach_image_button.setEnabled(True)
+            self.openclaude_send_screenshot_button.setEnabled(True)
         except Exception:
             pass
+
+    def _send_openclaude_terminal_command(
+        self,
+        command: str,
+        *,
+        start_args: tuple[str, ...] = (),
+        status: str = "OpenClaude command sent",
+    ) -> None:
+        """Run a recovery/action command without requiring the user to press Enter."""
+
+        clean_command = str(command or "").strip()
+        worker = self.openclaude_worker
+        if worker is None:
+            self.start_embedded_openclaude_terminal(openclaude_args=start_args)
+            self._set_agent_status(status)
+            return
+        if not clean_command:
+            return
+        try:
+            self.openclaude_terminal_output.scroll_to_bottom()
+            self.openclaude_terminal_output.focus_terminal()
+        except Exception:
+            pass
+        worker.send_input(clean_command.rstrip("\r\n") + "\r")
+        self._set_agent_status(status)
+        self._set_progress(None, status)
+        self._log(f"Sent OpenClaude terminal command: {clean_command}")
+
+    def run_openclaude_continue(self):
+        """Recover the most recent OpenClaude session with one click."""
+
+        self._send_openclaude_terminal_command(
+            "openclaude --continue",
+            start_args=("--continue",),
+            status="OpenClaude continue requested",
+        )
+
+    def run_openclaude_resume_last(self):
+        """Resume the latest session id printed by OpenClaude."""
+
+        command = str(getattr(self, "_openclaude_last_resume_command", "") or "")
+        if not command:
+            self._append_openclaude_terminal_output(
+                "\n[fzastro] No OpenClaude resume id has been detected yet. Use Continue, or paste a resume command manually.\n"
+            )
+            self._set_agent_status("No OpenClaude resume id detected")
+            return
+        resume_id = str(getattr(self, "_openclaude_last_resume_id", "") or "")
+        self._send_openclaude_terminal_command(
+            command,
+            start_args=("--resume", resume_id) if resume_id else (),
+            status="OpenClaude resume requested",
+        )
+
+    def start_openclaude_shell_prompt(self):
+        """Open a normal project shell prompt in its own Prompt tab."""
+
+        try:
+            self.workspace_tabs.setCurrentWidget(self.openclaude_prompt_frame)
+            self.openclaude_prompt_output.focus_terminal()
+        except Exception:
+            pass
+        if self.openclaude_prompt_worker is not None:
+            self._set_agent_status("Project prompt already running")
+            return
+        self.start_openclaude_prompt_terminal()
+        self._set_agent_status("Project prompt starting")
+
+    def _send_openclaude_slash_command(self, slash_command: str, label: str) -> None:
+        """Send an OpenClaude slash command and auto-submit it with Enter."""
+
+        command = str(slash_command or "").strip()
+        if not command.startswith("/"):
+            command = "/" + command
+        if self.openclaude_worker is None:
+            self._append_openclaude_terminal_output(
+                f"\n[fzastro] Start OpenClaude first, then press {label} to send {command}.\n"
+            )
+            self._set_agent_status("OpenClaude not running")
+            return
+        self._send_openclaude_terminal_command(
+            command, status=f"OpenClaude {label.lower()} requested"
+        )
+
+    def send_openclaude_help_command(self):
+        """Show OpenClaude's native help without making the user press Enter."""
+
+        self._send_openclaude_slash_command("/help", "Help")
+
+    def send_openclaude_ctx_command(self):
+        """Show OpenClaude context state without making the user press Enter."""
+
+        self._send_openclaude_slash_command("/ctx", "Ctx")
+
+    def send_openclaude_clear_command(self):
+        """Clear OpenClaude's active conversation/context via its native command."""
+
+        self._send_openclaude_slash_command("/clear", "Clear")
+
+    def send_openclaude_config_command(self):
+        """Open OpenClaude configuration without making the user press Enter."""
+
+        self._send_openclaude_slash_command("/config", "Config")
+
+    def send_openclaude_buddy_command(self):
+        """Open OpenClaude buddy mode without making the user press Enter."""
+
+        self._send_openclaude_slash_command("/buddy", "Buddy")
 
     def clear_openclaude_terminal_output(self):
         if hasattr(self, "openclaude_terminal_output"):
             self.openclaude_terminal_output.clear()
+
+    def clear_openclaude_prompt_output(self):
+        if hasattr(self, "openclaude_prompt_output"):
+            self.openclaude_prompt_output.clear()
 
     def paste_clipboard_into_openclaude_terminal(self):
         text = QGuiApplication.clipboard().text()
@@ -1721,6 +2258,143 @@ class DevWorkbenchDialog(QWidget):
         self._append_openclaude_terminal_output(
             f"\n[fzastro] Terminal screenshot saved: {target}\n"
         )
+
+    def _openclaude_attachment_user_note(self) -> str:
+        """Return optional text the user typed before attaching an image."""
+
+        try:
+            return self.request_edit.toPlainText().strip()
+        except Exception:
+            return ""
+
+    def _handoff_openclaude_image_attachment(
+        self,
+        attachment: OpenClaudeImageAttachment,
+        *,
+        user_note: str = "",
+        source_label: str = "image",
+    ) -> None:
+        """Send or stage an image attachment prompt for the OpenClaude terminal."""
+
+        prompt = build_image_handoff_prompt(attachment, user_note=user_note)
+        QGuiApplication.clipboard().setText(prompt)
+        rel_path = attachment.relative_path
+        worker = self.openclaude_worker
+        if worker is None:
+            self._append_openclaude_terminal_output(
+                "\n[fzastro] Image attachment prepared but OpenClaude is not running. "
+                f"Start OpenClaude, then paste the clipboard prompt. Image: {rel_path}\n"
+            )
+            self._set_agent_status("Image prompt copied; OpenClaude not running")
+            self._log(f"Prepared OpenClaude image attachment prompt: {attachment.path}")
+            return
+
+        self._append_openclaude_terminal_output(
+            f"\nfzastro$ {source_label} attachment sent: {rel_path}\n"
+        )
+        worker.send_input(prompt.rstrip("\r\n") + "\r")
+        self._set_agent_status("Image attachment sent to OpenClaude")
+        self._set_progress(None, "image attachment sent")
+        self._log(f"Sent OpenClaude image attachment: {attachment.path}")
+        try:
+            self.request_edit.clear()
+        except Exception:
+            pass
+        self._update_openclaude_composer_buttons()
+
+    def paste_clipboard_image_to_openclaude(self):
+        """Save a clipboard screenshot/image and hand its path to OpenClaude."""
+
+        clipboard = QGuiApplication.clipboard()
+        mime = clipboard.mimeData()
+        if mime is None or not mime.hasImage():
+            self._set_agent_status("Clipboard does not contain an image")
+            self._append_openclaude_terminal_output(
+                "\n[fzastro] Clipboard does not contain an image. Use Paste for text, or Attach Image for an image file.\n"
+            )
+            return
+        try:
+            target = make_clipboard_image_attachment_path(
+                Path(self.root_input.text().strip()).expanduser()
+            )
+            image = clipboard.image()
+            if image.isNull() or not image.save(str(target), "PNG"):
+                raise OpenClaudeAttachmentError("Clipboard image could not be saved.")
+            root = Path(self.root_input.text().strip()).expanduser().resolve()
+            attachment = OpenClaudeImageAttachment(
+                path=target,
+                project_root=root,
+                source_label="clipboard-image",
+            )
+            self._handoff_openclaude_image_attachment(
+                attachment,
+                user_note=self._openclaude_attachment_user_note(),
+                source_label="clipboard image",
+            )
+        except Exception as exc:
+            QMessageBox.warning(
+                self, "OpenClaude Image", f"Could not attach clipboard image: {exc}"
+            )
+            self._set_agent_status("Clipboard image attach failed")
+
+    def attach_image_file_to_openclaude(self):
+        """Choose an image file, copy it into the workspace, and hand it off."""
+
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "Attach Image to OpenClaude",
+            str(Path.home()),
+            "Images (*.png *.jpg *.jpeg *.webp *.bmp);;All Files (*)",
+        )
+        if not selected:
+            return
+        try:
+            attachment = copy_image_attachment(
+                selected,
+                Path(self.root_input.text().strip()).expanduser(),
+                prefix="image",
+            )
+            self._handoff_openclaude_image_attachment(
+                attachment,
+                user_note=self._openclaude_attachment_user_note(),
+                source_label="image",
+            )
+        except Exception as exc:
+            QMessageBox.warning(
+                self, "OpenClaude Image", f"Could not attach image: {exc}"
+            )
+            self._set_agent_status("Image attach failed")
+
+    def send_terminal_screenshot_to_openclaude(self):
+        """Capture the visible terminal and send that screenshot path to OpenClaude."""
+
+        if not hasattr(self, "openclaude_terminal_output"):
+            return
+        try:
+            target = make_terminal_screenshot_attachment_path(
+                Path(self.root_input.text().strip()).expanduser()
+            )
+            ok = self.openclaude_terminal_output.save_screenshot(target)
+            if not ok:
+                raise OpenClaudeAttachmentError(
+                    "Could not capture the terminal screenshot."
+                )
+            root = Path(self.root_input.text().strip()).expanduser().resolve()
+            attachment = OpenClaudeImageAttachment(
+                path=target,
+                project_root=root,
+                source_label="terminal-screenshot",
+            )
+            self._handoff_openclaude_image_attachment(
+                attachment,
+                user_note=self._openclaude_attachment_user_note(),
+                source_label="terminal screenshot",
+            )
+        except Exception as exc:
+            QMessageBox.warning(
+                self, "OpenClaude Screenshot", f"Could not send screenshot: {exc}"
+            )
+            self._set_agent_status("Terminal screenshot handoff failed")
 
     def run_selected_dev_action(self):
         action = str(self.dev_action_combo.currentData() or "")
@@ -1810,11 +2484,16 @@ class DevWorkbenchDialog(QWidget):
                 pass
         self._update_openclaude_composer_buttons()
 
-    def start_embedded_openclaude_terminal(self):
+    def start_embedded_openclaude_terminal(
+        self,
+        *,
+        openclaude_args: tuple[str, ...] | None = None,
+        shell_only: bool = False,
+    ):
         self._refresh_root()
         if self.openclaude_thread is not None or self.openclaude_worker is not None:
             self._append_openclaude_terminal_output(
-                "\n[fzastro] OpenClaude is already running. Type directly in the terminal, or press Restart.\n"
+                "\n[fzastro] Embedded terminal is already running. Type directly in the terminal, or press Restart.\n"
             )
             return
 
@@ -1835,7 +2514,8 @@ class DevWorkbenchDialog(QWidget):
             self.workspace_tabs.setCurrentWidget(self.openclaude_terminal_frame)
         except Exception:
             pass
-        self.openclaude_terminal_output.clear()
+        if not shell_only:
+            self.openclaude_terminal_output.clear()
         try:
             self.openclaude_terminal_output.fit()
             self.openclaude_terminal_output.focus_terminal()
@@ -1861,12 +2541,15 @@ class DevWorkbenchDialog(QWidget):
             return
 
         self.openclaude_thread = QThread(self)
+        args = tuple(str(part) for part in (openclaude_args or ()) if str(part).strip())
         self.openclaude_worker = _OpenClaudePtyWorker(
             config,
             "",
             auto_send_prompt=False,
             initial_cols=getattr(self, "_openclaude_terminal_cols", 120),
             initial_rows=getattr(self, "_openclaude_terminal_rows", 30),
+            openclaude_args=args,
+            shell_only=shell_only,
         )
         self.openclaude_worker.moveToThread(self.openclaude_thread)
         self.openclaude_thread.started.connect(self.openclaude_worker.run)
@@ -1879,10 +2562,89 @@ class DevWorkbenchDialog(QWidget):
         self.openclaude_thread.finished.connect(self.openclaude_thread.deleteLater)
         self.openclaude_thread.finished.connect(self._clear_openclaude_terminal_thread)
         self._set_openclaude_terminal_running(True)
-        self._set_agent_status("OpenClaude terminal starting")
-        self._set_progress(None, "starting OpenClaude terminal")
+        launch_label = "project prompt" if shell_only else "OpenClaude terminal"
+        if args:
+            launch_label += " (" + " ".join(args) + ")"
+        self._set_agent_status(f"{launch_label} starting")
+        self._set_progress(None, f"starting {launch_label}")
         self.openclaude_thread.start()
-        self._log("Started embedded OpenClaude terminal.")
+        self._log(f"Started embedded {launch_label}.")
+
+    def start_openclaude_prompt_terminal(self):
+        """Start a separate normal project shell in the Prompt tab."""
+
+        self._refresh_root()
+        if (
+            self.openclaude_prompt_thread is not None
+            or self.openclaude_prompt_worker is not None
+        ):
+            try:
+                self.workspace_tabs.setCurrentWidget(self.openclaude_prompt_frame)
+                self.openclaude_prompt_output.focus_terminal()
+            except Exception:
+                pass
+            self._append_openclaude_prompt_output(
+                "\n[fzastro] Project prompt is already running in this tab.\n"
+            )
+            return
+
+        config = self._openclaude_launch_config(install_if_missing=False)
+        try:
+            self.workspace_tabs.setCurrentWidget(self.openclaude_prompt_frame)
+            self.openclaude_prompt_output.fit()
+            self.openclaude_prompt_output.focus_terminal()
+        except Exception:
+            pass
+
+        support = get_embedded_terminal_support()
+        if not support.supported:
+            self._append_openclaude_prompt_output(
+                "Embedded terminal backend is not ready.\n"
+                f"Reason: {support.reason}\n"
+                f"Hint: {support.install_hint or 'Prepare pywinpty through setup/build/deploy.'}\n\n"
+            )
+            self._log("Prompt tab unavailable; embedded terminal backend is not ready.")
+            return
+
+        self.openclaude_prompt_thread = QThread(self)
+        self.openclaude_prompt_worker = _OpenClaudePtyWorker(
+            config,
+            "",
+            auto_send_prompt=False,
+            initial_cols=getattr(self, "_openclaude_prompt_cols", 120),
+            initial_rows=getattr(self, "_openclaude_prompt_rows", 30),
+            openclaude_args=(),
+            shell_only=True,
+        )
+        self.openclaude_prompt_worker.moveToThread(self.openclaude_prompt_thread)
+        self.openclaude_prompt_thread.started.connect(self.openclaude_prompt_worker.run)
+        self.openclaude_prompt_worker.started.connect(
+            self._on_openclaude_prompt_started
+        )
+        self.openclaude_prompt_worker.output.connect(
+            self._append_openclaude_prompt_output
+        )
+        self.openclaude_prompt_worker.failed.connect(self._on_openclaude_prompt_failed)
+        self.openclaude_prompt_worker.completed.connect(
+            self._on_openclaude_prompt_completed
+        )
+        self.openclaude_prompt_worker.completed.connect(
+            self.openclaude_prompt_thread.quit
+        )
+        self.openclaude_prompt_worker.completed.connect(
+            self.openclaude_prompt_worker.deleteLater
+        )
+        self.openclaude_prompt_thread.finished.connect(
+            self.openclaude_prompt_thread.deleteLater
+        )
+        self.openclaude_prompt_thread.finished.connect(
+            self._clear_openclaude_prompt_thread
+        )
+        self._set_openclaude_prompt_running(True)
+        self._set_agent_status("Project prompt starting")
+        self._set_progress(None, "starting project prompt")
+        self.openclaude_prompt_thread.start()
+        self._log("Started separate OpenClaude project prompt tab.")
 
     def _on_openclaude_terminal_started(self, message: str):
         # Keep the terminal content pure. OpenClaude owns the terminal screen;
@@ -1911,7 +2673,7 @@ class DevWorkbenchDialog(QWidget):
 
     def _on_openclaude_terminal_completed(self):
         self._append_openclaude_terminal_output(
-            "\n[fzastro] OpenClaude exited. Press Start to open a new terminal session.\n"
+            "\n[fzastro] Embedded terminal closed. Press Start, Continue, Resume, or Prompt to recover.\n"
         )
         self._openclaude_launch_snapshot = None
         self._set_openclaude_terminal_running(False)
@@ -1919,11 +2681,43 @@ class DevWorkbenchDialog(QWidget):
         self._reset_progress_idle()
         self._log("Embedded OpenClaude terminal closed.")
 
+    def _on_openclaude_prompt_started(self, message: str):
+        self._log(str(message or "Project prompt started"))
+        self._set_openclaude_prompt_running(True)
+        self._set_agent_status("Project prompt running")
+        self._set_progress(None, "project prompt running")
+        try:
+            self.openclaude_prompt_output.fit()
+            self.openclaude_prompt_output.focus_terminal()
+        except Exception:
+            pass
+
+    def _on_openclaude_prompt_failed(self, message: str):
+        self._append_openclaude_prompt_output(f"\n[Prompt error] {message}\n")
+        self._set_openclaude_prompt_running(False)
+        self._set_agent_status("Project prompt error")
+        self._set_progress(None, "prompt error")
+        self._log(f"OpenClaude prompt tab error: {message}")
+
+    def _on_openclaude_prompt_completed(self):
+        self._append_openclaude_prompt_output(
+            "\n[fzastro] Project prompt closed. Press Start Prompt to reopen it at the selected workspace.\n"
+        )
+        self._set_openclaude_prompt_running(False)
+        self._set_agent_status("Project prompt stopped")
+        self._reset_progress_idle()
+        self._log("OpenClaude prompt tab closed.")
+
     def _clear_openclaude_terminal_thread(self):
         self.openclaude_thread = None
         self.openclaude_worker = None
         self._openclaude_launch_snapshot = None
         self._set_openclaude_terminal_running(False)
+
+    def _clear_openclaude_prompt_thread(self):
+        self.openclaude_prompt_thread = None
+        self.openclaude_prompt_worker = None
+        self._set_openclaude_prompt_running(False)
 
     def _is_raw_openclaude_command(self, text: str) -> bool:
         return str(text or "").lstrip().startswith("/")
@@ -1986,6 +2780,15 @@ class DevWorkbenchDialog(QWidget):
         self._set_agent_status("Stopping embedded OpenClaude")
         self._set_progress(None, "stopping embedded OpenClaude")
         self._append_openclaude_terminal_output("\n[Stop requested]\n")
+
+    def stop_openclaude_prompt_terminal(self):
+        worker = self.openclaude_prompt_worker
+        if worker is not None:
+            worker.request_stop()
+        self._set_openclaude_prompt_running(False)
+        self._set_agent_status("Stopping project prompt")
+        self._set_progress(None, "stopping project prompt")
+        self._append_openclaude_prompt_output("\n[Prompt stop requested]\n")
 
     def open_openclaude_external_terminal(self):
         self._refresh_root()
@@ -2534,9 +3337,17 @@ class DevWorkbenchDialog(QWidget):
             enabled[self.openclaude_stop_button] = bool(openclaude_running)
             enabled[self.openclaude_clear_button] = True
             enabled[self.openclaude_paste_button] = bool(openclaude_running)
+            enabled[self.openclaude_help_button] = bool(openclaude_running)
+            enabled[self.openclaude_ctx_button] = bool(openclaude_running)
+            enabled[self.openclaude_slash_clear_button] = bool(openclaude_running)
+            enabled[self.openclaude_config_button] = bool(openclaude_running)
+            enabled[self.openclaude_buddy_button] = bool(openclaude_running)
             enabled[self.openclaude_page_up_button] = True
             enabled[self.openclaude_bottom_button] = True
             enabled[self.openclaude_screenshot_button] = True
+            enabled[self.openclaude_paste_image_button] = True
+            enabled[self.openclaude_attach_image_button] = True
+            enabled[self.openclaude_send_screenshot_button] = True
             enabled[self.final_report_button] = bool(
                 has_context
                 or has_patch
@@ -2557,9 +3368,18 @@ class DevWorkbenchDialog(QWidget):
             self.openclaude_stop_button: "Stop the embedded OpenClaude terminal session.",
             self.openclaude_clear_button: "Clear the visible OpenClaude terminal output.",
             self.openclaude_paste_button: "Paste clipboard text directly into the running OpenClaude terminal.",
+            self.openclaude_help_button: "Send /help to the running OpenClaude terminal.",
+            self.openclaude_ctx_button: "Send /ctx to the running OpenClaude terminal.",
+            self.openclaude_slash_clear_button: "Send /clear to the running OpenClaude terminal.",
+            self.openclaude_config_button: "Send /config to the running OpenClaude terminal.",
+            self.openclaude_buddy_button: "Send /buddy to the running OpenClaude terminal.",
             self.openclaude_page_up_button: "Scroll terminal history up without stopping live output.",
+            self.openclaude_top_button: "Jump to the oldest retained OpenClaude terminal scrollback.",
             self.openclaude_bottom_button: "Return to the live terminal tail and resume follow mode.",
             self.openclaude_screenshot_button: "Save a PNG screenshot of the visible terminal and copy its path to the clipboard.",
+            self.openclaude_paste_image_button: "Save a screenshot/image from the clipboard into the workspace and send its path to OpenClaude.",
+            self.openclaude_attach_image_button: "Choose an image file, copy it into the workspace attachment folder, and hand its path to OpenClaude.",
+            self.openclaude_send_screenshot_button: "Capture the visible terminal, save it into workspace attachments, and send that screenshot path to OpenClaude.",
             self.openclaude_prompt_button: "Copy the structured FZAstro OpenClaude task prompt without launching OpenClaude.",
             self.stop_agent_button: "Stop the visible agent run immediately and ignore late model output from the retired worker.",
             self.preview_patch_button: "Validate and review an existing unified diff. If none exists, this opens inline guidance.",

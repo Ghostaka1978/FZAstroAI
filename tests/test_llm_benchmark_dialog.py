@@ -43,14 +43,10 @@ def _make_fake_window(qt_widgets, models, current_index=0):
     return window
 
 
-def test_llm_benchmark_model_selector_keeps_full_app_model_list(monkeypatch):
+def test_llm_benchmark_uses_unified_main_model_without_local_selector(monkeypatch):
     qt_widgets, app = _make_qt_app(monkeypatch)
 
     import fzastro_ai.ui.llm_benchmark_dialog as dialog_module
-
-    monkeypatch.setattr(
-        dialog_module.QTimer, "singleShot", lambda *_args, **_kwargs: None
-    )
 
     fake_window = _make_fake_window(
         qt_widgets,
@@ -60,34 +56,17 @@ def test_llm_benchmark_model_selector_keeps_full_app_model_list(monkeypatch):
     dialog = dialog_module.LlmBenchmarkDialog(fake_window)
 
     try:
-        assert [
-            dialog.model_box.itemText(i) for i in range(dialog.model_box.count())
-        ] == [
-            "qwen3.6:35b",
-            "gemma4-12b-q8xl-ud-3090ti-150k",
-            "llama3.1:8b",
-        ]
+        assert not hasattr(dialog, "model_box")
+        assert not hasattr(dialog, "refresh_button")
+        assert not hasattr(dialog, "use_active_model_button")
+        assert dialog.selected_model_name() == "qwen3.6:35b"
+        assert dialog.active_model_label.text() == "qwen3.6:35b"
 
-        assert dialog.select_model("gemma4-12b-q8xl-ud-3090ti-150k")
+        fake_window.model_box.setCurrentIndex(1)
+        dialog.refresh_active_model_label()
+
         assert dialog.selected_model_name() == "gemma4-12b-q8xl-ud-3090ti-150k"
-        assert fake_window.current_model_name() == "qwen3.6:35b"
-
-        dummy_worker = object()
-        dialog.model_discovery_worker = dummy_worker
-        dialog.handle_model_discovery_error(
-            dummy_worker,
-            "simulated provider refresh failure",
-            "gemma4-12b-q8xl-ud-3090ti-150k",
-            show_error_dialog=False,
-        )
-
-        available = [
-            dialog.model_box.itemText(i) for i in range(dialog.model_box.count())
-        ]
-        assert "qwen3.6:35b" in available
-        assert "gemma4-12b-q8xl-ud-3090ti-150k" in available
-        assert "llama3.1:8b" in available
-        assert dialog.selected_model_name() == "gemma4-12b-q8xl-ud-3090ti-150k"
+        assert dialog.active_model_label.text() == "gemma4-12b-q8xl-ud-3090ti-150k"
     finally:
         dialog.close()
         fake_window.close()

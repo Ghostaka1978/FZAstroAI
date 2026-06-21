@@ -1,3 +1,4 @@
+﻿import re
 from pathlib import Path
 
 from fzastro_ai.config import APP_MILESTONE, APP_VERSION, APP_VERSION_LABEL
@@ -188,3 +189,19 @@ def test_v2_astro_tools_suite_is_documented():
     assert "1 violet" in combined
     assert "Astropy/IERS" in readme
     assert "provider-timeout" in about_dialog or "provider timeouts" in readme
+
+
+def test_llm_benchmark_quick_button_is_visible_and_smoke_test_default():
+    app_source = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8")
+    benchmark_source = (
+        PROJECT_ROOT / "fzastro_ai" / "ui" / "llm_benchmark_dialog.py"
+    ).read_text(encoding="utf-8")
+
+    assert "self.llm_benchmark_button = QPushButton" in app_source
+    assert (
+        "composer_toolbar_layout.addWidget(\n" "            self.llm_benchmark_button"
+    ) in app_source
+    assert "ACTIVE MODEL" in benchmark_source
+    assert "self.active_model_label" in benchmark_source
+    assert "refresh_models_from_runtime" not in benchmark_source
+    assert "self.suite_depth_box.setCurrentIndex(0)" in benchmark_source

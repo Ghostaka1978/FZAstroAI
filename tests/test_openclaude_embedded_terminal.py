@@ -65,6 +65,7 @@ def test_embedded_command_uses_selected_model_and_openclaude_path(
     assert command.cwd == root.resolve()
     if os.name == "nt":
         assert command.command[0].lower().endswith("powershell.exe")
+        assert "-NoExit" in command.command
         assert "-File" in command.command
         assert any(
             str(part).endswith("run_openclaude_companion.ps1")
@@ -75,6 +76,42 @@ def test_embedded_command_uses_selected_model_and_openclaude_path(
     assert command.env["OPENAI_MODEL"] == "rafw007/qwen36-a3b-claude-coder:latest"
     assert command.env["OPENAI_BASE_URL"] == "http://localhost:11434/v1"
     assert command.support.backend == "pywinpty-conpty"
+
+
+def test_embedded_command_can_launch_continue_and_shell_prompt(tmp_path, monkeypatch):
+    root = make_fzastro_root(tmp_path)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name in ("node", "npm", "openclaude"):
+        make_fake_command(bin_dir, name)
+
+    monkeypatch.setattr(
+        embedded,
+        "get_embedded_terminal_support",
+        lambda: EmbeddedTerminalSupport(True, "pywinpty-conpty", "ready"),
+    )
+    config = OpenClaudeLaunchConfig(project_root=root, model="qwen3:32b")
+
+    command = build_openclaude_embedded_command(
+        config,
+        env={"PATH": str(bin_dir), "APPDATA": str(tmp_path / "AppData")},
+        openclaude_args=("--continue",),
+    )
+    shell = build_openclaude_embedded_command(
+        config,
+        env={"PATH": str(bin_dir), "APPDATA": str(tmp_path / "AppData")},
+        shell_only=True,
+    )
+
+    if os.name == "nt":
+        assert command.command[-1] == "--continue"
+        assert "-File" in command.command
+        assert "-NoExit" in command.command
+        assert "-File" not in shell.command
+        assert "-NoExit" in shell.command
+    else:
+        assert command.command[-1] == "--continue"
+        assert shell.command[0]
 
 
 def test_command_to_cmdline_quotes_paths():
@@ -102,3 +139,23 @@ def test_embedded_status_mentions_fallback(tmp_path, monkeypatch):
     assert "missing-pywinpty" in status
     assert "setup/build/deploy" in status
     assert "pip install pywinpty" in status
+
+
+def test_terminal_frontend_exposes_scroll_to_top_hook():
+    html = (
+        Path(__file__).resolve().parents[1]
+        / "fzastro_ai"
+        / "resources"
+        / "terminal"
+        / "fzastro_terminal.html"
+    ).read_text(encoding="utf-8")
+    widget_source = (
+        Path(__file__).resolve().parents[1]
+        / "fzastro_ai"
+        / "ui"
+        / "openclaude_terminal_widget.py"
+    ).read_text(encoding="utf-8")
+
+    assert "window.fztermScrollTop" in html
+    assert "term.scrollToTop()" in html
+    assert "def scroll_to_top" in widget_source

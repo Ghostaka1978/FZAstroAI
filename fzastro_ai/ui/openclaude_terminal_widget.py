@@ -215,6 +215,15 @@ class OpenClaudeTerminalWidget(QWidget):
                 QAbstractSlider.SliderPageStepAdd
             )
 
+    def scroll_to_top(self) -> None:
+        """Jump to the oldest retained OpenClaude terminal scrollback."""
+
+        if self._web_view is not None and self._web_ready:
+            self._run_js("window.fztermScrollTop();")
+            return
+        if self._text_view is not None:
+            self._text_view.verticalScrollBar().setValue(0)
+
     def scroll_to_bottom(self) -> None:
         """Resume live follow mode at the end of the terminal output."""
 

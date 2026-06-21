@@ -57,7 +57,6 @@ from ..json_store import atomic_write_json
 from ..llm import build_chat_request_params, extract_delta_text
 from ..logging_utils import log_exception, log_warning
 from ..runtime import make_runtime_client
-from ..workers.model_discovery_worker import ModelDiscoveryWorker
 from .window_utils import apply_window_defaults
 
 BENCHMARK_HISTORY_FILE = Path(APP_DIR) / "llm_benchmark_history.json"
@@ -74,121 +73,152 @@ class BenchmarkPreset:
 BENCHMARK_PRESETS = (
     BenchmarkPreset(
         name="Quick Q&A (short)",
-        subtitle="Short factual answers — measures latency on compact outputs.",
+        subtitle="Multi-constraint astronomy answers — measures latency on compact outputs.",
         max_tokens=256,
         prompts=(
-            "Answer in one short paragraph: why does the Moon show phases?",
-            "Answer in one short paragraph: why do stars twinkle more near the horizon?",
-            "Answer in one short paragraph: why is the sky darker at a high-altitude observatory?",
+            "A telescope at 30° latitude points at the meridian when Polaris is at altitude 30°. "
+            "What does that tell you about your location, and why might Polaris not be exactly "
+            "at that altitude?",
+            "Explain why redder stars appear higher in the spectrum than bluer stars, "
+            "and how atmospheric dispersion affects them differently at 10° altitude vs 80°.",
+            "Why does a full Moon rise roughly when the Sun sets, and what practical observing "
+            "limitation does this create for deep sky work?",
         ),
     ),
     BenchmarkPreset(
         name="Math Reasoning",
-        subtitle="Multi-step arithmetic, units, and concise explanation.",
+        subtitle="Multi-step physics, error propagation, and astrophysics calculations.",
         max_tokens=768,
         prompts=(
-            "A train leaves station A at 60 mph. Another train leaves station B, "
-            "180 miles away, at 75 mph toward station A. If they start at the same "
-            "time, when do they meet? Show the reasoning briefly.",
-            "An imaging rig captures 240 light frames of 180 seconds each, 60 darks, "
-            "and 80 flats. How many total exposure hours are in the light frames, and "
-            "how many calibration frames are there? Show the calculation.",
-            "A telescope has 800 mm focal length and a camera with 3.76 micron pixels. "
-            "Estimate the image scale in arcseconds per pixel using 206.265 * pixel_size / focal_length. "
-            "Show the formula and result.",
+            "A CMOS tracking system has a guiding period of 0.8s and periodic error with "
+            "amplitude 4.5 arcsec at period 35 minutes. At 1.2 arcsec/pixel sampling, estimate "
+            "trailing in arcsec after 45 minutes assuming PHD2 corrects to 0.8 arcsec RMS. "
+            "Show error propagation step by step.",
+            "You have a 12-bit ADC with 2% read noise. A target has 8000 e- signal, sky 3000 "
+            "e-/pixel, dark current 0.3 e-/s/pixel. Calculate SNR for a 60s exposure over 16 "
+            "frames. How many more frames needed for SNR > 200?",
+            "Calculate the Dawes limit and Rayleigh criterion for a 254mm f/4.7 telescope at "
+            "550nm and 656nm. How does aperture stop at f/11 change the limits? Show all formulas.",
         ),
     ),
     BenchmarkPreset(
         name="Code Generation",
-        subtitle="Python implementation tasks with edge cases and tests.",
+        subtitle="Hardened Python with validation, edge cases, and domain logic.",
         max_tokens=1024,
         prompts=(
-            "Write a Python function that implements binary search on a sorted list. "
-            "Include type hints, handle missing values, and add three simple tests.",
-            "Write a Python function that parses a CSV string of timestamp,temperature rows "
-            "and returns min, max, and average temperature. Include error handling and two tests.",
-            "Write a small Python dataclass for an astrophotography exposure plan. Include "
-            "fields for target, exposure seconds, frame count, filter name, and a method that returns total minutes.",
+            "Write a FITS header parser that validates required HDU keywords (BITPIX, NAXIS, "
+            "SIMPLE, PCOUNT, GCOUNT), handles extensions, raises on invalid headers, and includes "
+            "edge cases (corrupted keyword, NAXIS=0, unknown keywords). Include 3+ test functions.",
+            "Implement a derotation calculator for field de-rotators. Given HA, Dec, site lat, "
+            "rotator angle, compute parallactic angle rate and total rotation. Include coordinate "
+            "transforms and numerical validation. Include 2+ test cases.",
+            "Write a dither pattern generator producing N-point non-overlapping dither positions in "
+            "a hex pattern with configurable spacing (arcsec and pixels), boundary checks and "
+            "deterministic seeding. Include 2 test functions covering boundary edge cases.",
         ),
     ),
     BenchmarkPreset(
         name="Creative Writing",
-        subtitle="Longer coherent prose with continuity and style control.",
+        subtitle="Technically accurate, constraint-rich narratives.",
         max_tokens=1400,
         prompts=(
-            "Write a short story of at least 300 words about a programmer who teaches "
-            "an observatory telescope to dream. Keep the tone cinematic but clear.",
-            "Write a 350-word scene about a rover hearing a human voice for the first time "
-            "during a dust storm on Mars. Keep it grounded and emotionally restrained.",
-            "Write a 300-word reflective monologue from an old satellite watching city lights "
-            "from orbit. Avoid clichés and keep the language precise.",
+            "Write 400 words from the perspective of an astrophotographer discovering a previously "
+            "uncatalogued nebula. Must include specific technical details (exposure log, filter "
+            "choice, seeing conditions) woven naturally — no jargon dumping.",
+            "Write 450 words about a space debris collision event told through ground-based "
+            "tracking data. The story must accurately reflect orbital mechanics (no 'orbits circle "
+            "like clockwork') and include realistic observation constraints.",
+            "Write 350 words about a cold weather observation session where equipment failure "
+            "intersects with weather. Must show accurate thermal effects on optical systems, battery "
+            "performance, and condensation prevention.",
         ),
     ),
     BenchmarkPreset(
         name="Logical Reasoning",
-        subtitle="Syllogisms, constraints, and contradiction checks.",
+        subtitle="Multi- constraint logic puzzles with contradiction detection.",
         max_tokens=640,
         prompts=(
-            "All roses are flowers. Some flowers fade quickly. Can we conclude that "
-            "some roses fade quickly? Explain the answer carefully in 5 sentences or fewer.",
-            "Three filters are used on Monday, Tuesday, and Wednesday: Luminance, H-alpha, and OIII. "
-            "H-alpha is not used on Monday. OIII is used after Luminance. Which filter is used Tuesday? Explain.",
-            "A statement says: every calibrated frame is saved, and no saved frame is corrupted. "
-            "A new frame is corrupted. Can it be calibrated? Explain the valid conclusion.",
+            "Given: (1) All OIII observations require dark sites. (2) Site X is dark if B-V < 0.0. "
+            "(3) B-V at X has been 0.03 for 3 consecutive nights. (4) H-alpha can be done from "
+            "suburban sites. Does the data support or prevent OIII imaging at site X? Prove your "
+            "conclusion formally.",
+            "Five filters (L, Hα, OIII, SII, Ha) must be scheduled across 5 nights. Constraints: "
+            "OIII before Hα. L cannot be night 1 or 5. SII and Ha must be consecutive. Hα cannot "
+            "be adjacent to OIII. Ha must be before SII. Find the valid schedule or prove "
+            "unsatisfiable.",
+            "Premises: (a) Every successful deep-sky sequence has flats and darks. (b) Some "
+            "successful sequences were made with auto-calibration only. (c) No auto-cal sequence "
+            "uses manual flats. What follows about (a) auto-cal sequences, (b) sequences with flats? "
+            "Prove or refute each.",
         ),
     ),
     BenchmarkPreset(
         name="Data Analysis",
-        subtitle="Small table analysis, arithmetic consistency, and recommendation.",
+        subtitle="Error propagation, statistics, and domain diagnostics.",
         max_tokens=900,
         prompts=(
-            "Given this coffee shop revenue for one week: Mon $120, Tue $135, Wed $128, "
-            "Thu $180, Fri $250, Sat $310, Sun $290. Compute total, average, best day, "
-            "and give one operational recommendation.",
-            "Given nightly seeing values in arcseconds: 2.4, 1.9, 1.6, 2.1, 1.4, 1.8, 2.7. "
-            "Compute the average, best night, worst night, and advise whether to schedule high-resolution imaging.",
-            "A local model benchmark produced TPS values 24, 28, 31, 27, and 30. Compute mean, median, "
-            "range, and identify whether the run looks stable enough for comparison.",
+            "Given calibration frame stats: Dark mean=1200DN σ=15, Flat mean=45000DN σ=200, Bias "
+            "mean=100DN σ=5. After flat-fielding, the per-pixel error propagation formula is "
+            "σ²_ffi = (σ_raw/F)² + (raw·σ_F/F²)² + (σ_bias/F)². Calculate per-pixel error for a "
+            "pixel with raw=25000DN. Show every step.",
+            "You have PSF FWHM measurements across a frame: center=1.4, mid=1.8, edge=2.6 arcsec. "
+            "If stacking N frames, calculate the expected FWHM improvement factor when using weighted "
+            "stacking vs unweighted. What's the SNR penalty at the edge?",
+            "TPS benchmark: [24, 28, 31, 27, 30, 26, 29, 25, 32, 28]. Calculate mean, median, σ, "
+            "CV. Apply Grubbs' test for outliers at α=0.05 (critical value G_crit=2.290 for n=10). "
+            "Is the data homogeneous? What's the 95% confidence interval for the mean?",
         ),
     ),
     BenchmarkPreset(
         name="Translation & Multilingual",
-        subtitle="Translation plus meaning preservation across scripts.",
+        subtitle="Technical translation with preservation notes across scripts.",
         max_tokens=800,
         prompts=(
-            "Translate this paragraph into Japanese, then Greek, then summarize the meaning "
-            "in English: The night sky rewards patient observers because faint details emerge "
-            "only after careful attention and good conditions.",
-            "Translate into Greek and Spanish, then list two terms that are hard to translate precisely: "
-            "Good calibration frames make faint nebula structure easier to recover during processing.",
-            "Translate into Japanese and French, then give a one-sentence English summary: "
-            "A careful benchmark should measure both speed and whether the answer actually follows instructions.",
+            "Translate this technical paragraph with precision notes: 'Positional encoding in "
+            "transformers uses sinusoidal functions to provide absolute position information without "
+            "the parameter overhead of recurring positional representations.' Include Japanese, "
+            "Greek, and explain why 'positional encoding' loses meaning in translation.",
+            "Translate a calibration equation description into Japanese and Greek: 'Flat-field "
+            "correction normalizes pixel-to-pixel sensitivity variations by dividing the raw frame "
+            "by a normalized master flat frame, accounting for the vignetting and dust shadow "
+            "patterns.' Include hard-to-translate term list with reasoning.",
+            "Three-way translation (English→Japanese→Greek) of: 'The attention mechanism allows "
+            "the model to dynamically weight the importance of different input tokens, effectively "
+            "creating context-dependent representations that improve through multi-head composition.' "
+            "Note where meaning degrades.",
         ),
     ),
     BenchmarkPreset(
         name="Summarization",
-        subtitle="Dense technical compression with coverage requirements.",
+        subtitle="Dense technical compression with coverage and omission detection.",
         max_tokens=900,
         prompts=(
-            "Summarize the key concepts of transformer architecture in deep learning. "
-            "Cover attention, positional information, feed-forward layers, and why scaling helps.",
-            "Summarize the purpose of dark frames, flats, bias frames, dithering, and stacking in astrophotography. "
-            "Use concise bullets and mention what each step fixes.",
-            "Summarize how an OpenAI-compatible local runtime, streaming responses, model discovery, "
-            "and token throughput metrics fit together in a desktop AI app.",
+            "Summarize the complete open imaging pipeline (capture → calibration → integration "
+            "→ extraction → calibration → stack → final calibration → processing) in under 350 "
+            "words, covering every step's purpose, expected outputs, and failure modes.",
+            "Summarize multi-head self-attention math: Q=Wq·K, V=Wv·input, with multi-head "
+            "concatenation and scaling factor. Must explain why scaling is necessary, what goes "
+            "wrong without it, and the O(d²n) memory cost.",
+            "Summarize the trade-offs of model distillation: student-teacher architectures, "
+            "knowledge distillation loss, temperature scaling, layer-wise vs logit-level, and "
+            "computational savings quantification.",
         ),
     ),
     BenchmarkPreset(
         name="Instruction Following",
-        subtitle="Exact constraints, formatting, and refusal/verbosity control.",
+        subtitle="Multi-constraint formatting with boundary validation.",
         max_tokens=512,
         prompts=(
-            "List exactly 5 fruits that start with the letter M. For each fruit provide "
-            "one color and one short culinary use. Return only a markdown table.",
-            "Return exactly 7 bullet points. Each bullet must contain one astronomy term and exactly one number. "
-            "Do not include an introduction or conclusion.",
-            "Create a JSON object with keys model, benchmark, metrics, and verdict. metrics must contain "
-            "tokens_per_second and quality_score as numbers. Return only JSON.",
+            "List exactly 3 astrophysical objects that satisfy: (1) not Messier (2) observable "
+            "from 40°N in November (3) has a catalog number with letters. Return as markdown table "
+            "with columns: Object, Catalog designation, RA/Dec, why it qualifies. No extra content.",
+            "Generate a 7-item response where: item N has exactly N words. Each item must contain "
+            "a valid constellation name and a specific observing technique. No numbering, no intro, "
+            "no conclusion.",
+            "Create JSON with constraints: top-level keys 'constraint_check', 'valid_observations', "
+            "'invalid_observations'. Each observation must have 'catalog_id', 'ra_hms', 'dec_dms', "
+            "'mag', 'surface_brightness', 'best_filter'. Minimum 3 valid, 2 invalid with 'reason' "
+            "field. Return only JSON.",
         ),
     ),
 )
@@ -512,7 +542,6 @@ class LlmBenchmarkDialog(QDialog):
         apply_window_defaults(self)
         self.app_window = app_window
         self.worker: LlmBenchmarkWorker | None = None
-        self.model_discovery_worker: ModelDiscoveryWorker | None = None
         self.history: list[dict] = load_benchmark_history()
         self.current_response_result_id: str | None = None
 
@@ -522,11 +551,8 @@ class LlmBenchmarkDialog(QDialog):
         self.setAttribute(Qt.WA_DeleteOnClose, True)
 
         self._build_ui()
-        self.refresh_models_from_app(set_status=False)
+        self.refresh_active_model_label(set_status=False)
         self.refresh_personas_from_app()
-        QTimer.singleShot(
-            150, lambda: self.refresh_models_from_runtime(show_errors=False)
-        )
         self._load_selected_preset()
         self.refresh_history_tables()
         self.refresh_dashboard()
@@ -593,38 +619,16 @@ class LlmBenchmarkDialog(QDialog):
         controls_layout.setHorizontalSpacing(10)
         controls_layout.setVerticalSpacing(8)
 
-        model_caption = QLabel("MODEL")
+        model_caption = QLabel("ACTIVE MODEL")
         model_caption.setObjectName("fieldCaption")
-        self.model_box = QComboBox()
-        self.model_box.setEditable(False)
-        # Keep the benchmark selector visually and behaviorally aligned with the
-        # compact model selector in the main quick bar, while allowing a wider
-        # popup for long local model names.
-        self.model_box.setObjectName("quickModelBox")
-        self.model_box.setFixedHeight(36)
-        self.model_box.setMinimumWidth(320)
-        self.model_box.setMinimumContentsLength(28)
-        self.model_box.setMaxVisibleItems(24)
-        self.model_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.model_box.view().setMinimumWidth(560)
-        self.model_box.setToolTip(
-            "Choose the model to benchmark from the same model list used by the main app."
+        self.active_model_label = QLabel("Using active main-window model")
+        self.active_model_label.setObjectName("selectionPill")
+        self.active_model_label.setMinimumHeight(36)
+        self.active_model_label.setMinimumWidth(320)
+        self.active_model_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.active_model_label.setToolTip(
+            "The benchmark uses the unified model selected in the main FZAstro AI window."
         )
-        self.model_box.currentTextChanged.connect(self._benchmark_model_changed)
-
-        self.refresh_button = QPushButton("Refresh Models")
-        self.refresh_button.setObjectName("secondaryActionButton")
-        self.refresh_button.setToolTip(
-            "Fetch model names from the configured endpoint, using the same runtime settings as the main app."
-        )
-        self.refresh_button.clicked.connect(self.refresh_models_from_runtime)
-
-        self.use_active_model_button = QPushButton("Use Active Model")
-        self.use_active_model_button.setObjectName("secondaryActionButton")
-        self.use_active_model_button.setToolTip(
-            "Select the model currently active in the main FZAstro AI window."
-        )
-        self.use_active_model_button.clicked.connect(self.select_active_app_model)
 
         persona_caption = QLabel("PERSONA / CALIBRATION")
         persona_caption.setObjectName("fieldCaption")
@@ -658,7 +662,9 @@ class LlmBenchmarkDialog(QDialog):
         self.suite_depth_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         for depth_value, depth_label in SUITE_DEPTHS:
             self.suite_depth_box.addItem(depth_label, depth_value)
-        self.suite_depth_box.setCurrentIndex(1)
+        # Default to a fast smoke test. Deep mode is still available for serious comparisons,
+        # but starting with all prompts can make local models look stuck during first use.
+        self.suite_depth_box.setCurrentIndex(0)
         self.suite_depth_box.setToolTip(
             "Standard runs the first prompt from each preset. Deep runs every prompt for stronger comparisons."
         )
@@ -722,10 +728,8 @@ class LlmBenchmarkDialog(QDialog):
 
         controls_layout.addWidget(model_caption, 0, 0, 1, 3)
         controls_layout.addWidget(persona_caption, 0, 3, 1, 3)
-        controls_layout.addWidget(self.model_box, 1, 0, 1, 3)
-        controls_layout.addWidget(self.refresh_button, 1, 3, 1, 1)
-        controls_layout.addWidget(self.use_active_model_button, 1, 4, 1, 1)
-        controls_layout.addWidget(self.persona_box, 1, 5, 1, 1)
+        controls_layout.addWidget(self.active_model_label, 1, 0, 1, 3)
+        controls_layout.addWidget(self.persona_box, 1, 3, 1, 3)
         controls_layout.addWidget(preset_caption, 2, 0, 1, 2)
         controls_layout.addWidget(suite_caption, 2, 2)
         controls_layout.addWidget(repeat_caption, 2, 3)
@@ -813,6 +817,7 @@ class LlmBenchmarkDialog(QDialog):
         _copy_label(
             "system_label", self.system_telemetry_label, "CPU/RAM telemetry unavailable"
         )
+        self.refresh_active_model_label(set_status=False)
 
     def _build_dashboard_tab(self):
         layout = QVBoxLayout(self.dashboard_tab)
@@ -979,22 +984,6 @@ class LlmBenchmarkDialog(QDialog):
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         return table
 
-    @staticmethod
-    def _combo_model_names(model_box: QComboBox | None) -> list[str]:
-        if model_box is None:
-            return []
-
-        models = []
-        seen = set()
-        for index in range(model_box.count()):
-            model_value = model_box.itemData(index, Qt.UserRole)
-            model_name = str(model_value or model_box.itemText(index) or "").strip()
-            if not model_name or model_name in seen:
-                continue
-            models.append(model_name)
-            seen.add(model_name)
-        return models
-
     def active_app_model_name(self) -> str:
         if hasattr(self.app_window, "current_model_name"):
             try:
@@ -1016,242 +1005,21 @@ class LlmBenchmarkDialog(QDialog):
 
         return DEFAULT_MODEL_NAME
 
-    def select_model(self, model_name: str) -> bool:
-        model = str(model_name or "").strip()
-        if not model:
-            return False
-
-        index = self.model_box.findData(model, Qt.UserRole)
-        if index < 0:
-            index = self.model_box.findText(model)
-        if index < 0:
-            self.model_box.addItem(model, model)
-            index = self.model_box.count() - 1
-
-        self.model_box.setCurrentIndex(index)
-        return True
-
-    def select_active_app_model(self):
-        model = self.active_app_model_name()
-        if self.select_model(model):
-            self.status_label.setText(f"Ready: {model}")
-
-    def _benchmark_model_changed(self, model_name: str):
-        model = str(model_name or "").strip()
-        if not model:
-            return
-        if self.worker is not None and self.worker.isRunning():
-            return
-        if self.model_discovery_worker is not None:
-            return
-        self.status_label.setText(f"Ready: {model}")
-
     def selected_model_name(self) -> str:
-        try:
-            model_value = self.model_box.currentData(Qt.UserRole)
-        except Exception:
-            model_value = None
+        return self.active_app_model_name()
 
-        return str(model_value or self.model_box.currentText() or "").strip()
-
-    def refresh_models_from_app(self, set_status: bool = True):
-        current = self.selected_model_name()
-        app_model_box = getattr(self.app_window, "model_box", None)
-        models = self._combo_model_names(app_model_box)
-        active_model = self.active_app_model_name()
-
-        for model in (current, active_model):
-            if model and model not in models:
-                models.insert(0, model)
-
-        self._replace_model_items(models, preferred_model=current or active_model)
-
-        if set_status:
-            self.status_label.setText("Models loaded" if models else "No models")
-
-    def refresh_models_from_runtime(self, show_errors: bool = True):
-        if self.worker is not None and self.worker.isRunning():
-            return
-
-        previous_worker = self.model_discovery_worker
-        if previous_worker is not None:
-            try:
-                previous_worker.stop()
-            except Exception:
-                pass
-
-        if hasattr(self.app_window, "sync_runtime_client"):
-            try:
-                self.app_window.sync_runtime_client()
-            except Exception as exc:
-                log_warning(
-                    "LlmBenchmarkDialog.refresh_models_from_runtime sync_runtime_client",
-                    exc,
-                )
-
-        base_url = (
-            self.app_window.current_base_url()
-            if hasattr(self.app_window, "current_base_url")
-            else ""
-        )
-        api_key = (
-            self.app_window.current_api_key()
-            if hasattr(self.app_window, "current_api_key")
-            else ""
-        )
-        preferred_model = self.selected_model_name()
-        self.status_label.setText("Refreshing models…")
-        self.refresh_button.setEnabled(False)
-        self.refresh_button.setText("Refreshing…")
-        self.use_active_model_button.setEnabled(False)
-        self.model_box.setEnabled(False)
-        self.run_button.setEnabled(False)
-        self.run_all_button.setEnabled(False)
-
-        worker = ModelDiscoveryWorker(base_url, api_key)
-        self.model_discovery_worker = worker
-
-        def handle_ready(models, current_worker=worker, selected_model=preferred_model):
-            self.handle_model_discovery_ready(current_worker, models, selected_model)
-
-        def handle_error(
-            error_message, current_worker=worker, selected_model=preferred_model
-        ):
-            self.handle_model_discovery_error(
-                current_worker, error_message, selected_model, show_errors
+    def refresh_active_model_label(self, set_status: bool = True):
+        model = self.selected_model_name()
+        display_model = model or "No active model"
+        if hasattr(self, "active_model_label"):
+            self.active_model_label.setText(display_model)
+            self.active_model_label.setToolTip(
+                "Using the unified main-window model selector.\n"
+                f"Active model: {display_model}"
             )
-
-        def handle_stopped(current_worker=worker):
-            self.handle_model_discovery_stopped(current_worker)
-
-        def handle_ollama_process_started(process):
-            self.handle_ollama_process_started(process)
-
-        def handle_finished(current_worker=worker):
-            self.finish_model_discovery_worker(current_worker)
-
-        worker.models_ready.connect(handle_ready)
-        worker.error_received.connect(handle_error)
-        worker.stopped.connect(handle_stopped)
-        worker.ollama_process_started.connect(handle_ollama_process_started)
-        worker.finished.connect(handle_finished)
-        worker.start()
-
-    def handle_model_discovery_ready(
-        self, worker: ModelDiscoveryWorker, models: list[str], preferred_model: str
-    ):
-        if worker is not self.model_discovery_worker:
-            return
-
-        merged_models = list(models or [])
-        for model in (preferred_model, self.active_app_model_name()):
-            if model and model not in merged_models:
-                merged_models.insert(0, model)
-
-        self._replace_model_items(merged_models, preferred_model=preferred_model)
-        self.status_label.setText(f"Loaded {len(merged_models or [])} model(s)")
-        self._set_model_discovery_controls_enabled(True)
-
-    def handle_model_discovery_error(
-        self,
-        worker: ModelDiscoveryWorker,
-        error_message: str,
-        preferred_model: str,
-        show_error_dialog: bool = True,
-    ):
-        if worker is not self.model_discovery_worker:
-            return
-
-        existing_models = self._combo_model_names(self.model_box)
-        for model in (preferred_model, self.active_app_model_name()):
-            if model and model not in existing_models:
-                existing_models.insert(0, model)
-        if not existing_models:
-            existing_models = [DEFAULT_MODEL_NAME]
-
-        self._replace_model_items(existing_models, preferred_model=preferred_model)
-        self.status_label.setText("Model refresh failed — kept local list")
-        self._set_model_discovery_controls_enabled(True)
-        if show_error_dialog:
-            QMessageBox.warning(
-                self,
-                "Refresh Models",
-                (
-                    str(error_message or "No models found.")
-                    + "\n\nKept the existing model list in the benchmark window."
-                ),
-            )
-
-    def handle_model_discovery_stopped(self, worker: ModelDiscoveryWorker):
-        if worker is self.model_discovery_worker:
-            self.status_label.setText("Model refresh stopped")
-            self._set_model_discovery_controls_enabled(True)
-
-    def handle_ollama_process_started(self, process):
-        try:
-            self.app_window._fzastro_owned_ollama_process = process
-        except Exception as exc:
-            log_warning("LlmBenchmarkDialog.handle_ollama_process_started", exc)
-
-    def finish_model_discovery_worker(self, worker: ModelDiscoveryWorker):
-        if worker is self.model_discovery_worker:
-            self.model_discovery_worker = None
-
-        try:
-            worker.deleteLater()
-        except Exception:
-            pass
-
-    def _set_model_discovery_controls_enabled(self, enabled: bool):
-        running = self.worker is not None and self.worker.isRunning()
-        self.refresh_button.setEnabled(bool(enabled) and not running)
-        self.refresh_button.setText("Refresh Models")
-        self.use_active_model_button.setEnabled(bool(enabled) and not running)
-        self.model_box.setEnabled(bool(enabled) and not running)
-        self.run_button.setEnabled(bool(enabled) and not running)
-        self.run_all_button.setEnabled(bool(enabled) and not running)
-
-    def _replace_model_items(
-        self, models: list[str], preferred_model: str | None = None
-    ):
-        clean_models = []
-        seen = set()
-
-        for model in models or []:
-            clean_model = str(model or "").strip()
-            if not clean_model or clean_model in seen:
-                continue
-            clean_models.append(clean_model)
-            seen.add(clean_model)
-
-        if not clean_models:
-            clean_models = [DEFAULT_MODEL_NAME]
-
-        current = str(preferred_model or self.model_box.currentText() or "").strip()
-        if current and current not in clean_models:
-            clean_models.insert(0, current)
-
-        self.model_box.blockSignals(True)
-        self.model_box.clear()
-        for clean_model in clean_models:
-            self.model_box.addItem(clean_model, clean_model)
-
-        target_model = (
-            current
-            if current in clean_models
-            else (clean_models[0] if clean_models else "")
-        )
-        if target_model:
-            target_index = self.model_box.findData(target_model, Qt.UserRole)
-            if target_index < 0:
-                target_index = self.model_box.findText(target_model)
-            if target_index >= 0:
-                self.model_box.setCurrentIndex(target_index)
-        self.model_box.blockSignals(False)
-        if target_model:
-            self.model_box.setToolTip(
-                "Benchmark model selector. Uses the same model list/runtime endpoint as the main app.\n"
-                f"Selected benchmark model: {target_model}"
+        if set_status and not (self.worker is not None and self.worker.isRunning()):
+            self.status_label.setText(
+                f"Ready: {display_model}" if model else "No model"
             )
 
     def refresh_personas_from_app(self):
@@ -1516,6 +1284,7 @@ class LlmBenchmarkDialog(QDialog):
         if self.worker is not None and self.worker.isRunning():
             return
 
+        self.refresh_active_model_label(set_status=False)
         model = self.selected_model_name()
         persona = self.selected_persona_payload()
 
@@ -1588,15 +1357,11 @@ class LlmBenchmarkDialog(QDialog):
             self.stop_button.setEnabled(False)
 
     def set_running_state(self, running: bool):
-        model_refreshing = self.model_discovery_worker is not None
-        self.run_button.setEnabled(not running and not model_refreshing)
-        self.run_all_button.setEnabled(not running and not model_refreshing)
-        self.refresh_button.setEnabled(not running and not model_refreshing)
-        self.use_active_model_button.setEnabled(not running and not model_refreshing)
+        self.run_button.setEnabled(not running)
+        self.run_all_button.setEnabled(not running)
         self.clear_history_button.setEnabled(not running)
         self.export_button.setEnabled(not running)
         self.stop_button.setEnabled(running)
-        self.model_box.setEnabled(not running and not model_refreshing)
         self.persona_box.setEnabled(not running)
         self.preset_box.setEnabled(not running)
         self.suite_depth_box.setEnabled(not running)
@@ -1707,11 +1472,15 @@ class LlmBenchmarkDialog(QDialog):
         self.refresh_dashboard()
 
     def handle_benchmark_error(self, message: str):
+        clean_message = str(message or "Benchmark failed.")
         self.status_label.setText("Error")
-        self.set_running_state(False)
-        QMessageBox.critical(
-            self, "Benchmark Error", str(message or "Benchmark failed.")
+        self.response_browser.setMarkdown(
+            "**Benchmark failed before a result was recorded.**\n\n"
+            f"```text\n{clean_message}\n```\n\n"
+            "Check that the selected model is installed and the configured runtime endpoint is online."
         )
+        self.set_running_state(False)
+        QMessageBox.critical(self, "Benchmark Error", clean_message)
 
     def refresh_dashboard(self):
         completed = len(self.history)
@@ -2059,13 +1828,6 @@ class LlmBenchmarkDialog(QDialog):
         if self.worker is not None and self.worker.isRunning():
             self.worker.stop()
             self.worker.wait(1500)
-
-        if self.model_discovery_worker is not None:
-            try:
-                self.model_discovery_worker.stop()
-                self.model_discovery_worker.wait(1500)
-            except Exception as exc:
-                log_warning("LlmBenchmarkDialog.closeEvent model discovery", exc)
 
         super().closeEvent(event)
 

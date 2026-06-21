@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from .subprocess_utils import hidden_subprocess_kwargs
+
 
 def git_available(root: Path | str) -> bool:
     try:
@@ -12,6 +14,7 @@ def git_available(root: Path | str) -> bool:
             text=True,
             capture_output=True,
             timeout=10,
+            **hidden_subprocess_kwargs(),
         )
     except Exception:
         return False
@@ -25,6 +28,7 @@ def git_status_short(root: Path | str) -> str:
         text=True,
         capture_output=True,
         timeout=30,
+        **hidden_subprocess_kwargs(),
     )
     return result.stdout.strip() if result.returncode == 0 else result.stderr.strip()
 

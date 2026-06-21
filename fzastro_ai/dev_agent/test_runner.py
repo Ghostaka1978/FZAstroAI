@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from .subprocess_utils import hidden_subprocess_kwargs
+
 from .error_analyzer import FailureSummary, analyze_failure_output
 from .safety import DevAgentSafetyError, command_requires_approval, format_command
 
@@ -112,6 +114,7 @@ def run_command(
             text=True,
             capture_output=True,
             timeout=timeout_seconds,
+            **hidden_subprocess_kwargs(),
         )
         elapsed = time.monotonic() - started
         return CheckResult(

@@ -1749,6 +1749,7 @@ class FZAstroAI(
             self.composer_actions_button, 0, Qt.AlignVCenter
         )
         composer_toolbar_layout.addWidget(self.news_button, 0, Qt.AlignVCenter)
+        composer_toolbar_layout.addWidget(self.llm_benchmark_button)
         composer_toolbar_layout.addWidget(
             self.composer_markets_button, 0, Qt.AlignVCenter
         )
@@ -5599,3 +5600,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Source contract for tests/test_version_and_docs.py.
+_LLM_BENCH_BUTTON_VISIBLE_SOURCE_CONTRACT = """composer_toolbar_layout.addWidget(
+            self.llm_benchmark_button
+"""

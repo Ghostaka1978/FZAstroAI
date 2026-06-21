@@ -17,6 +17,7 @@ from typing import Mapping, Sequence
 
 from ..config import API_KEY, APP_DIR, BASE_URL, DEFAULT_MODEL_NAME
 from .openclaude_settings import OPENCLAUDE_SETTINGS_FILE
+from .subprocess_utils import hidden_subprocess_kwargs
 
 OPENCLAUDE_NPM_PACKAGE = "@gitlawb/openclaude@latest"
 OPENCLAUDE_STATE_DIR = APP_DIR / "openclaude"
@@ -26,6 +27,8 @@ OPENCLAUDE_CONTEXT_NAME = "latest_project_context.md"
 OPENCLAUDE_OUTPUT_LOG_NAME = "latest_openclaude_output.log"
 OPENCLAUDE_DIFF_NAME = "latest_diff.patch"
 OPENCLAUDE_REPORT_NAME = "latest_report.md"
+DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS = "16000"
+DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL = "1"
 
 
 @dataclass(frozen=True)
@@ -361,9 +364,13 @@ def build_openclaude_environment(config: OpenClaudeLaunchConfig) -> dict[str, st
     root = validate_openclaude_project_root(config.project_root)
     env = {
         "CLAUDE_CODE_USE_OPENAI": "1",
+        "CLAUDE_CODE_USE_POWERSHELL_TOOL": DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL,
         "OPENAI_BASE_URL": base_url,
         "OPENAI_MODEL": model,
         "OPENAI_API_KEY": api_key,
+        # Keep OpenClaude/Claude Code below provider ceilings. Some local/OpenAI-compatible
+        # providers hard-fail when Claude Code requests the 32k default output budget.
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS": DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS,
         "FZASTRO_OPENCLAUDE_SETTINGS_FILE": str(OPENCLAUDE_SETTINGS_FILE),
         "FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE": str(OPENCLAUDE_SETTINGS_FILE),
         "FZASTRO_PROJECT_ROOT": str(root),
@@ -642,6 +649,8 @@ def build_openclaude_launcher_script(config: OpenClaudeLaunchConfig) -> str:
             "    }",
             "}",
             f"if (-not $env:OPENAI_API_KEY) {{ $env:OPENAI_API_KEY = {powershell_single_quote(API_KEY)} }}",
+            f"if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) {{ $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = {powershell_single_quote(DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS)} }}",
+            f"if (-not $env:CLAUDE_CODE_USE_POWERSHELL_TOOL) {{ $env:CLAUDE_CODE_USE_POWERSHELL_TOOL = {powershell_single_quote(DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL)} }}",
             "",
             f"$installIfMissing = {install_flag}",
             "$projectRoot = $env:FZASTRO_PROJECT_ROOT",
@@ -688,7 +697,10 @@ def build_openclaude_launcher_script(config: OpenClaudeLaunchConfig) -> str:
             "    exit 4",
             "}",
             "",
-            "& $openClaudeCommand.Source",
+            "& $openClaudeCommand.Source @args",
+            "",
+            "Write-Host ''",
+            "Write-Host 'OpenClaude exited. This prompt remains active; run openclaude --continue or openclaude --resume <id> to recover a session.' -ForegroundColor Cyan",
         ]
     )
     return "\n".join(lines) + "\n"
@@ -757,7 +769,11 @@ def launch_openclaude_companion(
         )
 
     try:
-        subprocess.Popen(command, cwd=str(Path(config.project_root).resolve()))
+        subprocess.Popen(
+            command,
+            cwd=str(Path(config.project_root).resolve()),
+            **hidden_subprocess_kwargs(),
+        )
     except Exception as exc:  # pragma: no cover - platform/process dependent
         raise OpenClaudeBridgeError(
             f"Could not launch OpenClaude terminal: {exc}"

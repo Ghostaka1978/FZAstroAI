@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping
 
+from .subprocess_utils import hidden_subprocess_kwargs
+
 DEFAULT_SOURCE_EXTENSIONS = {
     ".py",
     ".md",
@@ -247,6 +249,7 @@ def _git_modified_paths(root: Path) -> set[str]:
             text=True,
             capture_output=True,
             timeout=10,
+            **hidden_subprocess_kwargs(),
         )
     except Exception:
         return set()

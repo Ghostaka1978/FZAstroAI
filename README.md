@@ -185,6 +185,7 @@ The OpenClaude workspace now uses OpenClaude as the coding-agent path with the s
 
 - OpenClaude remembers the last valid project root and restores it on reopen.
 - The OpenClaude page shows compact telemetry plus a colored running/stopped state indicator; the old progress bar is removed so the terminal keeps maximum space.
+- Claude Terminal supports text paste, scrollback navigation, terminal screenshot saving, clipboard image handoff, image-file attachment, and current-terminal screenshot handoff through workspace-local `.fzastro/openclaude_attachments` files.
 - Stop Agent uses cooperative cancellation with shorter model-read timeouts and clearer progress/status text.
 - Web Companion/LAN token/security tasks are routed to launcher/server/app/test files instead of unrelated UI files.
 - Invalid empty tool requests stop with actionable guidance instead of looping until timeout.

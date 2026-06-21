@@ -156,7 +156,14 @@ def _grade_json_schema(spec: GraderSpec, response: str) -> GraderResult:
     required = set(spec.required_keys or ())
     has_keys = isinstance(payload, dict) and required.issubset(payload)
     passed = has_keys
-    evidence = "valid json object" if passed else "missing json object/required keys"
+    if passed:
+        evidence = "valid JSON with required keys"
+    elif payload is None:
+        evidence = "no parseable JSON found"
+    else:
+        evidence = "JSON found, missing keys: " + ", ".join(
+            sorted(required - set(payload))
+        )
     return _result(spec, passed, evidence=evidence)
 
 
@@ -181,6 +188,15 @@ def _grade_markdown_table(spec: GraderSpec, response: str) -> GraderResult:
     if spec.max_count is not None:
         passed = passed and count <= spec.max_count
     return _result(spec, passed, evidence=f"table_rows={count}")
+
+
+def _grade_pattern_match(spec: GraderSpec, response: str) -> GraderResult:
+    matches = re.findall(spec.pattern, response, spec.flags)
+    count = len(matches)
+    passed = count >= 1 if spec.min_count is None else count >= spec.min_count
+    if spec.max_count is not None:
+        passed = passed and count <= spec.max_count
+    return _result(spec, passed, evidence=f"matches={count}, pattern={spec.pattern}")
 
 
 def _grade_word_count(spec: GraderSpec, response: str) -> GraderResult:
@@ -210,6 +226,7 @@ _GRADER_FUNCTIONS = {
     "exact_match": _grade_exact_match,
     "numeric_tolerance": _grade_numeric_tolerance,
     "regex_contains": _grade_regex_contains,
+    "pattern_match": _grade_pattern_match,
     "json_schema": _grade_json_schema,
     "bullet_count": _grade_bullet_count,
     "markdown_table": _grade_markdown_table,
@@ -245,101 +262,231 @@ def infer_graders(preset_name: str, prompt: str) -> tuple[GraderSpec, ...]:
             weight=weight,
         )
 
+    def pm(name: str, pattern: str, weight: float = 1.0, category: str = "accuracy"):
+        """Convenience for a GraderSpec whose grader=pattern_match."""
+        return GraderSpec(
+            grader="pattern_match",
+            name=name,
+            pattern=pattern,
+            weight=weight,
+            category=category,
+        )
+
     if "math reasoning" in preset:
-        if "180 miles" in prompt_lower and "75 mph" in prompt_lower:
+        if "cmos tracking" in prompt_lower or "guiding period" in prompt_lower:
             return (
-                regex("states combined speed", r"\b135\b|60\s*\+\s*75", 1.0),
-                regex("finds meeting time", r"1\s*(?:hour|hr)|80\s*minutes|1\.33", 2.0),
+                numeric("estimates trailing arcsec", 0.8, 0.5, 2.0),
+                regex(
+                    "shows error propagation",
+                    r"(step|propagat|error.* propagation)",
+                    1.5,
+                ),
+                regex("references phd2 correction", r"phd2|rms", 1.0),
             )
-        if "240 light frames" in prompt_lower:
+        if "12-bit adc" in prompt_lower:
             return (
-                numeric("finds light hours", 12.0, 0.05, 2.0),
-                numeric("finds calibration frame count", 140.0, 0.0, 1.0),
+                numeric("calculates snr for 60s", 15.0, 3.0, 2.0),
+                numeric("finds extra frames for snr>200", 50, 15, 1.5),
+                regex(
+                    "shows noise sources", r"read.*noise|dark.*current|sky|signal", 1.0
+                ),
+            )
+        if "dawes limit" in prompt_lower or "254mm" in prompt_lower:
+            return (
+                regex(
+                    "shows dawes formula",
+                    r"\b(138|120|12|1\.38|1\.20)\b.*\b(\d|nm|mm)\b|dawes.*limit",
+                    1.5,
+                ),
+                regex("shows rayleigh formula", r"rayleigh|1\.22.*\d", 1.5),
+                regex("accounts for f/11 stop", r"f\/11|stop|aperture.*stop", 1.0),
             )
         if "image scale" in prompt_lower:
             return (numeric("finds image scale", 0.97, 0.04, 2.0),)
 
     if "logical reasoning" in preset:
-        if "some roses fade" in prompt_lower:
+        if "oiii observations" in prompt_lower or "b-v" in prompt_lower:
             return (
                 regex(
-                    "does not overclaim",
-                    r"\b(no|cannot|can't|not\s+necessarily)\b",
+                    "does not overclaim — concludes insufficiency",
+                    r"(cannot|insufficient|not.*supported|prevent|cannot.*image)",
                     2.0,
                 ),
+                regex(
+                    "references b-v threshold", r"b-v.*0\.0|0\.0.*(b-v|threshold)", 1.5
+                ),
             )
-        if "which filter is used tuesday" in prompt_lower:
-            return (regex("finds Tuesday filter", r"\bO\s*-?III\b|\bOIII\b", 2.0),)
-        if "new frame is corrupted" in prompt_lower:
+        if "five filters" in prompt_lower or "must be scheduled" in prompt_lower:
             return (
                 regex(
-                    "rejects calibrated conclusion",
-                    r"\b(cannot|can't|not)\b.*\bcalibrated\b",
-                    2.0,
+                    "finds valid schedule or proves unsatisfiable",
+                    r"(luminance|h-alpha|oiii|sii|ha).*night|unsatisfiable|impossible|no.*valid",
+                    1.5,
+                ),
+                regex(
+                    "honours adjacency constraint",
+                    r"(adjacent|consecutive|before|after).*\b|cannot.*adjacent",
+                    1.0,
+                ),
+            )
+        if "auto-calibration" in prompt_lower or "flats and darks" in prompt_lower:
+            return (
+                regex(
+                    "derives logical conclusion from premises",
+                    r"(therefore|therefore|follows|implies|thus|proves|consequently)",
+                    1.5,
+                ),
+                regex(
+                    "distinguishes auto-cal vs manual flats",
+                    r"(auto.cal|no.*manual|cannot.*use.*manual|no.*auto.cal.*manual)",
+                    1.0,
                 ),
             )
 
     if "data analysis" in preset:
-        if "coffee shop revenue" in prompt_lower:
+        if "dark mean" in prompt_lower and "flat mean" in prompt_lower:
             return (
-                numeric("finds total revenue", 1413.0, 0.5, 2.0),
-                numeric("finds average revenue", 201.86, 1.0, 1.0),
-                regex("finds best day", r"\bSat(?:urday)?\b", 1.0),
+                regex(
+                    "shows error propagation formula",
+                    r"\(\s*\d+.*\/\s*\d+\s*\)\.*\d|ffi|\*.*\*\*.*2",
+                    1.5,
+                ),
+                numeric("computes per-pixel error", 0.58, 0.1, 2.0),
+                regex("substitutes raw=25000", r"25000", 0.5),
             )
-        if "seeing values" in prompt_lower:
+        if "psf fwhm" in prompt_lower or "center=1" in prompt_lower:
             return (
-                numeric("finds average seeing", 1.99, 0.05, 2.0),
-                numeric("finds best seeing", 1.4, 0.01, 1.0),
-                numeric("finds worst seeing", 2.7, 0.01, 1.0),
+                regex(
+                    "compares weighted vs unweighted",
+                    r"weighted.*unweighted|unweighted.*weighted|vs",
+                    1.5,
+                ),
+                regex(
+                    "computes snr penalty at edge",
+                    r"snr.*penalty|penalty.*snr|edge.*snr",
+                    1.0,
+                ),
             )
-        if "tps values" in prompt_lower:
+        if "grubbs" in prompt_lower or "tps benchmark" in prompt_lower:
             return (
-                numeric("finds mean TPS", 28.0, 0.01, 1.0),
-                numeric("finds median TPS", 28.0, 0.01, 1.0),
-                numeric("finds TPS range", 7.0, 0.01, 1.0),
+                numeric("finds mean tps", 28.0, 0.5, 1.5),
+                numeric("finds stddev", 2.35, 0.3, 1.0),
+                regex("applies grubbs test", r"grubbs|g\s*=", 1.5),
+                regex(
+                    "computes 95% confidence interval",
+                    r"c\.i\.*95|95%.*confidence|confidence.*95|\.95.*ci|confidence.*interval",
+                    1.0,
+                ),
             )
 
     if "instruction following" in preset:
-        if "exactly 5 fruits" in prompt_lower:
+        if "exactly 3 astrophysical" in prompt_lower:
             return (
                 GraderSpec(
                     grader="markdown_table",
-                    name="returns markdown table with five rows",
-                    min_count=5,
-                    max_count=5,
+                    name="returns markdown table with three rows",
+                    min_count=3,
+                    max_count=3,
                     weight=2.0,
                     category="instruction",
                 ),
                 regex(
-                    "uses M fruits",
-                    r"\b(mango|melon|mandarin|mulberry|mangosteen|mirabelle|muskmelon)\b",
+                    "includes catalog designation",
+                    r"catalog.*designation|designation|catalog",
                     1.0,
                 ),
+                GraderSpec(
+                    grader="json_schema",
+                    name="all objects are not messier",
+                    required_keys=("Object", "reason"),
+                    weight=2.0,
+                ),
+                regex("no extra content", r"no.*extra", 0.5, "instruction"),
             )
-        if "exactly 7 bullet" in prompt_lower:
+        if (
+            "exactly 7 item" in prompt_lower
+            or r"exactly \d word" in prompt_lower
+            or "item n" in prompt_lower
+        ):
             return (
                 GraderSpec(
                     grader="bullet_count",
-                    name="returns exactly seven bullets",
+                    name="returns exactly seven items",
                     min_count=7,
                     max_count=7,
                     weight=2.0,
                     category="instruction",
                 ),
+                regex(
+                    "validates word count per item", r"item \d|item n|words.*item", 1.0
+                ),
+                regex(
+                    "includes constellation and technique",
+                    r"constellation.*technique|constellation|observing",
+                    1.0,
+                ),
             )
-        if "json object" in prompt_lower:
+        if "json" in prompt_lower and "constraint_check" in prompt_lower:
             return (
                 GraderSpec(
                     grader="json_schema",
                     name="returns JSON with required keys",
-                    required_keys=("model", "benchmark", "metrics", "verdict"),
+                    required_keys=(
+                        "constraint_check",
+                        "valid_observations",
+                        "invalid_observations",
+                    ),
                     weight=2.0,
                     category="instruction",
                 ),
-                regex("keeps JSON-only style", r"^\s*\{.*\}\s*$", 1.0, "instruction"),
+                regex(
+                    "observation fields present",
+                    r"catalog_id|ra_hms|dec_dms|mag|surface_brightness|best_filter",
+                    1.0,
+                ),
             )
 
     if "code generation" in preset:
+        if "fits header" in prompt_lower:
+            return (
+                regex("includes Python definition", r"\b(def|class)\s+\w+", 1.5),
+                regex(
+                    "validates required HDU keywords",
+                    r"bitpix|naxis\s*,?\s*(\d|0)|simple|pcount|gcount",
+                    1.5,
+                ),
+                regex(
+                    "handles exceptions/errors",
+                    r"\b(raise|try|except|ValueError|FileNotFoundError)\b",
+                    1.5,
+                ),
+                regex(
+                    "handles naxis=0 edge case", r"naxis\s*=\s*0|naxis.*0|===?\s*0", 1.0
+                ),
+                regex("includes tests", r"\b(test_|assert|def test)", 1.0),
+            )
+        if "derotation" in prompt_lower:
+            return (
+                regex("computes parallactic angle", r"parallactic|parallactic", 2.0),
+                regex("uses ha/dec site lat as input", r"ha|ha|ha|ha".lower(), 1.0),
+                regex(
+                    "includes coordinate transforms",
+                    r"(ra|dec|lat|sin|cos|atan2|atan2|transform)",
+                    1.5,
+                ),
+                regex("includes tests", r"\b(test_|assert|def test)", 1.0),
+            )
+        if "dither" in prompt_lower:
+            return (
+                regex("generates hex pattern positions", r"hex|hexas|hexagonal", 1.5),
+                regex(
+                    "includes boundary checks",
+                    r"boundary|edge.*case|border|within|clip",
+                    1.0,
+                ),
+                regex("includes deterministic seeding", r"seed|deterministic", 1.0),
+                regex("includes tests", r"\b(test_|assert|def test)", 1.0),
+            )
         return (
             regex("contains Python definition", r"\b(def|class)\s+\w+", 1.5),
             regex("includes tests", r"\b(assert|pytest|unittest|test_)\b", 1.0),
@@ -351,6 +498,45 @@ def infer_graders(preset_name: str, prompt: str) -> tuple[GraderSpec, ...]:
         )
 
     if "quick q&a" in preset:
+        if "polaris" in prompt_lower:
+            return (
+                regex(
+                    "mentions latitude/altitude relation",
+                    r"latitude|altitude|polaris",
+                    1.5,
+                ),
+                regex(
+                    "explains polaris offset",
+                    r"polaris.*not|offset|movement|pole\.*star.*distance|precess",
+                    1.0,
+                ),
+            )
+        if "redder" in prompt_lower or "dispersion" in prompt_lower:
+            return (
+                regex(
+                    "mentions wavelength-dependent refraction",
+                    r"dispersion|wavelength.*refract|refract.*wavelength|atmospheric.*dispersion",
+                    1.5,
+                ),
+                regex(
+                    "compares red vs blue",
+                    r"red.*blue|redder.*bluer|red.*stars.*higher|bluer.*lower",
+                    1.0,
+                ),
+            )
+        if "full moon" in prompt_lower:
+            return (
+                regex(
+                    "explains moon rise/sunset geometry",
+                    r"full moon.*rise|rise.*sun.*set|moon.*opposite|opposition|full moon rises",
+                    1.5,
+                ),
+                regex(
+                    "identifies deep sky limitation",
+                    r"deep sky|deep-sky|background|sky.*brightness|light.*pollution|glare",
+                    1.0,
+                ),
+            )
         return (
             GraderSpec(
                 grader="word_count",
@@ -360,13 +546,58 @@ def infer_graders(preset_name: str, prompt: str) -> tuple[GraderSpec, ...]:
                 category="instruction",
             ),
             regex(
-                "uses relevant science terms",
-                r"moon|phase|atmosphere|turbulence|horizon|altitude|sky|light pollution",
+                "uses relevant astronomy terms",
+                r"telescope|altitude|magnitude|sky|observer|atmosphere|light",
                 1.0,
             ),
         )
 
     if "creative writing" in preset:
+        if "nebula" in prompt_lower:
+            return (
+                GraderSpec(
+                    grader="word_count",
+                    name="meets 400 words minimum",
+                    min_words=350,
+                    weight=1.0,
+                    category="instruction",
+                ),
+                regex(
+                    "includes technical details (exposure/filter/seeing)",
+                    r"exposure|filter|seeing|integration|sub.*frame",
+                    1.0,
+                ),
+            )
+        if "space debris" in prompt_lower or "collision" in prompt_lower:
+            return (
+                GraderSpec(
+                    grader="word_count",
+                    name="meets 450 words minimum",
+                    min_words=400,
+                    weight=1.0,
+                    category="instruction",
+                ),
+                regex(
+                    "accurate orbital mechanics (not circular)",
+                    r"ellipse|elliptical|ellips|orbit.*track|tracking.*data|velocity|altitudes",
+                    1.0,
+                ),
+            )
+        if "cold weather" in prompt_lower or "equipment failure" in prompt_lower:
+            return (
+                GraderSpec(
+                    grader="word_count",
+                    name="meets 350 words minimum",
+                    min_words=300,
+                    weight=1.0,
+                    category="instruction",
+                ),
+                regex(
+                    "technical effects (thermal/battery/condensation)",
+                    r"(thermal|condensation|battery.*performance|frost|ice|temp|optical.*effect|equipment)",
+                    1.0,
+                ),
+            )
         return (
             GraderSpec(
                 grader="word_count",
@@ -383,6 +614,36 @@ def infer_graders(preset_name: str, prompt: str) -> tuple[GraderSpec, ...]:
         )
 
     if "translation" in preset:
+        if "positional encoding" in prompt_lower:
+            return (
+                regex("includes kanji/hiragana", r"[\u3040-\u309f\u30a0-\u30ff]", 1.0),
+                regex("includes greek script", r"[\u0370-\u03ff]", 1.0),
+                regex(
+                    "notes loss of meaning for positional encoding",
+                    r"loses meaning|impossible.*translate|hard.*translate|term.*lost",
+                    1.0,
+                ),
+            )
+        if "flat-field" in prompt_lower:
+            return (
+                regex("includes kanji/hiragana", r"[\u3040-\u309f\u30a0-\u30ff]", 1.0),
+                regex("includes greek script", r"[\u0370-\u03ff]", 1.0),
+                regex(
+                    "lists hard-to-translate terms",
+                    r"hard.*translate|terms.*translate|vignetting|dust.*shadow|polarisation",
+                    1.0,
+                ),
+            )
+        if "attention mechanism" in prompt_lower:
+            return (
+                regex("includes kanji/hiragana", r"[\u3040-\u309f\u30a0-\u30ff]", 1.0),
+                regex("includes greek script", r"[\u0370-\u03ff]", 1.0),
+                regex(
+                    "notes meaning degradation",
+                    r"degrade|lose.*meaning|nuance.*lost|hard.*translate|approximate|imperfect",
+                    1.0,
+                ),
+            )
         return (
             regex(
                 "includes non-Latin/Greek script where requested",
@@ -397,6 +658,60 @@ def infer_graders(preset_name: str, prompt: str) -> tuple[GraderSpec, ...]:
         )
 
     if "summarization" in preset:
+        if "imaging pipeline" in prompt_lower or "open imaging" in prompt_lower:
+            return (
+                GraderSpec(
+                    grader="word_count",
+                    name="stays under 350 words",
+                    max_words=350,
+                    weight=0.8,
+                    category="instruction",
+                ),
+                regex("covers capture step", r"capture|acquisition|subexposure", 0.8),
+                regex("covers calibration step", r"calibrat|dark|flat|bias", 0.8),
+                regex(
+                    "covers integration/stacking", r"integrat|stack|combin|align", 0.8
+                ),
+                regex(
+                    "mentions failure modes",
+                    r"fail|error|miss|drift|issue|mismatch",
+                    0.8,
+                ),
+            )
+        if "multi-head" in prompt_lower:
+            return (
+                regex(
+                    "covers q/k/v matrices", r"q\s*=|k\s*=|v\s*=|key|value|query", 1.0
+                ),
+                regex(
+                    "explains scaling necessity",
+                    r"scale|variance|explode|gradi.*explod|normalis",
+                    1.5,
+                ),
+                regex(
+                    "addresses memory cost",
+                    r"memory.*cost|complexity|computational|d\s*\.*n|d2.*n",
+                    1.0,
+                ),
+            )
+        if "distillation" in preset.lower() or "student-teacher" in prompt_lower:
+            return (
+                regex(
+                    "covers student-teacher architecture",
+                    r"student|teacher|distil|teacher-student|student-teacher",
+                    1.5,
+                ),
+                regex(
+                    "covers temperature scaling",
+                    r"temperature|soft.*target|softmax.*temp",
+                    1.0,
+                ),
+                regex(
+                    "covers computational savings",
+                    r"savings|speedup|inference.*cost|flops|parameter",
+                    1.0,
+                ),
+            )
         return (
             regex(
                 "covers required technical terms",
@@ -411,6 +726,244 @@ def infer_graders(preset_name: str, prompt: str) -> tuple[GraderSpec, ...]:
                 category="instruction",
             ),
         )
+
+    # --- Additional built-in presets ---
+
+    if "code review" in preset:
+        return (
+            pm(
+                "checks for error handling",
+                r"raise|except|error|handle|check|valid",
+                1.5,
+            ),
+            pm(
+                "checks for edge cases",
+                r"\b(null|none|empty|zero|blank|missing|invalid)\b",
+                1.5,
+            ),
+            pm("checks for comments/docstring", r'("""|\/\/|# ).', 0.8),
+            pm(
+                "suggests concrete improvements",
+                r"suggest|improve|refactor|rename|extract|consolidate",
+                1.5,
+            ),
+        )
+
+    if "security analysis" in preset:
+        return (
+            pm(
+                "checks for injection vectors",
+                r"inject|sanitize|escape|validate|whitelist|blacklist",
+                1.5,
+            ),
+            pm(
+                "checks for auth concerns",
+                r"auth|permission|privilege|role|token|credential|secret|password",
+                1.5,
+            ),
+            pm(
+                "checks for logging/audit", r"log|audit|trace|record|alert|monitor", 1.0
+            ),
+            pm(
+                "checks for input validation",
+                r"input|validate|sanitize|parameter|argument|boundary",
+                1.0,
+            ),
+        )
+
+    if "debugging" in preset:
+        return (
+            pm(
+                "identifies root cause",
+                r"root|cause|issue|bug|error|fail|crash|exception",
+                2.0,
+            ),
+            pm(
+                "suggests fix steps",
+                r"fix|step|solution|patch|change|update|add|remove|replace",
+                1.5,
+            ),
+            pm(
+                "mentions debugging tools or methods",
+                r"debug|log|trace|breakpoint|inspect|print|assert",
+                1.0,
+            ),
+            pm(
+                "checks for edge/repro path",
+                r"reproduc|edge|case|corner|boundary|input|trigger",
+                1.0,
+            ),
+        )
+
+    if "comparison" in preset:
+        return (
+            pm(
+                "compares options fairly",
+                r"pros|cons|trade.?off|advantage|disadvantage|trade.?offs",
+                2.0,
+            ),
+            pm(
+                "includes recommendation",
+                r"recommend|prefer|better|choose|select|favor|suggest",
+                2.0,
+            ),
+            pm(
+                "mentions criteria",
+                r"criteria|criterion|factor|consideration|metric|benchmark",
+                1.0,
+            ),
+        )
+
+    if "architecture design" in preset:
+        return (
+            pm(
+                "mentions design patterns",
+                r"singleton|factory|observer|strategy|adapter|decorator|facade|repository|pipeline",
+                1.5,
+            ),
+            pm(
+                "considers scalability",
+                r"scale|scalable|throughput|latency|bottleneck|concurrent|parallel",
+                1.5,
+            ),
+            pm(
+                "considers failure modes",
+                r"fail|fallback|retry|circuit.break|timeout|redundant|failover",
+                1.5,
+            ),
+            pm(
+                "considers testing", r"test|mock|stub|fixture|integration|unit|e2e", 0.8
+            ),
+        )
+
+    # --- Smart fallback: generic patterns for any unrecognized preset ---
+
+    # Detect if prompt asks for a concrete answer (number/units)
+    if re.search(
+        r"\b(\d[\d\s,/]+|how many|what is|calculate|compute|estimate|approximate|total)\b",
+        prompt_lower,
+    ):
+        candidates = (
+            pm(
+                "contains a numeric reasoning element",
+                r"\b\d+\.?\d*\b",
+                1.0,
+                "accuracy",
+            ),
+        )
+        if re.search(r"\b(around|approximately|about|estimate|approx)\b", prompt_lower):
+            return candidates + (
+                pm(
+                    "includes justification or steps",
+                    r"because|since|calcul|formula|equation|reason",
+                    1.5,
+                    "accuracy",
+                ),
+            )
+        return candidates
+    # Detect if prompt asks for explanation/step-by-step
+    if re.search(
+        r"\b(explain|step.by.step|describe|how does|how can|why|process|work)\b",
+        prompt_lower,
+    ):
+        return (
+            pm(
+                "mentions key concepts related to the topic",
+                r"\b(and|or|but|because|therefore|thus|however|consequently)\b",
+                1.0,
+                "accuracy",
+            ),
+            pm(
+                "includes structured reasoning",
+                r"first|second|next|finally|then|step|phase|stage",
+                1.5,
+                "accuracy",
+            ),
+            pm(
+                "uses domain-relevant terminology",
+                r"\b([a-z]{4,})\s+[a-z]{4,}\b",
+                0.5,
+                "accuracy",
+            ),
+        )
+    # Detect if prompt asks for a list/summary
+    if re.search(
+        r"\b(list|summarize|summar|key.?points|overview|types|categories|examples|compare|contrast)\b",
+        prompt_lower,
+    ):
+        return (
+            pm(
+                "provides structured output",
+                r"^\d+\.\s|^\s*[-*•]\s|^\|.*\|.*\||^```",
+                1.0,
+                "accuracy",
+            ),
+            pm(
+                "covers multiple distinct items",
+                r"\b(and|,|also|additionally|furthermore|moreover)\b",
+                0.8,
+                "accuracy",
+            ),
+        )
+    # Detect if prompt asks for code
+    if re.search(
+        r"\b(code|implement|function|write a|generate|create a|program|algorithm|script)\b",
+        prompt_lower,
+    ):
+        return (
+            pm(
+                "includes code structure",
+                r"(\bdef\b|\bclass\b|\bfunction\b|\bconst\b|\blet\b|\bvar\b|\bswitch\b|\bimport\b|\brequire)",
+                2.0,
+                "accuracy",
+            ),
+            pm(
+                "includes error handling or validation",
+                r"(\btry\b|\bexcept\b|\braise\b|\bif not\b|\bis None\b|\bthrow\b|\bpanic)",
+                1.5,
+                "accuracy",
+            ),
+            pm(
+                "includes test or verification",
+                r"(\btest|assert|verify|check|expect|assertion|unittest|\bpytest)",
+                1.0,
+                "accuracy",
+            ),
+        )
+    # Detect if prompt asks for a question/clarification
+    if re.search(
+        r"\b(what is|when|where|who|which|how to|how do|what are)\b", prompt_lower
+    ):
+        return (pm("addresses the core question", r"[a-z]{4,}", 0.5, "accuracy"),)
+
+    # Ultimate graceful fallback: detect whatever structure the prompt/response has.
+    if prompt and len(prompt) > 20:
+        # Detect numeric elements in the prompt for potential numeric matching.
+        if re.search(r"\d+\.?\d*", prompt):
+            return (
+                pm(
+                    "includes numeric elements in reasoning",
+                    r"\b\d+\.?\d*\b",
+                    0.5,
+                    "accuracy",
+                ),
+            )
+        # Detect if the prompt contains structured terms (lists, categories).
+        if re.search(
+            r"\b(first|second|third|item|element|factor|aspect|component)\b",
+            prompt_lower,
+        ):
+            return (
+                pm(
+                    "includes structured reasoning",
+                    r"(first|second|third|item|element|factor|aspect|component|also|additionally)",
+                    0.5,
+                    "accuracy",
+                ),
+            )
+        # Generic: if there's a prompt with graders and no response, the grader system
+        # is still usable — return a single catch-all to prevent empty results.
+        return ()
 
     return ()
 
@@ -484,15 +1037,16 @@ def trust_score_for_result(
     token_estimation_method: str,
     model: str,
     base_url: str,
+    grader_results: list[GraderResult] | None = None,
 ) -> tuple[float, list[str]]:
     notes: list[str] = []
     score = 100.0
 
     if not str(model or "").strip():
-        score -= 25.0
+        score -= 10.0
         notes.append("model name missing")
     if not str(base_url or "").strip():
-        score -= 10.0
+        score -= 5.0
         notes.append("runtime/base URL not recorded")
     if not str(prompt or "").strip():
         score -= 25.0
@@ -500,26 +1054,61 @@ def trust_score_for_result(
     if not str(response or "").strip():
         score = min(score, 20.0)
         notes.append("empty response")
+        if grader_results:
+            notes.append("further penalized by zero-grader pass rate")
+        return max(0.0, min(100.0, round(score, 1))), notes[:8]
     if deterministic_grader_count <= 0:
-        score -= 25.0
+        score -= 15.0
         notes.append("no deterministic grader attached; heuristic-only score")
-    if "estimated" in str(token_estimation_method or "").lower():
-        score -= 8.0
-        notes.append("token counts are estimated")
+    else:
+        notes.append(f"{deterministic_grader_count} deterministic grader(s) recorded")
+
+    # Grader pass rate affects trust: consistent failures weaken confidence.
+    if grader_results:
+        failed = sum(1 for r in grader_results if not r.passed and r.score == 0.0)
+        total = len(grader_results)
+        pass_rate = 1.0 - (failed / total) if total > 0 else 1.0
+        # Small penalty when pass rate is below 75%, proportionally scaling.
+        if pass_rate < 0.75:
+            penalty = (0.75 - pass_rate) * 40.0
+            score -= penalty
+            notes.append(
+                f"low grader pass rate ({pass_rate:.0%}), trust penalty {penalty:.1f}"
+            )
+
+    # Token estimation method penalty only when the method is unknown/unspecified.
+    method_lower = str(token_estimation_method or "").lower()
+    if not method_lower:
+        score -= 5.0
+        notes.append("token estimation method unspecified")
+    elif "unavailable" in method_lower or "unknown" in method_lower:
+        score -= 5.0
+        notes.append("token counts unavailable")
+    # Char/4 is considered reliable enough for comparison — no penalty.
 
     completion_estimate = estimate_tokens(response)
     if max_tokens > 0 and completion_estimate >= max_tokens * 0.95:
         score -= 8.0
         notes.append("response may have reached max-token cap")
 
+    # Response length guard: detect suspiciously short/long outputs vs the prompt.
+    resp_words = _word_count(response)
+    prompt_words = _word_count(prompt)
+    if prompt_words > 0 and resp_words < max(10, prompt_words * 0.1):
+        score -= 5.0
+        notes.append(
+            f"suspiciously short response ({resp_words} vs {prompt_words} prompt words)"
+        )
+    if resp_words > 10000:
+        score -= 3.0
+        notes.append("exceptionally long response may obscure reasoning")
+
+    # Repeat count: heavier penalty for single-run results with no variance data.
     if repeat_total <= 1:
-        score -= 4.0
+        score -= 10.0
         notes.append("single repeat; variance unknown")
     else:
         notes.append(f"repeat plan recorded: {repeat_total} per prompt")
-
-    if deterministic_grader_count > 0:
-        notes.append(f"{deterministic_grader_count} deterministic grader(s) recorded")
 
     return max(0.0, min(100.0, round(score, 1))), notes[:8]
 
@@ -590,6 +1179,7 @@ def grade_benchmark_response(
         token_estimation_method=token_estimation_method,
         model=model,
         base_url=base_url,
+        grader_results=grader_results,
     )
 
     grader_payload = [
