@@ -1756,9 +1756,6 @@ class DevWorkbenchDialog(QWidget):
             f"CLAUDE_CODE_MAX_OUTPUT_TOKENS={max_output_tokens}",
             f"CLAUDE_CODE_MAX_CONTEXT_TOKENS={max_context_tokens}",
             f"OPENAI_MAX_CONTEXT_TOKENS={max_context_tokens}",
-            openclaude_max_output_tokens_state(
-                settings, default=DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
-            ),
             f"OPENAI_BASE_URL={runtime.base_url or BASE_URL}",
             f"OPENAI_MODEL={runtime.model or DEFAULT_MODEL_NAME}",
             api_state,

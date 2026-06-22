@@ -284,17 +284,12 @@ def test_dev_workbench_uses_terminal_first_openclaude_mode():
     assert "legacy_action_combo" not in text
     assert 'primary_row.addWidget(QLabel("Legacy:"))' not in text
 
-
 def test_idle_matrix_overlay_is_installed_and_testable():
     app_source = Path("fzastro_ai/app.py").read_text(encoding="utf-8")
-    overlay_source = Path("fzastro_ai/ui/idle_stars_overlay.py").read_text(
-        encoding="utf-8"
-    )
+    overlay_source = Path("fzastro_ai/ui/idle_stars_overlay.py").read_text(encoding="utf-8")
 
     assert "from .ui.idle_stars_overlay import IdleStarsOverlay" in app_source
-    assert (
-        "self.idle_stars_overlay = IdleStarsOverlay(root, idle_ms=45_000)" in app_source
-    )
+    assert "self.idle_stars_overlay = IdleStarsOverlay(root, idle_ms=45_000)" in app_source
     assert "self.idle_stars_overlay.install_on(QApplication.instance())" in app_source
     assert "FZASTRO MATRIX IDLE MODE" in overlay_source
     assert "CODE RAIN: ACTIVE" in overlay_source
@@ -317,17 +312,12 @@ def test_qmenu_tooltips_are_guarded_for_pyside_versions():
     assert "menu.setToolTipsVisible(True)" not in tabs_text
 
 
+
 def test_main_app_labels_claude_consistently_and_standardizes_buttons():
     app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
-    tabs_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "workspace_tabs.py").read_text(
-        encoding="utf-8-sig"
-    )
-    dev_text = (
-        PROJECT_ROOT / "fzastro_ai" / "ui" / "dev_workbench_dialog.py"
-    ).read_text(encoding="utf-8-sig")
-    styles_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "styles.py").read_text(
-        encoding="utf-8-sig"
-    )
+    tabs_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "workspace_tabs.py").read_text(encoding="utf-8-sig")
+    dev_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "dev_workbench_dialog.py").read_text(encoding="utf-8-sig")
+    styles_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "styles.py").read_text(encoding="utf-8-sig")
 
     assert 'QAction("Claude", self)' in app_text
     assert '"CLAUDE",\n            "open_dev_workbench"' in tabs_text
@@ -337,24 +327,30 @@ def test_main_app_labels_claude_consistently_and_standardizes_buttons():
     assert "QMenu::item:selected" in styles_text
 
 
-def test_document_inventory_chat_picker_stays_raw_html_not_markdown():
-    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+def test_document_inventory_chat_picker_stays_card_html_not_markdown():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(
+        encoding="utf-8-sig"
+    )
+    library_text = (PROJECT_ROOT / "fzastro_ai" / "knowledge_library.py").read_text(
+        encoding="utf-8-sig"
+    )
     widget_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "message_widgets.py").read_text(
         encoding="utf-8-sig"
     )
 
     picker_start = app_text.index("def format_knowledge_documents_chat_picker")
     picker_block = app_text[
-        picker_start : app_text.index(
-            "def show_knowledge_documents_in_chat", picker_start
-        )
+        picker_start : app_text.index("def show_knowledge_documents_in_chat", picker_start)
     ]
 
     assert '<div class="document-inventory">' in picker_block
-    assert '<table class="document-inventory-table">' in picker_block
-    assert 'f"<td><strong>{title_link}</strong>{selected_badge}</td>"' in picker_block
+    assert '<div class="document-inventory-card">' in picker_block
+    assert '<table class="document-inventory-table">' not in picker_block
+    assert 'document-inventory-card' in library_text
+    assert '<table class="document-inventory-table">' not in library_text
     assert 'f"<strong>{index}. {title_link}</strong>' not in picker_block
     assert 'if "document-inventory" in clean_text:' in widget_text
+    assert ".document-inventory-card" in widget_text
 
 
 def test_weather_today_app_card_disabled_without_router_changes():
@@ -372,7 +368,9 @@ def test_weather_today_app_card_disabled_without_router_changes():
 
 
 def test_shared_interactive_cursor_filter_is_installed_for_buttons():
-    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(
+        encoding="utf-8-sig"
+    )
     cursor_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "cursors.py").read_text(
         encoding="utf-8-sig"
     )

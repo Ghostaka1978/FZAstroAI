@@ -451,10 +451,7 @@ def is_document_inventory_response(text):
         return True
 
     return "document-inventory-table" in clean_text or (
-        (
-            "Document Knowledge Library" in clean_text
-            or "Imported documents" in clean_text
-        )
+        ("Document Knowledge Library" in clean_text or "Imported documents" in clean_text)
         and re.search(r"(?im)^\s*(?:\|\s*#\s*\||\d+\.\s+\*\*)", clean_text) is not None
     )
 
@@ -1228,18 +1225,47 @@ body {{
     font-weight: 650;
 }}
 
-.document-inventory-table {{
-    width: 100%;
-    max-width: 100%;
+.document-inventory-list {{
+    margin-top: 8px;
 }}
 
-.document-inventory-table th,
-.document-inventory-table td {{
-    vertical-align: top;
+.document-inventory-card {{
+    display: block;
+    margin: 0 0 10px 0;
+    padding: 10px 12px;
+    border: 1px solid #263244;
+    border-radius: 9px;
+    background-color: #0b111a;
 }}
 
-.document-inventory-table td:nth-child(2) {{
-    min-width: 360px;
+.document-inventory-title {{
+    margin: 0 0 5px 0;
+    font-size: 15px;
+    line-height: 1.45;
+}}
+
+.document-inventory-index {{
+    color: #94a3b8;
+}}
+
+.document-inventory-stats,
+.document-inventory-actions,
+.document-inventory-help {{
+    margin: 3px 0;
+    line-height: 1.45;
+}}
+
+.document-inventory-stats {{
+    color: #d7e3f3;
+}}
+
+.document-inventory-actions a {{
+    white-space: nowrap;
+}}
+
+.document-selected-badge {{
+    color: #c4b5fd;
+    font-weight: 700;
 }}
 
 .math-inline {{

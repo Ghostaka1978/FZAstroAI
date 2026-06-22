@@ -4584,14 +4584,7 @@ class FZAstroAI(
                 f"{total_visuals:,} visual page(s). Click a title or action below; "
                 "these are local UI actions, not LLM prompts.</p>"
             ),
-            '<table class="document-inventory-table">',
-            "<thead><tr>"
-            '<th style="text-align:right;">#</th>'
-            "<th>Document</th>"
-            "<th>Stats</th>"
-            "<th>Actions</th>"
-            "</tr></thead>",
-            "<tbody>",
+            '<div class="document-inventory-list">',
         ]
 
         for index, document in enumerate(documents, start=1):
@@ -4608,7 +4601,7 @@ class FZAstroAI(
                 "Text searchable" if character_count > 0 else "No searchable text"
             )
             selected_badge = (
-                " <strong>Selected</strong>"
+                ' <span class="document-selected-badge">Selected</span>'
                 if document_id == active_document_id
                 else ""
             )
@@ -4630,20 +4623,23 @@ class FZAstroAI(
                 f"{section_count:,} sections · {visual_count:,} visual pages · "
                 f"{html.escape(searchable_state)}"
             )
-            lines.append(
-                "<tr>"
-                f'<td style="text-align:right; white-space:nowrap;">{index}</td>'
-                f"<td><strong>{title_link}</strong>{selected_badge}</td>"
-                f"<td>{stats}</td>"
-                f"<td>{actions}</td>"
-                "</tr>"
+            lines.extend(
+                [
+                    '<div class="document-inventory-card">',
+                    '<p class="document-inventory-title">'
+                    f'<span class="document-inventory-index">{index}.</span> '
+                    f"<strong>{title_link}</strong>{selected_badge}</p>",
+                    f'<p class="document-inventory-stats">{stats}</p>',
+                    f'<p class="document-inventory-actions">{actions}</p>',
+                    "</div>",
+                ]
             )
 
         lines.extend(
             [
-                "</tbody>",
-                "</table>",
-                "<p>Commands: <code>/docs</code>, <code>/select 1</code>, "
+                "</div>",
+                '<p class="document-inventory-help">Commands: '
+                "<code>/docs</code>, <code>/select 1</code>, "
                 "<code>/book</code>, <code>/brief</code>, "
                 "<code>/search moon phases</code>.</p>",
                 "</div>",

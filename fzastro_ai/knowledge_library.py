@@ -1494,16 +1494,10 @@ class DocumentKnowledgeLibrary:
     def format_document_inventory_response(self):
         """Return a deterministic HTML inventory of imported documents.
 
-        This bypasses retrieval and visual attachment for requests such as
-        "list the books we have, no images". It uses the database document
-        table directly, so a catalogue/list request cannot accidentally attach
-        an arbitrary PDF page image.
-
-        The response is HTML instead of a Markdown pipe table because document
-        names often contain underscores and hyphen-separated subtitles. The
-        general compact-Markdown repair pass can mistake " - Title" inside a
-        table row for a bullet marker and split the row. Raw HTML keeps the
-        inventory stable in QTextBrowser.
+        The chat renderer uses QTextBrowser, whose table support is limited and
+        can collapse columns into unreadable text.  Render document inventory as
+        block cards instead of Markdown or HTML tables so long astronomy book
+        titles stay readable and never leak Markdown/link syntax.
         """
         documents = self.list_documents()
 
@@ -1512,19 +1506,12 @@ class DocumentKnowledgeLibrary:
                 "No documents are currently imported in the Document Knowledge Library."
             )
 
+        total_visuals = sum(int(document.get("visual_count") or 0) for document in documents)
         lines = [
             '<div class="document-inventory">',
-            "<p>Documents currently imported in the Document Knowledge Library:</p>",
-            '<table class="document-inventory-table">',
-            "<thead><tr>"
-            '<th style="text-align:right;">#</th>'
-            "<th>Book</th>"
-            '<th style="text-align:right;">Characters</th>'
-            '<th style="text-align:right;">Chunks</th>'
-            '<th style="text-align:right;">Sections</th>'
-            '<th style="text-align:right;">Visual pages</th>'
-            "</tr></thead>",
-            "<tbody>",
+            '<p><strong>Documents currently imported in the Document Knowledge Library</strong></p>',
+            f'<p>{len(documents):,} document(s) · {total_visuals:,} visual page(s)</p>',
+            '<div class="document-inventory-list">',
         ]
 
         for index, document in enumerate(documents, start=1):
@@ -1533,19 +1520,22 @@ class DocumentKnowledgeLibrary:
             chunk_count = int(document.get("chunk_count") or 0)
             section_count = int(document.get("section_count") or 0)
             visual_count = int(document.get("visual_count") or 0)
-
-            lines.append(
-                "<tr>"
-                f'<td style="text-align:right;">{index}</td>'
-                f"<td><strong>{name}</strong></td>"
-                f'<td style="text-align:right;">{character_count:,}</td>'
-                f'<td style="text-align:right;">{chunk_count:,}</td>'
-                f'<td style="text-align:right;">{section_count:,}</td>'
-                f'<td style="text-align:right;">{visual_count:,}</td>'
-                "</tr>"
+            stats = (
+                f"{character_count:,} characters · {chunk_count:,} chunks · "
+                f"{section_count:,} sections · {visual_count:,} visual pages"
+            )
+            lines.extend(
+                [
+                    '<div class="document-inventory-card">',
+                    '<p class="document-inventory-title">'
+                    f'<span class="document-inventory-index">{index}.</span> '
+                    f'<strong>{name}</strong></p>',
+                    f'<p class="document-inventory-stats">{stats}</p>',
+                    '</div>',
+                ]
             )
 
-        lines.extend(["</tbody>", "</table>", "</div>"])
+        lines.extend(['</div>', '</div>'])
         return "\n".join(lines).strip()
 
     def remove_document(self, document_id):
