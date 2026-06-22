@@ -89,11 +89,6 @@ from ..dev_agent.openclaude_attachments import (
     make_clipboard_image_attachment_path,
     make_terminal_screenshot_attachment_path,
 )
-from ..dev_agent.openclaude_commands import (
-    OpenClaudeSlashCommand,
-    grouped_openclaude_slash_commands,
-    openclaude_slash_command_skeleton,
-)
 from .openclaude_terminal_widget import OpenClaudeTerminalWidget
 from ..dev_agent.patch_applier import (
     PatchPathError,
@@ -544,9 +539,11 @@ class DevWorkbenchDialog(QWidget):
 
         self._build_ui()
         self._log(
-            "OpenClaude ready. Select Session workspace, then type in Claude Terminal."
+            "OpenClaude ready. Select a workspace in Session, then type directly in Claude Terminal."
         )
-        self._set_next_step("Ready: set workspace, then type in Claude Terminal.")
+        self._set_next_step(
+            "Ready: set workspace defaults in Session, then type directly in Claude Terminal."
+        )
         self._update_runtime_status()
         self._reset_progress_idle()
         self._set_workflow_stage("start")
@@ -1108,7 +1105,9 @@ class DevWorkbenchDialog(QWidget):
         self.advanced_toggle_button.setVisible(False)
         workspace_layout.addLayout(workspace_header)
 
-        self.agent_activity_label = QLabel("Activity: idle.")
+        self.agent_activity_label = QLabel(
+            "Activity: idle. OpenClaude terminal activity stays visible in the compact telemetry strip."
+        )
         self.agent_activity_label.setObjectName("sidebarFooter")
         self.agent_activity_label.setWordWrap(True)
         self.agent_activity_label.setVisible(False)
@@ -1158,58 +1157,9 @@ class DevWorkbenchDialog(QWidget):
             button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
             button.setToolButtonStyle(Qt.ToolButtonTextOnly)
             menu = QMenu(button)
-            try:
-                menu.setToolTipsVisible(True)
-                menu.setMinimumWidth(220)
-            except Exception:
-                pass
             for action_label, callback in actions:
                 action = menu.addAction(action_label)
                 action.triggered.connect(lambda checked=False, cb=callback: cb())
-            button.setMenu(menu)
-            return button
-
-        def _slash_command_menu_button(label: str) -> QToolButton:
-            button = QToolButton()
-            button.setText(label)
-            button.setObjectName("openclaudeMenuButton")
-            button.setCursor(Qt.PointingHandCursor)
-            button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-            button.setToolButtonStyle(Qt.ToolButtonTextOnly)
-            menu = QMenu(button)
-            try:
-                menu.setToolTipsVisible(True)
-                menu.setMinimumWidth(300)
-            except Exception:
-                pass
-
-            output_action = menu.addAction("Set Output Tokens")
-            output_action.setToolTip(
-                "Change FZAstro's OpenClaude output-token cap for the next restart."
-            )
-            output_action.triggered.connect(
-                lambda checked=False: self.set_openclaude_output_budget()
-            )
-            menu.addSeparator()
-
-            for category, commands in grouped_openclaude_slash_commands().items():
-                category_menu = menu.addMenu(category)
-                try:
-                    category_menu.setToolTipsVisible(True)
-                    category_menu.setMinimumWidth(560)
-                except Exception:
-                    pass
-                for spec in commands:
-                    skeleton = openclaude_slash_command_skeleton(spec)
-                    action = category_menu.addAction(skeleton)
-                    tooltip = f"{spec.label}: {spec.description}"
-                    action.setToolTip(tooltip)
-                    action.setStatusTip(tooltip)
-                    action.triggered.connect(
-                        lambda checked=False, item=spec: self.send_openclaude_catalog_command(
-                            item
-                        )
-                    )
             button.setMenu(menu)
             return button
 
@@ -1223,7 +1173,17 @@ class DevWorkbenchDialog(QWidget):
                 ("Stop Claude", self.stop_embedded_openclaude_terminal),
             ],
         )
-        self.openclaude_claude_menu_button = _slash_command_menu_button("Claude")
+        self.openclaude_claude_menu_button = _menu_button(
+            "Claude",
+            [
+                ("Help", self.send_openclaude_help_command),
+                ("Show Ctx", self.send_openclaude_ctx_command),
+                ("Set Output Tokens", self.set_openclaude_output_budget),
+                ("Clear", self.send_openclaude_clear_command),
+                ("Config", self.send_openclaude_config_command),
+                ("Buddy", self.send_openclaude_buddy_command),
+            ],
+        )
         self.openclaude_input_menu_button = _menu_button(
             "Input",
             [
@@ -2206,7 +2166,6 @@ class DevWorkbenchDialog(QWidget):
         *,
         start_args: tuple[str, ...] = (),
         status: str = "OpenClaude command sent",
-        clean_prompt: bool = False,
     ) -> None:
         """Run a recovery/action command without requiring the user to press Enter."""
 
@@ -2223,13 +2182,7 @@ class DevWorkbenchDialog(QWidget):
             self.openclaude_terminal_output.focus_terminal()
         except Exception:
             pass
-        payload = clean_command.rstrip("\r\n") + "\r"
-        if clean_prompt:
-            # Ctrl+A then Ctrl+K clears the active OpenClaude input line before
-            # the menu action writes/submits the slash command. This prevents
-            # stale typed prompt text from being prefixed to the command.
-            payload = "\x01\x0b" + payload
-        worker.send_input(payload)
+        worker.send_input(clean_command.rstrip("\r\n") + "\r")
         self._set_agent_status(status)
         self._set_progress(None, status)
         self._log(f"Sent OpenClaude terminal command: {clean_command}")
@@ -2287,30 +2240,8 @@ class DevWorkbenchDialog(QWidget):
             self._set_agent_status("OpenClaude not running")
             return
         self._send_openclaude_terminal_command(
-            command,
-            status=f"OpenClaude {label.lower()} requested",
-            clean_prompt=True,
+            command, status=f"OpenClaude {label.lower()} requested"
         )
-
-    def send_openclaude_catalog_command(self, spec: OpenClaudeSlashCommand) -> None:
-        """Send a documented OpenClaude slash command from the categorized menu."""
-
-        command = str(spec.command or "").strip()
-        label = str(spec.label or command).strip() or command
-        if spec.requires_argument:
-            value, ok = QInputDialog.getText(
-                self,
-                f"OpenClaude {label}",
-                f"Value for {command} <{spec.argument_hint}>:",
-            )
-            if not ok:
-                return
-            argument = str(value or "").strip()
-            if not argument:
-                self._set_agent_status(f"OpenClaude {label.lower()} canceled")
-                return
-            command = f"{command} {argument}"
-        self._send_openclaude_slash_command(command, label)
 
     def send_openclaude_help_command(self):
         """Show OpenClaude's native help without making the user press Enter."""
@@ -2320,7 +2251,7 @@ class DevWorkbenchDialog(QWidget):
     def send_openclaude_ctx_command(self):
         """Show OpenClaude context state without making the user press Enter."""
 
-        self._send_openclaude_slash_command("/context", "Ctx")
+        self._send_openclaude_slash_command("/ctx", "Ctx")
 
     def _active_openclaude_max_output_tokens(self) -> str:
         settings = self._reload_openclaude_api_settings()
@@ -4812,7 +4743,7 @@ def open_dev_workbench_dialog(parent=None):
 
         return parent.open_workspace_tab(
             "dev.agent",
-            "Claude",
+            "OpenClaude",
             _create_dev_tab,
             tooltip="FZAstro AI OpenClaude",
             on_close=_clear_reference,

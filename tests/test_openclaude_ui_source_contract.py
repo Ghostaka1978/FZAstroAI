@@ -117,9 +117,7 @@ def test_openclaude_terminal_has_recovery_action_buttons():
     assert "send_openclaude_help_command" in source
     assert "openclaude --continue" in source
     assert "openclaude --resume" in source
-    assert "clean_prompt: bool = False" in source
-    assert 'payload = "\\x01\\x0b" + payload' in source
-    assert "worker.send_input(payload)" in source
+    assert 'worker.send_input(clean_command.rstrip("\\r\\n") + "\\r")' in source
 
 
 def test_openclaude_terminal_header_groups_actions_by_compact_submenus():
@@ -127,10 +125,8 @@ def test_openclaude_terminal_header_groups_actions_by_compact_submenus():
 
     assert "QToolButton" in source
     assert "QMenu" in source
-    assert "grouped_openclaude_slash_commands" in source
-    assert "setMinimumWidth(560)" in source
     assert "self.openclaude_session_menu_button = _menu_button(" in source
-    assert "self.openclaude_claude_menu_button = _slash_command_menu_button(" in source
+    assert "self.openclaude_claude_menu_button = _menu_button(" in source
     assert "self.openclaude_input_menu_button = _menu_button(" in source
     assert "self.openclaude_view_menu_button = _menu_button(" in source
     assert "terminal_header.addWidget(self.openclaude_session_menu_button)" in source
@@ -181,9 +177,7 @@ def test_openclaude_terminal_exposes_common_slash_command_actions():
     assert "send_openclaude_buddy_command" in source
     assert "_send_openclaude_slash_command" in source
     assert "Set Output Tokens" in source
-    assert "clean_prompt: bool = False" in source
-    assert 'payload = "\\x01\\x0b" + payload' in source
-    assert "worker.send_input(payload)" in source
+    assert 'worker.send_input(clean_command.rstrip("\\r\\n") + "\\r")' in source
 
 
 def test_session_tab_keeps_prompt_and_help_out_of_visible_actions():
@@ -255,10 +249,3 @@ def test_openclaude_session_shows_prerequisites_and_changeable_ctx_budget():
     assert "max_output_tokens=self._active_openclaude_max_output_tokens()" in source
     assert "output-token setting changed" in source
     assert "Output tokens:" in source
-
-
-def test_workspace_tab_title_is_short_claude():
-    source = dev_workbench_source()
-
-    assert '"dev.agent",\n            "Claude",' in source
-    assert '"dev.agent",\n            "OpenClaude",' not in source
