@@ -77,10 +77,9 @@ def _coerce_secret(value: Any) -> str:
 def _coerce_token_budget(value: Any) -> str:
     """Return a safe persisted token budget or an empty string.
 
-    This stores the OpenClaude/Claude Code output-token cap, which is the
-    user-facing CTX/output budget control in the FZAstro UI. Keep values inside
-    a conservative provider-safe range so changing the setting cannot recreate
-    the 32k output ceiling failure by accident.
+    This stores the OpenClaude/Claude Code output-token cap for compatibility
+    with existing local settings. The visible UI no longer exposes this as a
+    context-set control; OpenClaude context is fixed separately at 128000.
     """
 
     raw = str(value or "").strip()

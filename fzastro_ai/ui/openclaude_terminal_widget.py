@@ -13,9 +13,21 @@ import json
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, QUrl, Signal, Slot
-from PySide6.QtGui import QFont, QTextCursor
-from PySide6.QtWidgets import QAbstractSlider, QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import (
+    QContextMenuEvent,
+    QFont,
+    QGuiApplication,
+    QKeyEvent,
+    QTextCursor,
+)
+from PySide6.QtWidgets import (
+    QAbstractSlider,
+    QMenu,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 try:  # Optional: PySide6 Addons / WebEngine may not be installed in all test envs.
     from PySide6.QtWebChannel import QWebChannel
@@ -23,6 +35,110 @@ try:  # Optional: PySide6 Addons / WebEngine may not be installed in all test en
 except Exception:  # pragma: no cover - exercised on machines without WebEngine.
     QWebChannel = None  # type: ignore[assignment]
     QWebEngineView = None  # type: ignore[assignment]
+
+
+class _TerminalFallbackEdit(QPlainTextEdit):
+    """Plain-text terminal fallback with predictable copy/paste shortcuts.
+
+    The WebEngine/xterm frontend is the real terminal path.  This fallback is
+    still interactive enough for machines without WebEngine: selected text is
+    copied with Ctrl+C/Ctrl+Shift+C, clipboard text is pasted into the PTY with
+    Ctrl+V/Ctrl+Shift+V, and Ctrl+C with no selection remains a terminal
+    interrupt.
+    """
+
+    input_received = Signal(str)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
+
+    def _clipboard_text(self) -> str:
+        clipboard = QGuiApplication.clipboard()
+        return clipboard.text() if clipboard is not None else ""
+
+    def _has_selection(self) -> bool:
+        try:
+            return bool(self.textCursor().hasSelection())
+        except Exception:
+            return False
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - Qt override
+        key = event.key()
+        modifiers = event.modifiers()
+        ctrl_or_meta = bool(
+            modifiers
+            & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier)
+        )
+
+        if ctrl_or_meta and key in (Qt.Key.Key_C, Qt.Key.Key_Insert):
+            if self._has_selection():
+                self.copy()
+            else:
+                self.input_received.emit("\x03")
+            event.accept()
+            return
+
+        if (ctrl_or_meta and key == Qt.Key.Key_V) or (
+            bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+            and key == Qt.Key.Key_Insert
+        ):
+            text = self._clipboard_text()
+            if text:
+                self.input_received.emit(text)
+            event.accept()
+            return
+
+        terminal_sequences = {
+            Qt.Key.Key_Return: "\r",
+            Qt.Key.Key_Enter: "\r",
+            Qt.Key.Key_Backspace: "\x7f",
+            Qt.Key.Key_Tab: "\t",
+            Qt.Key.Key_Left: "\x1b[D",
+            Qt.Key.Key_Right: "\x1b[C",
+            Qt.Key.Key_Up: "\x1b[A",
+            Qt.Key.Key_Down: "\x1b[B",
+            Qt.Key.Key_Home: "\x1b[H",
+            Qt.Key.Key_End: "\x1b[F",
+            Qt.Key.Key_Delete: "\x1b[3~",
+            Qt.Key.Key_PageUp: "\x1b[5~",
+            Qt.Key.Key_PageDown: "\x1b[6~",
+            Qt.Key.Key_Escape: "\x1b",
+        }
+        sequence = terminal_sequences.get(key)
+        if sequence is not None:
+            self.input_received.emit(sequence)
+            event.accept()
+            return
+
+        text = event.text()
+        if text and not bool(modifiers & Qt.KeyboardModifier.AltModifier):
+            self.input_received.emit(text)
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
+        menu = QMenu(self)
+        copy_action = menu.addAction("Copy")
+        copy_action.setEnabled(self._has_selection())
+        paste_action = menu.addAction("Paste")
+        select_all_action = menu.addAction("Select All")
+        action = menu.exec(event.globalPos())
+        if action == copy_action:
+            self.copy()
+        elif action == paste_action:
+            text = self._clipboard_text()
+            if text:
+                self.input_received.emit(text)
+        elif action == select_all_action:
+            self.selectAll()
 
 
 class _TerminalBridge(QObject):
@@ -43,6 +159,19 @@ class _TerminalBridge(QObject):
     @Slot(str)
     def frontendReady(self, mode: str) -> None:  # noqa: N802
         self.frontend_ready.emit(str(mode or "unknown"))
+
+    @Slot(result=str)
+    def clipboardText(self) -> str:  # noqa: N802 - called from JavaScript
+        clipboard = QGuiApplication.clipboard()
+        return clipboard.text() if clipboard is not None else ""
+
+    @Slot(str)
+    def setClipboardText(
+        self, text: str
+    ) -> None:  # noqa: N802 - called from JavaScript
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(str(text or ""))
 
 
 def _terminal_html_path() -> Path | None:
@@ -110,8 +239,8 @@ class OpenClaudeTerminalWidget(QWidget):
         self, layout: QVBoxLayout, html_path: Path | None
     ) -> None:
         self.frontend_name = "text-fallback"
-        self._text_view = QPlainTextEdit(self)
-        self._text_view.setReadOnly(True)
+        self._text_view = _TerminalFallbackEdit(self)
+        self._text_view.input_received.connect(self.input_received)
         self._text_view.setObjectName("embeddedClaudeTerminal")
         self._text_view.setFont(QFont("Cascadia Mono", 10))
         self._text_view.setPlaceholderText(

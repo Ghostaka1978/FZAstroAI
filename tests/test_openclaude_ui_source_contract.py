@@ -165,8 +165,8 @@ def test_session_tab_shows_powershell_tool_environment():
 def test_openclaude_terminal_exposes_common_slash_command_actions():
     source = dev_workbench_source()
 
-    assert 'QPushButton("Ctx")' in source
-    assert 'QPushButton("Output")' in source
+    assert 'QPushButton("Context")' in source
+    assert 'QPushButton("Context Fixed")' in source
     assert 'QPushButton("Clear")' in source
     assert 'QPushButton("Config")' in source
     assert 'QPushButton("Buddy")' in source
@@ -176,7 +176,7 @@ def test_openclaude_terminal_exposes_common_slash_command_actions():
     assert "send_openclaude_config_command" in source
     assert "send_openclaude_buddy_command" in source
     assert "_send_openclaude_slash_command" in source
-    assert "Set Output Tokens" in source
+    assert "Set Output Tokens" not in source
     assert 'worker.send_input(clean_command.rstrip("\\r\\n") + "\\r")' in source
 
 
@@ -237,7 +237,7 @@ def test_build_packages_python_openclaude_backend_and_treats_external_tools_as_r
     assert "Ollama" in docs_source
 
 
-def test_openclaude_session_shows_prerequisites_and_changeable_ctx_budget():
+def test_openclaude_session_shows_prerequisites_and_fixed_context_cap():
     source = dev_workbench_source()
 
     assert "External prerequisites:" in source
@@ -248,4 +248,73 @@ def test_openclaude_session_shows_prerequisites_and_changeable_ctx_budget():
     assert "openclaude_max_output_tokens_state" in source
     assert "max_output_tokens=self._active_openclaude_max_output_tokens()" in source
     assert "output-token setting changed" in source
+    assert "Context cap:" in source
+    assert "CLAUDE_CODE_MAX_CONTEXT_TOKENS=" in source
+    assert "OPENAI_MAX_CONTEXT_TOKENS=" in source
     assert "Output tokens:" in source
+
+
+def test_openclaude_terminal_header_buttons_are_wide_enough_for_labels():
+    source = dev_workbench_source()
+
+    assert "Claude Terminal" in source
+    assert "QSizePolicy," in source
+    assert "button.setMinimumHeight(32)" in source
+    assert "button.setMinimumWidth(max(92" in source
+    assert "button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)" in source
+
+
+def test_claude_and_prompt_terminals_share_menu_layout_and_clipboard_shortcuts():
+    source = dev_workbench_source()
+    terminal_source = (
+        Path(__file__).resolve().parents[1]
+        / "fzastro_ai"
+        / "ui"
+        / "openclaude_terminal_widget.py"
+    ).read_text(encoding="utf-8")
+    html_source = (
+        Path(__file__).resolve().parents[1]
+        / "fzastro_ai"
+        / "resources"
+        / "terminal"
+        / "fzastro_terminal.html"
+    ).read_text(encoding="utf-8")
+
+    assert "self.openclaude_prompt_session_menu_button = _menu_button(" in source
+    assert "self.openclaude_prompt_input_menu_button = _menu_button(" in source
+    assert "self.openclaude_prompt_view_menu_button = _menu_button(" in source
+    assert (
+        "prompt_header.addWidget(self.openclaude_prompt_session_menu_button)" in source
+    )
+    assert "prompt_header.addWidget(self.openclaude_prompt_input_menu_button)" in source
+    assert "prompt_header.addWidget(self.openclaude_prompt_view_menu_button)" in source
+    assert "paste_clipboard_into_openclaude_prompt" in source
+    assert "copy_openclaude_prompt_selection" in source
+    assert "page_down_openclaude_prompt_terminal" in source
+    assert "_TerminalFallbackEdit" in terminal_source
+    assert "Ctrl+C/Ctrl+Shift+C" in terminal_source
+    assert 'self.input_received.emit("\\x03")' in terminal_source
+    assert "self.input_received.emit(text)" in terminal_source
+    assert "key === 'c'" in html_source
+    assert "key === 'v'" in html_source
+    assert "event.shiftKey" in html_source
+
+
+def test_prompt_menu_stop_action_has_matching_handler():
+    source = dev_workbench_source()
+
+    assert '("Stop Prompt", self.stop_openclaude_shell_prompt)' in source
+    assert "def stop_openclaude_shell_prompt(self):" in source
+    assert "self.stop_openclaude_prompt_terminal()" in source
+
+
+def test_early_terminal_frontend_ready_logs_do_not_require_action_log_yet():
+    source = dev_workbench_source()
+
+    assert "self.action_log: QPlainTextEdit | None = None" in source
+    assert "self._pending_action_log_lines: list[str] = []" in source
+    assert 'widget = getattr(self, "action_log", None)' in source
+    assert "pending.append(line)" in source
+    assert (
+        'for pending_line in getattr(self, "_pending_action_log_lines", [])' in source
+    )

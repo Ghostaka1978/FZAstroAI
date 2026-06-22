@@ -490,6 +490,12 @@ class MainLayoutMixin:
             if history_panel.isVisible():
                 history_panel.raise_()
 
+        idle_overlay = getattr(self, "idle_stars_overlay", None)
+        if idle_overlay is not None:
+            idle_overlay.setGeometry(0, 0, root_width, root_height)
+            if idle_overlay.isVisible():
+                idle_overlay.raise_()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._position_overlay_panels()

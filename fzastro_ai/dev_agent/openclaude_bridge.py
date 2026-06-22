@@ -28,6 +28,7 @@ OPENCLAUDE_OUTPUT_LOG_NAME = "latest_openclaude_output.log"
 OPENCLAUDE_DIFF_NAME = "latest_diff.patch"
 OPENCLAUDE_REPORT_NAME = "latest_report.md"
 DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS = "16000"
+DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS = "128000"
 DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL = "1"
 
 
@@ -42,6 +43,18 @@ def normalize_claude_code_max_output_tokens(value: object) -> str:
     except (TypeError, ValueError):
         return DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
     number = max(1024, min(24000, number))
+    return str(number)
+
+
+def normalize_claude_code_max_context_tokens(value: object = None) -> str:
+    """Return the fixed OpenClaude context cap used for local coding sessions."""
+
+    raw = str(value or DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS).strip()
+    try:
+        number = int(raw)
+    except (TypeError, ValueError):
+        number = int(DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+    number = max(8192, min(128000, number))
     return str(number)
 
 
@@ -379,6 +392,7 @@ def build_openclaude_environment(config: OpenClaudeLaunchConfig) -> dict[str, st
     max_output_tokens = normalize_claude_code_max_output_tokens(
         config.max_output_tokens
     )
+    max_context_tokens = normalize_claude_code_max_context_tokens()
     root = validate_openclaude_project_root(config.project_root)
     env = {
         "CLAUDE_CODE_USE_OPENAI": "1",
@@ -389,6 +403,10 @@ def build_openclaude_environment(config: OpenClaudeLaunchConfig) -> dict[str, st
         # Keep OpenClaude/Claude Code below provider ceilings. Some local/OpenAI-compatible
         # providers hard-fail when Claude Code requests the 32k default output budget.
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS": max_output_tokens,
+        # Keep the context window fixed and capped for LClaude/OpenClaude.
+        # The UI intentionally no longer exposes a mutable context-set control.
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": max_context_tokens,
+        "OPENAI_MAX_CONTEXT_TOKENS": max_context_tokens,
         "FZASTRO_OPENCLAUDE_SETTINGS_FILE": str(OPENCLAUDE_SETTINGS_FILE),
         "FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE": str(OPENCLAUDE_SETTINGS_FILE),
         "FZASTRO_PROJECT_ROOT": str(root),
@@ -668,6 +686,8 @@ def build_openclaude_launcher_script(config: OpenClaudeLaunchConfig) -> str:
             "}",
             f"if (-not $env:OPENAI_API_KEY) {{ $env:OPENAI_API_KEY = {powershell_single_quote(API_KEY)} }}",
             f"if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) {{ $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = {powershell_single_quote(DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS)} }}",
+            f"if (-not $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS) {{ $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = {powershell_single_quote(DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS)} }}",
+            f"if (-not $env:OPENAI_MAX_CONTEXT_TOKENS) {{ $env:OPENAI_MAX_CONTEXT_TOKENS = {powershell_single_quote(DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS)} }}",
             f"if (-not $env:CLAUDE_CODE_USE_POWERSHELL_TOOL) {{ $env:CLAUDE_CODE_USE_POWERSHELL_TOOL = {powershell_single_quote(DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL)} }}",
             "",
             f"$installIfMissing = {install_flag}",
@@ -732,6 +752,7 @@ def write_openclaude_launcher(config: OpenClaudeLaunchConfig) -> Path:
         base_url=config.base_url,
         api_key=config.api_key,
         git_api_token=config.git_api_token,
+        max_output_tokens=config.max_output_tokens,
         install_if_missing=config.install_if_missing,
     )
     OPENCLAUDE_STATE_DIR.mkdir(parents=True, exist_ok=True)

@@ -283,3 +283,44 @@ def test_dev_workbench_uses_terminal_first_openclaude_mode():
     assert "Legacy actions" not in text
     assert "legacy_action_combo" not in text
     assert 'primary_row.addWidget(QLabel("Legacy:"))' not in text
+
+
+def test_idle_mission_control_overlay_is_installed_and_testable():
+    app_source = Path("fzastro_ai/app.py").read_text(encoding="utf-8")
+    overlay_source = Path("fzastro_ai/ui/idle_stars_overlay.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "from .ui.idle_stars_overlay import IdleStarsOverlay" in app_source
+    assert (
+        "self.idle_stars_overlay = IdleStarsOverlay(root, idle_ms=45_000)" in app_source
+    )
+    assert "self.idle_stars_overlay.install_on(QApplication.instance())" in app_source
+    assert "BLACK IDLE MISSION CONTROL · input restores workspace" in overlay_source
+    assert "QColor(0, 0, 0, 255)" in overlay_source
+    assert "Qt.WA_OpaquePaintEvent" in overlay_source
+    assert "FZASTRO ORBITAL ENGINEERING DISPLAY" in overlay_source
+    assert "ORBIT TELEMETRY" in overlay_source
+    assert "FLIGHT SYSTEMS" in overlay_source
+    assert "_draw_spacecraft" in overlay_source
+    assert "_draw_pet" not in overlay_source
+
+
+def test_main_app_labels_claude_consistently_and_standardizes_buttons():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+    tabs_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "workspace_tabs.py").read_text(
+        encoding="utf-8-sig"
+    )
+    dev_text = (
+        PROJECT_ROOT / "fzastro_ai" / "ui" / "dev_workbench_dialog.py"
+    ).read_text(encoding="utf-8-sig")
+    styles_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "styles.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert 'QAction("Claude", self)' in app_text
+    assert '"CLAUDE",\n            "open_dev_workbench"' in tabs_text
+    assert '"Claude",\n            _create_dev_tab' in dev_text
+    assert "QPushButton," in styles_text
+    assert "QToolButton#openclaudeMenuButton" in styles_text
+    assert "QMenu::item:selected" in styles_text

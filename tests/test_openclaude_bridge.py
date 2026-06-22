@@ -14,6 +14,7 @@ from fzastro_ai.dev_agent.openclaude_bridge import (
     openclaude_workspace_isolation_lines,
     get_openclaude_tool_status,
     normalize_claude_code_max_output_tokens,
+    normalize_claude_code_max_context_tokens,
     launch_openclaude_companion,
     looks_like_fzastro_source_root,
     openclaude_artifact_paths,
@@ -48,6 +49,8 @@ def test_openclaude_environment_uses_selected_runtime(tmp_path):
     assert env["OPENAI_BASE_URL"] == "http://localhost:11434/v1"
     assert env["OPENAI_API_KEY"] == "ollama"
     assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "24000"
+    assert env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "128000"
+    assert env["OPENAI_MAX_CONTEXT_TOKENS"] == "128000"
     assert "FZASTRO_OPENCLAUDE_API_KEY_FILE" not in env
     assert env["FZASTRO_OPENCLAUDE_SETTINGS_FILE"].endswith("openclaude_settings.json")
     assert env["FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE"].endswith("openclaude_settings.json")
@@ -69,6 +72,8 @@ def test_openclaude_launcher_forwards_args_and_caps_output_tokens(tmp_path):
     script = build_openclaude_launcher_script(config)
 
     assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in script
+    assert "CLAUDE_CODE_MAX_CONTEXT_TOKENS" in script
+    assert "OPENAI_MAX_CONTEXT_TOKENS" in script
     assert "CLAUDE_CODE_USE_POWERSHELL_TOOL" in script
     assert "16000" in script
     assert "& $openClaudeCommand.Source @args" in script
@@ -336,3 +341,9 @@ def test_openclaude_max_output_tokens_normalizer_clamps_provider_budget():
     assert normalize_claude_code_max_output_tokens("16000") == "16000"
     assert normalize_claude_code_max_output_tokens("999999") == "24000"
     assert normalize_claude_code_max_output_tokens("not-a-number") == "16000"
+
+
+def test_openclaude_context_cap_is_fixed_at_128000():
+    assert normalize_claude_code_max_context_tokens() == "128000"
+    assert normalize_claude_code_max_context_tokens("999999") == "128000"
+    assert normalize_claude_code_max_context_tokens("4096") == "8192"

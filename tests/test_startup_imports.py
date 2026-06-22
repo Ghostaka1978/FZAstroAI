@@ -228,3 +228,21 @@ def test_shutdown_progress_and_llama_runner_cleanup_are_supported():
     assert "llama-server.exe" in runtime_text
     assert "is_local_ollama_process_present" in runtime_text
     assert "require_process_stop=force_process_stop" in runtime_text
+
+
+def test_legacy_project_scanner_module_is_compatibility_wrapper():
+    module_text = (PROJECT_ROOT / "fzastro_ai" / "project_scanner.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "Compatibility wrapper" in module_text
+    assert "from .dev_agent.project_scanner import *" in module_text
+    assert "from .." not in module_text
+
+
+def test_legacy_project_scanner_import_exports_scan_project():
+    from fzastro_ai.project_scanner import ProjectFile, ProjectScan, scan_project
+
+    assert ProjectFile.__name__ == "ProjectFile"
+    assert ProjectScan.__name__ == "ProjectScan"
+    assert callable(scan_project)

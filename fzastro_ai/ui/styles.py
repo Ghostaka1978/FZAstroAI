@@ -374,7 +374,8 @@ def get_main_stylesheet():
                 color: #d3d9e2;
             }
 
-            QPushButton {
+            QPushButton,
+            QToolButton#openclaudeMenuButton {
                 background: #1a1f26;
                 color: #e6e9ed;
                 border: 1px solid #303842;
@@ -382,24 +383,76 @@ def get_main_stylesheet():
                 min-height: 30px;
                 padding: 0 11px;
                 font-size: 12px;
-                font-weight: 600;
+                font-weight: 650;
             }
 
-            QPushButton:hover {
+            QPushButton:hover,
+            QToolButton#openclaudeMenuButton:hover {
                 background: #20262e;
                 border-color: #414b57;
                 color: #ffffff;
             }
 
-            QPushButton:pressed {
+            QPushButton:pressed,
+            QToolButton#openclaudeMenuButton:pressed,
+            QToolButton#openclaudeMenuButton:checked {
                 background: #15191f;
                 border-color: #566271;
             }
 
-            QPushButton:disabled {
+            QPushButton:disabled,
+            QToolButton#openclaudeMenuButton:disabled {
                 background: #13171c;
                 color: #59626d;
                 border-color: #222831;
+            }
+
+            QToolButton#openclaudeMenuButton {
+                background: #121a24;
+                border-color: #33445a;
+                border-radius: 10px;
+                min-width: 92px;
+                min-height: 32px;
+                padding: 0 13px;
+                font-size: 11px;
+                font-weight: 800;
+                letter-spacing: 0.2px;
+            }
+
+            QToolButton#openclaudeMenuButton:hover {
+                background: #1b2838;
+                border-color: #5f82aa;
+            }
+
+            QToolButton#openclaudeMenuButton::menu-indicator {
+                image: none;
+                width: 0px;
+            }
+
+            QMenu {
+                background: #111820;
+                color: #e6edf5;
+                border: 1px solid #303842;
+                border-radius: 10px;
+                padding: 6px;
+            }
+
+            QMenu::item {
+                min-height: 24px;
+                padding: 5px 18px 5px 10px;
+                border-radius: 7px;
+                font-size: 11px;
+            }
+
+            QMenu::item:selected {
+                background: #1d2b3b;
+                color: #ffffff;
+            }
+
+            QMenu::separator {
+                height: 1px;
+                background: #2b333d;
+                margin: 6px 4px;
             }
 
             QPushButton#sidebarToggle,

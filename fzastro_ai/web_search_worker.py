@@ -1,7 +1,82 @@
-"""Compatibility wrapper for :mod:`fzastro_ai.workers.web_search_worker`.
+from PySide6.QtCore import QThread, Signal
 
-The implementation was moved during package cleanup. This module keeps older
-imports working without importing from outside the package root.
-"""
+from ..logging_utils import log_exception
+from ..market_sources import (
+    perform_global_market_pulse,
+    perform_stock_compare,
+    perform_stock_quote,
+)
+from ..weather_tools import perform_weather_today
+from ..web_tools import (
+    perform_rendered_page_extraction,
+    perform_web_image_search,
+    perform_web_search,
+    perform_website_screenshot,
+)
 
-from .workers.web_search_worker import *  # noqa: F401,F403
+
+class WebSearchWorker(QThread):
+    finished_search = Signal(str)
+    progress_search = Signal(str)
+
+    def __init__(self, query, image_search=False, mode=None):
+        super().__init__()
+
+        self.query = query
+        self.stop_requested = False
+
+        if mode is not None:
+            self.mode = mode
+        elif image_search:
+            self.mode = "image"
+        else:
+            self.mode = "web"
+
+    def stop(self):
+        self.stop_requested = True
+        self.requestInterruption()
+
+    def should_stop(self):
+        return self.stop_requested or self.isInterruptionRequested()
+
+    def emit_progress(self, text):
+        if not self.should_stop():
+            self.progress_search.emit(str(text))
+
+    def run(self):
+        if self.should_stop():
+            return
+
+        try:
+            if self.mode == "image":
+                result = perform_web_image_search(self.query)
+
+            elif self.mode == "stock_quote":
+                result = perform_stock_quote(self.query)
+
+            elif self.mode == "stock_compare":
+                result = perform_stock_compare(self.query)
+
+            elif self.mode == "market_pulse":
+                result = perform_global_market_pulse()
+
+            elif self.mode == "weather":
+                result = perform_weather_today(self.query)
+
+            elif self.mode == "rendered_page":
+                result = perform_rendered_page_extraction(self.query)
+
+            elif self.mode == "website_screenshot":
+                result = perform_website_screenshot(self.query)
+
+            else:
+                result = perform_web_search(
+                    self.query, progress_callback=self.emit_progress
+                )
+
+        except Exception as e:
+            log_exception("WebSearchWorker.run", e)
+            result = f"Browser operation failed: {str(e)}"
+
+        if not self.should_stop():
+            self.finished_search.emit(result)

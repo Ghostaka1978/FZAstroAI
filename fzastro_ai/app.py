@@ -209,6 +209,7 @@ from .ui.diagnostics_dialog import (
     read_recent_log_lines,
 )
 from .ui.help_dialog import open_help_cheat_sheet_dialog
+from .ui.idle_stars_overlay import IdleStarsOverlay
 from .ui.about_dialog import open_about_window
 from .ui.llm_benchmark_dialog import open_llm_benchmark_dialog
 from .ui.source_chips import add_source_header_widget
@@ -1138,16 +1139,16 @@ class FZAstroAI(
         self.new_chat_button.setAccessibleName("Start new chat")
         self.new_chat_button.clicked.connect(self.new_chat)
 
-        self.dev_workbench_button = QPushButton("OpenClaude")
+        self.dev_workbench_button = QPushButton("Claude")
         self.dev_workbench_button.setObjectName("cockpitSkillButton")
         self.dev_workbench_button.setProperty("accent", "true")
-        self.dev_workbench_button.setFixedSize(104, 36)
+        self.dev_workbench_button.setFixedSize(92, 36)
         self.dev_workbench_button.setCursor(Qt.PointingHandCursor)
         self.dev_workbench_button.clicked.connect(self.open_dev_workbench)
         self.dev_workbench_button.setToolTip(
-            "Open the OpenClaude workspace for coding tasks, patch preview, and validation"
+            "Open the Claude coding workspace for terminal tasks, patch preview, and validation"
         )
-        self.dev_workbench_button.setAccessibleName("Open OpenClaude coding workspace")
+        self.dev_workbench_button.setAccessibleName("Open Claude coding workspace")
 
         self.history_button = self._create_toolbar_button(
             "◷", "historyToggle", "Chat history"
@@ -1282,9 +1283,9 @@ class FZAstroAI(
         self.claude_button.setCursor(Qt.PointingHandCursor)
         self.claude_button.clicked.connect(self.open_dev_workbench)
         self.claude_button.setToolTip(
-            "Open the OpenClaude workspace terminal for coding tasks"
+            "Open the Claude workspace terminal for coding tasks"
         )
-        self.claude_button.setAccessibleName("Open OpenClaude workspace")
+        self.claude_button.setAccessibleName("Open Claude workspace")
 
         self.crm_stock_button = QPushButton("CRM")
         self.crm_stock_button.setObjectName("stockPriceButton")
@@ -1940,6 +1941,11 @@ class FZAstroAI(
         root_layout.addWidget(main, 1)
 
         self.setCentralWidget(root)
+        # Idle mode is intentionally visible during normal testing: after 45 seconds
+        # of no keyboard or mouse activity the starfield pet overlay appears, then
+        # hides on the next user action.
+        self.idle_stars_overlay = IdleStarsOverlay(root, idle_ms=45_000)
+        self.idle_stars_overlay.install_on(QApplication.instance())
         self._position_overlay_panels()
         QTimer.singleShot(0, self._position_overlay_panels)
         self.apply_styles()
@@ -3791,9 +3797,9 @@ class FZAstroAI(
     def build_composer_skills_menu(self):
         menu = QMenu(self)
 
-        dev_action = QAction("OpenClaude Coding", self)
+        dev_action = QAction("Claude", self)
         dev_action.setToolTip(
-            "Open the OpenClaude workspace for coding tasks, patch preview, and validation."
+            "Open the Claude workspace for terminal tasks, patch preview, and validation."
         )
         dev_action.triggered.connect(lambda checked=False: self.open_dev_workbench())
         menu.addAction(dev_action)

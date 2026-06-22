@@ -64,10 +64,14 @@
 
   function copyTextToClipboard(text) {
     const payload = String(text || '');
-    if (!payload) return;
+    if (!payload) return false;
+    if (bridge && bridge.setClipboardText) {
+      bridge.setClipboardText(payload);
+      return true;
+    }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(payload).catch(function () {});
-      return;
+      return true;
     }
     const area = document.createElement('textarea');
     area.value = payload;
@@ -78,13 +82,42 @@
     area.select();
     try { document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(area);
+    return true;
+  }
+
+  function pasteTextIntoTerminal(text) {
+    const payload = String(text || '');
+    if (!payload) return false;
+    if (term && term.paste) { term.paste(payload); }
+    else { sendToPython(payload); }
+    return true;
+  }
+
+  function pasteClipboardIntoTerminal() {
+    if (bridge && bridge.clipboardText) {
+      bridge.clipboardText(function (text) { pasteTextIntoTerminal(text); });
+      return true;
+    }
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(function (text) {
+        pasteTextIntoTerminal(text);
+      }).catch(function () {});
+      return true;
+    }
+    return false;
+  }
+
+  function selectedTerminalText() {
+    if (term && term.getSelection) return String(term.getSelection() || '');
+    if (window.getSelection) return String(window.getSelection().toString() || '');
+    return '';
   }
 
   function installFallbackPaste() {
     fallback.addEventListener('paste', function (event) {
       const text = event.clipboardData ? event.clipboardData.getData('text/plain') : '';
       if (text) {
-        if (term && term.paste) { term.paste(text); } else { sendToPython(text); }
+        pasteTextIntoTerminal(text)
         event.preventDefault();
       }
     });
@@ -99,8 +132,14 @@
     });
     installFallbackPaste();
     fallback.addEventListener('keydown', function (event) {
-      if (event.ctrlKey && event.key.toLowerCase() === 'c') { sendToPython('\x03'); event.preventDefault(); return; }
-      if (event.ctrlKey && event.key.toLowerCase() === 'v') { return; }
+      const key = String(event.key || '').toLowerCase();
+      const ctrlOrMeta = Boolean(event.ctrlKey || event.metaKey);
+      if (ctrlOrMeta && key === 'c') {
+        const selection = selectedTerminalText();
+        if (selection) { copyTextToClipboard(selection); event.preventDefault(); return; }
+        sendToPython('\x03'); event.preventDefault(); return;
+      }
+      if (ctrlOrMeta && key === 'v') { pasteClipboardIntoTerminal(); event.preventDefault(); return; }
       if (event.key === 'Enter') { sendToPython('\r'); event.preventDefault(); return; }
       if (event.key === 'Backspace') { sendToPython('\x7f'); event.preventDefault(); return; }
       if (event.key === 'Tab') { sendToPython('\t'); event.preventDefault(); return; }
@@ -110,12 +149,12 @@
     window.fztermClear = function () { fallback.textContent = ''; fallbackAutoFollow = true; };
     window.fztermFocus = function () { fallback.focus(); };
     window.fztermFit = function () {};
-    window.fztermPasteText = function (text) { sendToPython(String(text || '')); fallback.focus(); };
+    window.fztermPasteText = function (text) { pasteTextIntoTerminal(text); fallback.focus(); };
     window.fztermScrollPageUp = function () { fallbackAutoFollow = false; fallback.scrollTop = Math.max(0, fallback.scrollTop - fallback.clientHeight); fallback.focus(); };
     window.fztermScrollPageDown = function () { fallback.scrollTop = Math.min(fallback.scrollHeight, fallback.scrollTop + fallback.clientHeight); fallbackAutoFollow = fallbackAtBottom(); fallback.focus(); };
     window.fztermScrollTop = function () { fallback.scrollTop = 0; fallbackAutoFollow = false; fallback.focus(); };
     window.fztermScrollBottom = function () { fallback.scrollTop = fallback.scrollHeight; fallbackAutoFollow = true; fallback.focus(); };
-    window.fztermCopySelection = function () { copyTextToClipboard(window.getSelection ? window.getSelection().toString() : ''); };
+    window.fztermCopySelection = function () { copyTextToClipboard(selectedTerminalText()); };
     fallback.focus();
     notifyReady('basic-dom-fallback');
   }
@@ -149,10 +188,17 @@
 
   function installXtermPasteHandlers() {
     const pasteTarget = (term && term.element) ? term.element : terminalNode;
+    terminalNode.addEventListener('copy', function (event) {
+      const selection = selectedTerminalText();
+      if (selection && event.clipboardData) {
+        event.clipboardData.setData('text/plain', selection);
+        event.preventDefault();
+      }
+    });
     pasteTarget.addEventListener('paste', function (event) {
       const text = event.clipboardData ? event.clipboardData.getData('text/plain') : '';
       if (text) {
-        if (term && term.paste) { term.paste(text); } else { sendToPython(text); }
+        pasteTextIntoTerminal(text)
         event.preventDefault();
       }
     });
@@ -192,6 +238,40 @@
       term.loadAddon(fitAddon);
     }
     term.open(terminalNode);
+    if (term.attachCustomKeyEventHandler) {
+      term.attachCustomKeyEventHandler(function (event) {
+        const key = String(event.key || '').toLowerCase();
+        const ctrlOrMeta = Boolean(event.ctrlKey || event.metaKey);
+        if (ctrlOrMeta && key === 'c') {
+          const selection = selectedTerminalText();
+          if (selection) {
+            copyTextToClipboard(selection);
+            event.preventDefault();
+            return false;
+          }
+          return true; // no selection: keep terminal Ctrl+C interrupt behavior.
+        }
+        if (ctrlOrMeta && key === 'v') {
+          pasteClipboardIntoTerminal();
+          event.preventDefault();
+          return false;
+        }
+        if (ctrlOrMeta && event.shiftKey && key === 'c') {
+          const selection = selectedTerminalText();
+          if (selection) {
+            copyTextToClipboard(selection);
+            event.preventDefault();
+            return false;
+          }
+        }
+        if (ctrlOrMeta && event.shiftKey && key === 'v') {
+          pasteClipboardIntoTerminal();
+          event.preventDefault();
+          return false;
+        }
+        return true;
+      });
+    }
     fitAndReport(true);
     window.setTimeout(function () { fitAndReport(true); }, 50);
     window.setTimeout(function () { fitAndReport(true); }, 250);
@@ -222,12 +302,12 @@
     window.fztermClear = function () { term.clear(); xtermAutoFollow = true; };
     window.fztermFocus = function () { term.focus(); };
     window.fztermFit = function () { fitAndReport(false); };
-    window.fztermPasteText = function (text) { const payload = String(text || ''); if (term.paste) { term.paste(payload); } else { sendToPython(payload); } term.focus(); };
+    window.fztermPasteText = function (text) { pasteTextIntoTerminal(text); term.focus(); };
     window.fztermScrollPageUp = function () { term.scrollPages(-1); xtermAutoFollow = false; term.focus(); };
     window.fztermScrollPageDown = function () { term.scrollPages(1); xtermAutoFollow = isXtermAtBottom(); term.focus(); };
     window.fztermScrollTop = function () { term.scrollToTop(); xtermAutoFollow = false; term.focus(); };
     window.fztermScrollBottom = function () { term.scrollToBottom(); xtermAutoFollow = true; term.focus(); };
-    window.fztermCopySelection = function () { copyTextToClipboard(term.getSelection ? term.getSelection() : ''); term.focus(); };
+    window.fztermCopySelection = function () { copyTextToClipboard(selectedTerminalText()); term.focus(); };
     term.focus();
     notifyReady('xterm.js');
   }
@@ -239,12 +319,12 @@
   window.fztermClear = function () { fallback.textContent = ''; fallbackAutoFollow = true; };
   window.fztermFocus = function () { fallback.focus(); };
   window.fztermFit = function () {};
-  window.fztermPasteText = function (text) { sendToPython(String(text || '')); fallback.focus(); };
+  window.fztermPasteText = function (text) { pasteTextIntoTerminal(text); fallback.focus(); };
   window.fztermScrollPageUp = function () { fallbackAutoFollow = false; fallback.scrollTop = Math.max(0, fallback.scrollTop - fallback.clientHeight); fallback.focus(); };
   window.fztermScrollPageDown = function () { fallback.scrollTop = Math.min(fallback.scrollHeight, fallback.scrollTop + fallback.clientHeight); fallbackAutoFollow = fallbackAtBottom(); fallback.focus(); };
   window.fztermScrollTop = function () { fallback.scrollTop = 0; fallbackAutoFollow = false; fallback.focus(); };
   window.fztermScrollBottom = function () { fallback.scrollTop = fallback.scrollHeight; fallbackAutoFollow = true; fallback.focus(); };
-  window.fztermCopySelection = function () { copyTextToClipboard(window.getSelection ? window.getSelection().toString() : ''); };
+  window.fztermCopySelection = function () { copyTextToClipboard(selectedTerminalText()); };
 
   if (typeof QWebChannel === 'undefined') {
     installFallback();

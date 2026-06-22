@@ -36,7 +36,7 @@ class OllamaAgentConfig:
     timeout_seconds: float = RUNTIME_DECISION_TIMEOUT_SECONDS
     keep_alive: str | None = "0"
     temperature: float = 0.1
-    num_ctx: int | None = 8192
+    num_ctx: int | None = 128000
 
     @property
     def normalized_base_url(self) -> str:
@@ -73,7 +73,7 @@ class RuntimeAgentConfig:
     timeout_seconds: float = RUNTIME_DECISION_TIMEOUT_SECONDS
     keep_alive: str | None = None
     temperature: float = 0.1
-    num_ctx: int | None = 8192
+    num_ctx: int | None = 128000
     num_predict: int | None = 4096
 
     @property
