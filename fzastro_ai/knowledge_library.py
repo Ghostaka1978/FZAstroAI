@@ -1492,28 +1492,36 @@ class DocumentKnowledgeLibrary:
         return "\n".join(lines).strip()
 
     def format_document_inventory_response(self):
-        """Return a deterministic HTML inventory of imported documents.
+        """Return a deterministic compact HTML inventory of imported documents.
 
-        The chat renderer uses QTextBrowser, whose table support is limited and
-        can collapse columns into unreadable text.  Render document inventory as
-        block cards instead of Markdown or HTML tables so long astronomy book
-        titles stay readable and never leak Markdown/link syntax.
+        QTextBrowser applies generous default paragraph spacing and has limited
+        CSS support.  Keep this renderer as one compact HTML block with inline
+        spacing so imported document lists do not leak Markdown or stretch into
+        oversized rows.
         """
         documents = self.list_documents()
 
         if not documents:
             return (
-                "No documents are currently imported in the Document Knowledge Library."
+                '<div class="document-inventory" data-fzastro-document-inventory="1" '
+                'style="margin:0; padding:0;">'
+                '<div style="font-weight:700; margin:0 0 4px 0; color:#f8fafc;">'
+                "Documents currently imported in the Document Knowledge Library</div>"
+                '<div style="margin:0; color:#d7e3f3;">No documents are currently imported.</div>'
+                "</div>"
             )
 
         total_visuals = sum(
             int(document.get("visual_count") or 0) for document in documents
         )
         lines = [
-            '<div class="document-inventory">',
-            "<p><strong>Documents currently imported in the Document Knowledge Library</strong></p>",
-            f"<p>{len(documents):,} document(s) · {total_visuals:,} visual page(s)</p>",
-            '<div class="document-inventory-list">',
+            '<div class="document-inventory" data-fzastro-document-inventory="1" '
+            'style="margin:0; padding:0;">',
+            '<div style="font-weight:700; margin:0 0 4px 0; color:#f8fafc;">'
+            "Documents currently imported in the Document Knowledge Library</div>",
+            f'<div style="margin:0 0 7px 0; color:#d7e3f3;">'
+            f"{len(documents):,} document(s) · {total_visuals:,} visual page(s)</div>",
+            '<div class="document-inventory-list" style="margin:0; padding:0;">',
         ]
 
         for index, document in enumerate(documents, start=1):
@@ -1528,11 +1536,14 @@ class DocumentKnowledgeLibrary:
             )
             lines.extend(
                 [
-                    '<div class="document-inventory-card">',
-                    '<p class="document-inventory-title">'
-                    f'<span class="document-inventory-index">{index}.</span> '
-                    f"<strong>{name}</strong></p>",
-                    f'<p class="document-inventory-stats">{stats}</p>',
+                    '<div class="document-inventory-card" '
+                    'style="margin:0 0 7px 0; padding:7px 9px; '
+                    "border:1px solid #263244; border-radius:8px; "
+                    'background-color:#0b111a;">',
+                    '<div style="margin:0; font-size:15px; line-height:1.25;">'
+                    f'<span style="color:#94a3b8;">{index}.</span> '
+                    f"<strong>{name}</strong></div>",
+                    f'<div style="margin:3px 0 0 0; color:#d7e3f3; line-height:1.25;">{stats}</div>',
                     "</div>",
                 ]
             )

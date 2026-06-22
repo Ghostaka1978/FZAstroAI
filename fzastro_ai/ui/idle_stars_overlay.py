@@ -6,7 +6,7 @@ import math
 import random
 import weakref
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QPointF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -215,8 +215,6 @@ class IdleStarsOverlay(QWidget):
 
         self._draw_black_backdrop(painter, width, height)
         self._draw_code_rain(painter, width, height)
-        self._draw_scanlines(painter, width, height)
-        self._draw_matrix_frame(painter, width, height)
 
         painter.end()
 
@@ -260,39 +258,3 @@ class IdleStarsOverlay(QWidget):
                 alpha = int((36 + fade * 184) * flicker)
                 painter.setPen(QPen(QColor(18, green, 72, alpha), 1))
                 painter.drawText(QPointF(x, y), char)
-
-    def _draw_scanlines(self, painter: QPainter, width: int, height: int) -> None:
-        painter.setPen(QPen(QColor(0, 0, 0, 46), 1))
-        for y in range(0, height, 4):
-            painter.drawLine(0, y, width, y)
-
-        sweep_y = int((self._tick_count * 3) % max(1, height))
-        painter.setPen(QPen(QColor(99, 255, 144, 36), 1))
-        painter.drawLine(0, sweep_y, width, sweep_y)
-
-    def _draw_matrix_frame(self, painter: QPainter, width: int, height: int) -> None:
-        margin = 18
-        frame = QRectF(margin, margin, width - margin * 2, height - margin * 2)
-        painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(QColor(0, 255, 116, 132), 1.2))
-        painter.drawRect(frame)
-
-        painter.setFont(QFont("Consolas", 11, QFont.Bold))
-        painter.setPen(QPen(QColor(154, 255, 185, 230), 1))
-        header = QRectF(width * 0.33, 24, width * 0.34, 34)
-        painter.fillRect(header, QColor(0, 0, 0, 216))
-        painter.drawRect(header)
-        painter.drawText(header, Qt.AlignCenter, "FZASTRO MATRIX IDLE MODE")
-
-        painter.setFont(QFont("Consolas", 9, QFont.Medium))
-        painter.setPen(QPen(QColor(88, 255, 140, 190), 1))
-        painter.drawText(
-            QRectF(28, height - 36, 360, 18),
-            Qt.AlignLeft,
-            "CODE RAIN: ACTIVE · BLACK BACKDROP: TRUE",
-        )
-        painter.drawText(
-            QRectF(width - 430, height - 36, 402, 18),
-            Qt.AlignRight,
-            "INPUT RESTORES WORKSPACE · LOOP: 65 ms",
-        )

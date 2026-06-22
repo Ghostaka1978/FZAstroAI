@@ -4562,10 +4562,16 @@ class FZAstroAI(
 
         if not documents:
             return (
-                '<div class="document-inventory">'
-                "<p><strong>Imported documents</strong></p>"
-                "<p>No documents are currently imported in the Document Knowledge Library.</p>"
-                "<p>Use <strong>Document Knowledge Library → Import Documents</strong> first.</p>"
+                '<div class="document-inventory" data-fzastro-document-inventory="1" '
+                'style="margin:0; padding:0;">'
+                '<div style="font-weight:700; margin:0 0 4px 0; color:#f8fafc;">'
+                "Imported documents</div>"
+                '<div style="margin:0; color:#d7e3f3;">'
+                "No documents are currently imported in the Document Knowledge Library."
+                "</div>"
+                '<div style="margin:4px 0 0 0; color:#cbd5e1;">'
+                "Use <strong>Document Knowledge Library -> Import Documents</strong> first."
+                "</div>"
                 "</div>"
             )
 
@@ -4577,14 +4583,17 @@ class FZAstroAI(
         )
 
         lines = [
-            '<div class="document-inventory">',
-            "<p><strong>Imported documents</strong></p>",
+            '<div class="document-inventory" data-fzastro-document-inventory="1" '
+            'style="margin:0; padding:0;">',
+            '<div style="font-weight:700; margin:0 0 4px 0; color:#f8fafc;">'
+            "Imported documents</div>",
             (
-                f"<p>{len(documents):,} document(s) indexed · "
+                f'<div style="margin:0 0 7px 0; color:#d7e3f3;">'
+                f"{len(documents):,} document(s) indexed · "
                 f"{total_visuals:,} visual page(s). Click a title or action below; "
-                "these are local UI actions, not LLM prompts.</p>"
+                "these are local UI actions, not LLM prompts.</div>"
             ),
-            '<div class="document-inventory-list">',
+            '<div class="document-inventory-list" style="margin:0; padding:0;">',
         ]
 
         for index, document in enumerate(documents, start=1):
@@ -4601,7 +4610,7 @@ class FZAstroAI(
                 "Text searchable" if character_count > 0 else "No searchable text"
             )
             selected_badge = (
-                ' <span class="document-selected-badge">Selected</span>'
+                ' <span style="color:#c4b5fd; font-weight:700;">Selected</span>'
                 if document_id == active_document_id
                 else ""
             )
@@ -4625,12 +4634,15 @@ class FZAstroAI(
             )
             lines.extend(
                 [
-                    '<div class="document-inventory-card">',
-                    '<p class="document-inventory-title">'
-                    f'<span class="document-inventory-index">{index}.</span> '
-                    f"<strong>{title_link}</strong>{selected_badge}</p>",
-                    f'<p class="document-inventory-stats">{stats}</p>',
-                    f'<p class="document-inventory-actions">{actions}</p>',
+                    '<div class="document-inventory-card" '
+                    'style="margin:0 0 7px 0; padding:7px 9px; '
+                    "border:1px solid #263244; border-radius:8px; "
+                    'background-color:#0b111a;">',
+                    '<div style="margin:0; font-size:15px; line-height:1.25;">'
+                    f'<span style="color:#94a3b8;">{index}.</span> '
+                    f"<strong>{title_link}</strong>{selected_badge}</div>",
+                    f'<div style="margin:3px 0 0 0; color:#d7e3f3; line-height:1.25;">{stats}</div>',
+                    f'<div style="margin:3px 0 0 0; line-height:1.25;">{actions}</div>',
                     "</div>",
                 ]
             )
@@ -4638,10 +4650,11 @@ class FZAstroAI(
         lines.extend(
             [
                 "</div>",
-                '<p class="document-inventory-help">Commands: '
-                "<code>/docs</code>, <code>/select 1</code>, "
+                '<div class="document-inventory-help" '
+                'style="margin:5px 0 0 0; color:#cbd5e1; line-height:1.25;">'
+                "Commands: <code>/docs</code>, <code>/select 1</code>, "
                 "<code>/book</code>, <code>/brief</code>, "
-                "<code>/search moon phases</code>.</p>",
+                "<code>/search moon phases</code>.</div>",
                 "</div>",
             ]
         )

@@ -29,7 +29,8 @@ def test_chat_renderer_separates_plain_text_from_markdown_display():
     )
     assert "html.escape(text).splitlines()" in text
     assert 'plain_mode=block.format == "plain"' in text
-    assert 'extensions=["fenced_code", "tables", "sane_lists", "nl2br"]' in text
+    assert 'markdown_extensions = ["fenced_code", "tables", "sane_lists"]' in text
+    assert 'markdown_extensions.append("nl2br")' in text
     assert "overflow-wrap: anywhere" in text
     assert ".chat-copy pre" in text
     assert ".chat-copy table" in text
@@ -296,12 +297,15 @@ def test_idle_matrix_overlay_is_installed_and_testable():
         "self.idle_stars_overlay = IdleStarsOverlay(root, idle_ms=45_000)" in app_source
     )
     assert "self.idle_stars_overlay.install_on(QApplication.instance())" in app_source
-    assert "FZASTRO MATRIX IDLE MODE" in overlay_source
-    assert "CODE RAIN: ACTIVE" in overlay_source
     assert "QColor(0, 0, 0, 255)" in overlay_source
     assert "Qt.WA_OpaquePaintEvent" in overlay_source
     assert "_draw_code_rain" in overlay_source
-    assert "_draw_matrix_frame" in overlay_source
+    assert "_draw_matrix_frame" not in overlay_source
+    assert "_draw_scanlines" not in overlay_source
+    assert "drawRect" not in overlay_source
+    assert "FZASTRO MATRIX IDLE MODE" not in overlay_source
+    assert "CODE RAIN: ACTIVE" not in overlay_source
+    assert "INPUT RESTORES WORKSPACE" not in overlay_source
     assert "_draw_spacecraft" not in overlay_source
     assert "_draw_pet" not in overlay_source
 
@@ -353,13 +357,17 @@ def test_document_inventory_chat_picker_stays_card_html_not_markdown():
         )
     ]
 
-    assert '<div class="document-inventory">' in picker_block
-    assert '<div class="document-inventory-card">' in picker_block
+    assert 'data-fzastro-document-inventory="1"' in picker_block
+    assert 'class="document-inventory-card"' in picker_block
+    assert '<p class="document-inventory-title">' not in picker_block
     assert '<table class="document-inventory-table">' not in picker_block
+    assert 'style="margin:0 0 7px 0; padding:7px 9px;' in picker_block
     assert "document-inventory-card" in library_text
     assert '<table class="document-inventory-table">' not in library_text
     assert 'f"<strong>{index}. {title_link}</strong>' not in picker_block
     assert 'if "document-inventory" in clean_text:' in widget_text
+    assert "if not inventory_mode:" in widget_text
+    assert 'markdown_extensions.append("nl2br")' in widget_text
     assert ".document-inventory-card" in widget_text
 
 

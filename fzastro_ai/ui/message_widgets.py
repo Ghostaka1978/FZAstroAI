@@ -986,9 +986,11 @@ def render_text_block(text, news_mode=False, user_mode=False, plain_mode=False):
         ):
             text = normalize_compacted_markdown(text)
 
-        html_content = markdown.markdown(
-            text, extensions=["fenced_code", "tables", "sane_lists", "nl2br"]
-        )
+        markdown_extensions = ["fenced_code", "tables", "sane_lists"]
+        if not inventory_mode:
+            markdown_extensions.append("nl2br")
+
+        html_content = markdown.markdown(text, extensions=markdown_extensions)
 
         if news_mode:
             # Last-resort HTML cleanup.  QTextBrowser supports only part of CSS, so
