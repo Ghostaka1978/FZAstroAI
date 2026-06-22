@@ -123,6 +123,13 @@ class ChatLifecycleMixin:
         if plan is None:
             return False
 
+        # Weather Today is intentionally not executed as an app-generated chat
+        # card.  Keep the router's intent detection intact, but let the normal
+        # chat/web decision path handle weather-like text so casual prompts can
+        # never surface the old Weather Today block.
+        if getattr(plan, "action", "") == "weather_today":
+            return False
+
         if hasattr(self, "set_last_tool_result"):
             self.set_last_tool_result(
                 f"Tool route: {plan.tool_id}",
@@ -191,24 +198,6 @@ class ChatLifecycleMixin:
                 return True
 
             self.stats_label.setText("Preparing URL page extraction...")
-            self.start_web_search_request(plan.query or text, request)
-            return True
-
-        if plan.action == "weather_today":
-            if web_mode == "Off":
-                return False
-
-            request = {
-                "text": text,
-                "display_text": display_text,
-                "files": files,
-                "force_search": False,
-                "include_document_knowledge": False,
-                "model_override": model_override,
-                "worker_mode": "weather",
-            }
-
-            self.stats_label.setText("Fetching current weather...")
             self.start_web_search_request(plan.query or text, request)
             return True
 

@@ -214,6 +214,7 @@ from .ui.about_dialog import open_about_window
 from .ui.llm_benchmark_dialog import open_llm_benchmark_dialog
 from .ui.source_chips import add_source_header_widget
 from .ui.styles import get_main_stylesheet
+from .ui.cursors import apply_interactive_cursors, install_interactive_cursor_filter
 from .ui.main_layout import MainLayoutMixin
 from .ui.attachment_controls import AttachmentControlsMixin
 from .ui.workspace_tabs import WorkspaceTabsMixin
@@ -1978,7 +1979,9 @@ class FZAstroAI(
 
     def build_system_menu(self):
         menu = QMenu(self)
-        menu.setToolTipsVisible(True)
+        set_tooltips_visible = getattr(menu, "setToolTipsVisible", None)
+        if callable(set_tooltips_visible):
+            set_tooltips_visible(True)
 
         self.system_history_action = QAction("Chat history", self)
         self.system_history_action.setCheckable(True)
@@ -3749,6 +3752,21 @@ class FZAstroAI(
         action.setDefaultWidget(label)
         menu.addAction(action)
 
+    def _create_submenu(self, parent_menu: QMenu, title: str) -> QMenu:
+        """Create a real QMenu submenu across PySide6 builds.
+
+        Some PySide6 versions expose overloaded ``addMenu`` bindings that can
+        return a generic widget/action wrapper when called with text directly.
+        Keep the returned object stable by constructing the submenu explicitly
+        and then attaching it to the parent menu.
+        """
+        submenu = QMenu(str(title), parent_menu)
+        parent_menu.addMenu(submenu)
+        set_tooltips_visible = getattr(submenu, "setToolTipsVisible", None)
+        if callable(set_tooltips_visible):
+            set_tooltips_visible(True)
+        return submenu
+
     def build_profile_menu(self):
         """Build the compact calibration-profile menu for the top bar."""
         menu = QMenu(self)
@@ -3816,8 +3834,10 @@ class FZAstroAI(
                 continue
 
             skill_label = compact_skill_labels.get(skill.skill_id, skill.label)
-            skill_menu = menu.addMenu(f"{skill.icon} {skill_label}")
-            skill_menu.setToolTipsVisible(True)
+            skill_menu = self._create_submenu(menu, f"{skill.icon} {skill_label}")
+            set_tooltips_visible = getattr(skill_menu, "setToolTipsVisible", None)
+            if callable(set_tooltips_visible):
+                set_tooltips_visible(True)
             self._add_skill_actions_to_menu(skill_menu, skill.skill_id)
 
         return menu
@@ -3852,7 +3872,7 @@ class FZAstroAI(
 
     def _add_registry_actions_to_menu(self, menu, groups=None):
         for group_name, actions in composer_actions_by_group(groups).items():
-            group_menu = menu.addMenu(group_name)
+            group_menu = self._create_submenu(menu, group_name)
 
             for action_spec in actions:
                 action = QAction(action_spec.label, self)
@@ -4564,6 +4584,14 @@ class FZAstroAI(
                 f"{total_visuals:,} visual page(s). Click a title or action below; "
                 "these are local UI actions, not LLM prompts.</p>"
             ),
+            '<table class="document-inventory-table">',
+            "<thead><tr>"
+            '<th style="text-align:right;">#</th>'
+            "<th>Document</th>"
+            "<th>Stats</th>"
+            "<th>Actions</th>"
+            "</tr></thead>",
+            "<tbody>",
         ]
 
         for index, document in enumerate(documents, start=1):
@@ -4580,7 +4608,7 @@ class FZAstroAI(
                 "Text searchable" if character_count > 0 else "No searchable text"
             )
             selected_badge = (
-                " · <strong>Selected</strong>"
+                " <strong>Selected</strong>"
                 if document_id == active_document_id
                 else ""
             )
@@ -4597,22 +4625,30 @@ class FZAstroAI(
                     self._knowledge_document_chat_link("ask", document_id, "Ask"),
                 ]
             )
-            lines.append(
-                "<p>"
-                f"<strong>{index}. {title_link}</strong>{selected_badge}<br>"
+            stats = (
                 f"{character_count:,} characters · {chunk_count:,} chunks · "
                 f"{section_count:,} sections · {visual_count:,} visual pages · "
-                f"{html.escape(searchable_state)}<br>"
-                f"{actions}"
-                "</p>"
+                f"{html.escape(searchable_state)}"
+            )
+            lines.append(
+                "<tr>"
+                f'<td style="text-align:right; white-space:nowrap;">{index}</td>'
+                f"<td><strong>{title_link}</strong>{selected_badge}</td>"
+                f"<td>{stats}</td>"
+                f"<td>{actions}</td>"
+                "</tr>"
             )
 
-        lines.append(
-            "<p>Commands: <code>/docs</code>, <code>/select 1</code>, "
-            "<code>/book</code>, <code>/brief</code>, "
-            "<code>/search moon phases</code>.</p>"
+        lines.extend(
+            [
+                "</tbody>",
+                "</table>",
+                "<p>Commands: <code>/docs</code>, <code>/select 1</code>, "
+                "<code>/book</code>, <code>/brief</code>, "
+                "<code>/search moon phases</code>.</p>",
+                "</div>",
+            ]
         )
-        lines.append("</div>")
         return "\n".join(lines).strip()
 
     def show_knowledge_documents_in_chat(self):
@@ -5594,11 +5630,13 @@ class FZAstroAI(
 
     def apply_styles(self):
         self.setStyleSheet(get_main_stylesheet())
+        apply_interactive_cursors(self)
 
 
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    install_interactive_cursor_filter(app)
     window = FZAstroAI()
     window.show()
     sys.exit(app.exec())

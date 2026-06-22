@@ -285,7 +285,7 @@ def test_dev_workbench_uses_terminal_first_openclaude_mode():
     assert 'primary_row.addWidget(QLabel("Legacy:"))' not in text
 
 
-def test_idle_mission_control_overlay_is_installed_and_testable():
+def test_idle_matrix_overlay_is_installed_and_testable():
     app_source = Path("fzastro_ai/app.py").read_text(encoding="utf-8")
     overlay_source = Path("fzastro_ai/ui/idle_stars_overlay.py").read_text(
         encoding="utf-8"
@@ -296,14 +296,25 @@ def test_idle_mission_control_overlay_is_installed_and_testable():
         "self.idle_stars_overlay = IdleStarsOverlay(root, idle_ms=45_000)" in app_source
     )
     assert "self.idle_stars_overlay.install_on(QApplication.instance())" in app_source
-    assert "BLACK IDLE MISSION CONTROL · input restores workspace" in overlay_source
+    assert "FZASTRO MATRIX IDLE MODE" in overlay_source
+    assert "CODE RAIN: ACTIVE" in overlay_source
     assert "QColor(0, 0, 0, 255)" in overlay_source
     assert "Qt.WA_OpaquePaintEvent" in overlay_source
-    assert "FZASTRO ORBITAL ENGINEERING DISPLAY" in overlay_source
-    assert "ORBIT TELEMETRY" in overlay_source
-    assert "FLIGHT SYSTEMS" in overlay_source
-    assert "_draw_spacecraft" in overlay_source
+    assert "_draw_code_rain" in overlay_source
+    assert "_draw_matrix_frame" in overlay_source
+    assert "_draw_spacecraft" not in overlay_source
     assert "_draw_pet" not in overlay_source
+
+
+def test_qmenu_tooltips_are_guarded_for_pyside_versions():
+    app_text = Path("fzastro_ai/app.py").read_text(encoding="utf-8")
+    tabs_text = Path("fzastro_ai/ui/workspace_tabs.py").read_text(encoding="utf-8")
+
+    assert 'getattr(menu, "setToolTipsVisible", None)' in app_text
+    assert 'getattr(skill_menu, "setToolTipsVisible", None)' in app_text
+    assert 'getattr(menu, "setToolTipsVisible", None)' in tabs_text
+    assert "menu.setToolTipsVisible(True)" not in app_text
+    assert "menu.setToolTipsVisible(True)" not in tabs_text
 
 
 def test_main_app_labels_claude_consistently_and_standardizes_buttons():
@@ -324,3 +335,51 @@ def test_main_app_labels_claude_consistently_and_standardizes_buttons():
     assert "QPushButton," in styles_text
     assert "QToolButton#openclaudeMenuButton" in styles_text
     assert "QMenu::item:selected" in styles_text
+
+
+def test_document_inventory_chat_picker_stays_raw_html_not_markdown():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+    widget_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "message_widgets.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    picker_start = app_text.index("def format_knowledge_documents_chat_picker")
+    picker_block = app_text[
+        picker_start : app_text.index(
+            "def show_knowledge_documents_in_chat", picker_start
+        )
+    ]
+
+    assert '<div class="document-inventory">' in picker_block
+    assert '<table class="document-inventory-table">' in picker_block
+    assert 'f"<td><strong>{title_link}</strong>{selected_badge}</td>"' in picker_block
+    assert 'f"<strong>{index}. {title_link}</strong>' not in picker_block
+    assert 'if "document-inventory" in clean_text:' in widget_text
+
+
+def test_weather_today_app_card_disabled_without_router_changes():
+    chat_lifecycle_text = (
+        PROJECT_ROOT / "fzastro_ai" / "actions" / "chat_lifecycle.py"
+    ).read_text(encoding="utf-8-sig")
+    tool_router_text = (
+        PROJECT_ROOT / "fzastro_ai" / "routing" / "tool_router.py"
+    ).read_text(encoding="utf-8-sig")
+
+    assert 'getattr(plan, "action", "") == "weather_today"' in chat_lifecycle_text
+    assert "return False" in chat_lifecycle_text
+    assert '"worker_mode": "weather"' not in chat_lifecycle_text
+    assert 'action="weather_today"' in tool_router_text
+
+
+def test_shared_interactive_cursor_filter_is_installed_for_buttons():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+    cursor_text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "cursors.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "install_interactive_cursor_filter(app)" in app_text
+    assert "apply_interactive_cursors(self)" in app_text
+    assert "class InteractiveCursorFilter" in cursor_text
+    assert "QAbstractButton" in cursor_text
+    assert "Qt.PointingHandCursor" in cursor_text
+    assert "QEvent.Type.ChildAdded" in cursor_text

@@ -87,7 +87,9 @@ class WorkspaceTabsMixin:
 
     def _build_workspace_apps_menu(self) -> QMenu:
         menu = QMenu(self)
-        menu.setToolTipsVisible(True)
+        set_tooltips_visible = getattr(menu, "setToolTipsVisible", None)
+        if callable(set_tooltips_visible):
+            set_tooltips_visible(True)
 
         self._add_workspace_menu_section(menu, "Astronomy")
         self._add_workspace_app_action(

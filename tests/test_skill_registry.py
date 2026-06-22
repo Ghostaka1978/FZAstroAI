@@ -240,6 +240,18 @@ def test_side_panels_overlay_main_without_layout_cramping():
     assert "def close_sidebar(self):" in main_layout_text
 
 
+def test_submenus_are_constructed_as_real_qmenus_for_pyside_compatibility():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+
+    assert "def _create_submenu" in app_text
+    assert "submenu = QMenu(str(title), parent_menu)" in app_text
+    assert "parent_menu.addMenu(submenu)" in app_text
+    assert "skill_menu = self._create_submenu(menu," in app_text
+    assert "group_menu = self._create_submenu(menu, group_name)" in app_text
+    assert "skill_menu = menu.addMenu" not in app_text
+    assert "group_menu = menu.addMenu" not in app_text
+
+
 def test_context_and_mode_are_in_skills_menu_labels():
     app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
 
