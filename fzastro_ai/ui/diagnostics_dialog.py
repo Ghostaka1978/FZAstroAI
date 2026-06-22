@@ -3,7 +3,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -184,8 +184,10 @@ def open_diagnostics_window(parent):
 
     dialog = QDialog(parent)
     apply_window_defaults(dialog)
-    dialog.setObjectName("helpDialog")
+    dialog.setObjectName("diagnosticsDialog")
+    dialog.setAccessibleName("FZAstro AI Diagnostics")
     dialog.setWindowTitle("FZAstro AI Diagnostics")
+    dialog.setAttribute(Qt.WA_DeleteOnClose, False)
     dialog.resize(980, 760)
 
     layout = QVBoxLayout(dialog)
@@ -205,6 +207,7 @@ def open_diagnostics_window(parent):
     diagnostics_view.setObjectName("helpCheatSheetBrowser")
     diagnostics_view.setOpenExternalLinks(False)
     diagnostics_view.setReadOnly(True)
+    diagnostics_view.setContextMenuPolicy(Qt.DefaultContextMenu)
     diagnostics_view.setPlainText(build_diagnostics_report(parent))
 
     button_row = QHBoxLayout()

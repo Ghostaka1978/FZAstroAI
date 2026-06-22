@@ -67,6 +67,19 @@ def apply_fzastro_window_stylesheet(window: QWidget) -> None:
         return
 
 
+def apply_interactive_cursors_later(window: QWidget | None) -> None:
+    """Best-effort cursor polish for stable app-owned windows/dialogs."""
+
+    if window is None:
+        return
+    try:
+        from .cursors import apply_interactive_cursors
+
+        apply_interactive_cursors(window)
+    except Exception:
+        return
+
+
 def bring_window_to_front(window: QWidget) -> None:
     """Best-effort activation for newly opened utility windows."""
     try:
@@ -102,5 +115,7 @@ def apply_window_defaults(
     if center:
         QTimer.singleShot(0, lambda: center_window_on_screen(window))
         QTimer.singleShot(80, lambda: center_window_on_screen(window))
+    QTimer.singleShot(0, lambda: apply_interactive_cursors_later(window))
+    QTimer.singleShot(120, lambda: apply_interactive_cursors_later(window))
     QTimer.singleShot(0, lambda: bring_window_to_front(window))
     QTimer.singleShot(120, lambda: bring_window_to_front(window))

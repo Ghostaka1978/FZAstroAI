@@ -4,10 +4,49 @@ from __future__ import annotations
 
 import math
 import random
+import weakref
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
+
+try:
+    from shiboken6 import isValid as _qt_is_valid
+except Exception:  # pragma: no cover - depends on PySide install shape
+    _qt_is_valid = None
+
+
+def _is_qt_valid(obj) -> bool:
+    """Return false for deleted PySide wrappers before touching native Qt."""
+
+    if obj is None:
+        return False
+    if _qt_is_valid is None:
+        return True
+    try:
+        return bool(_qt_is_valid(obj))
+    except Exception:
+        return False
+
+
+class _IdleActivityFilter(QObject):
+    """Small QObject event filter that avoids using the QWidget as the filter."""
+
+    def __init__(self, overlay: "IdleStarsOverlay") -> None:
+        super().__init__()
+        self._overlay_ref = weakref.ref(overlay)
+
+    def eventFilter(self, watched, event):  # noqa: N802 - Qt override name
+        overlay = self._overlay_ref()
+        if not _is_qt_valid(overlay):
+            return False
+        try:
+            overlay._handle_activity_event(event)
+        except RuntimeError:
+            return False
+        except Exception:
+            return False
+        return False
 
 
 class IdleStarsOverlay(QWidget):
@@ -16,6 +55,8 @@ class IdleStarsOverlay(QWidget):
     The overlay is passive: it appears only after inactivity, ignores mouse
     events so the first user action reaches the normal UI, and hides as soon as
     any keyboard, mouse, wheel, or touch activity is seen by the application.
+    The global activity filter is a separate QObject so teardown does not leave
+    QApplication pointing at a native QWidget being destroyed.
     """
 
     ACTIVITY_EVENTS = {
@@ -43,6 +84,8 @@ class IdleStarsOverlay(QWidget):
         self._phase = 0.0
         self._tick_count = 0
         self._columns = self._make_columns()
+        self._activity_filter: _IdleActivityFilter | None = None
+        self._activity_application: QApplication | None = None
 
         self._idle_timer = QTimer(self)
         self._idle_timer.setSingleShot(True)
@@ -52,6 +95,7 @@ class IdleStarsOverlay(QWidget):
         self._animation_timer.setInterval(65)
         self._animation_timer.timeout.connect(self._tick)
 
+        self.destroyed.connect(lambda *_args: self._uninstall_activity_filter())
         self.hide()
         self.reset_idle_timer()
 
@@ -59,24 +103,60 @@ class IdleStarsOverlay(QWidget):
         """Install the global activity filter used to hide/reset the overlay."""
 
         app = application or QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)
+        if app is None or self._activity_filter is not None:
+            return
+        try:
+            activity_filter = _IdleActivityFilter(self)
+            activity_filter.setParent(app)
+            app.installEventFilter(activity_filter)
+            self._activity_filter = activity_filter
+            self._activity_application = app
+        except Exception:
+            self._activity_filter = None
+            self._activity_application = None
+
+    def _uninstall_activity_filter(self) -> None:
+        app = self._activity_application
+        activity_filter = self._activity_filter
+        self._activity_application = None
+        self._activity_filter = None
+        try:
+            if app is not None and activity_filter is not None:
+                app.removeEventFilter(activity_filter)
+                activity_filter.setParent(None)
+                activity_filter.deleteLater()
+        except Exception:
+            return
 
     def reset_idle_timer(self) -> None:
         """Restart inactivity tracking without changing other application state."""
 
-        self._idle_timer.start(self._idle_ms)
-
-    def eventFilter(self, watched, event):  # noqa: N802 - Qt override name
         try:
-            if event is not None and event.type() in self.ACTIVITY_EVENTS:
-                if self.isVisible():
-                    self.hide()
-                    self._animation_timer.stop()
-                self.reset_idle_timer()
+            if _is_qt_valid(self):
+                self._idle_timer.start(self._idle_ms)
+        except RuntimeError:
+            return
+
+    def _handle_activity_event(self, event) -> None:
+        if event is None or event.type() not in self.ACTIVITY_EVENTS:
+            return
+        if self.isVisible():
+            self.hide()
+            self._animation_timer.stop()
+        self.reset_idle_timer()
+
+    def closeEvent(self, event):  # noqa: N802 - Qt override name
+        self._animation_timer.stop()
+        self._idle_timer.stop()
+        self._uninstall_activity_filter()
+        super().closeEvent(event)
+
+    def hideEvent(self, event):  # noqa: N802 - Qt override name
+        try:
+            self._animation_timer.stop()
         except RuntimeError:
             pass
-        return super().eventFilter(watched, event)
+        super().hideEvent(event)
 
     def resizeEvent(self, event):  # noqa: N802 - Qt override name
         super().resizeEvent(event)
@@ -84,14 +164,19 @@ class IdleStarsOverlay(QWidget):
 
     def _show_overlay(self) -> None:
         parent = self.parentWidget()
-        if parent is not None:
-            self.setGeometry(parent.rect())
+        if parent is None or not _is_qt_valid(parent) or not parent.isVisible():
+            self.reset_idle_timer()
+            return
+        self.setGeometry(parent.rect())
         self.raise_()
         self.show()
         if not self._animation_timer.isActive():
             self._animation_timer.start()
 
     def _tick(self) -> None:
+        if not self.isVisible():
+            self._animation_timer.stop()
+            return
         self._phase = (self._phase + 0.065) % (math.pi * 2.0)
         self._tick_count = (self._tick_count + 1) % 1_000_000
         self.update()
