@@ -121,14 +121,14 @@ def test_openclaude_git_api_token_clear_preserves_model_key(tmp_path):
 def test_openclaude_max_output_tokens_can_be_changed_without_secrets(tmp_path):
     settings_file = tmp_path / "settings.json"
 
-    saved = save_openclaude_max_output_tokens("24000", settings_file=settings_file)
+    saved = save_openclaude_max_output_tokens("128000", settings_file=settings_file)
     loaded = load_openclaude_api_settings(settings_file=settings_file)
 
-    assert saved.max_output_tokens == "24000"
-    assert loaded.max_output_tokens == "24000"
+    assert saved.max_output_tokens == "128000"
+    assert loaded.max_output_tokens == "128000"
     assert loaded.has_max_output_tokens
-    state = openclaude_max_output_tokens_state(loaded, default="16000")
-    assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS: 24000" in state
+    state = openclaude_max_output_tokens_state(loaded, default="128000")
+    assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS: 128000" in state
 
 
 def test_openclaude_max_output_tokens_is_clamped_and_preserved_when_key_clears(
@@ -141,5 +141,5 @@ def test_openclaude_max_output_tokens_is_clamped_and_preserved_when_key_clears(
     cleared = clear_openclaude_api_key(settings_file=settings_file)
 
     assert cleared.api_key == ""
-    assert cleared.max_output_tokens == "24000"
+    assert cleared.max_output_tokens == "128000"
     assert settings_file.exists()

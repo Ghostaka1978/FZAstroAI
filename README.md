@@ -170,7 +170,12 @@ OpenClaude uses the model/provider selected by FZAstro and launches with a contr
 ```text
 CLAUDE_CODE_USE_OPENAI=1
 CLAUDE_CODE_USE_POWERSHELL_TOOL=1
-CLAUDE_CODE_MAX_OUTPUT_TOKENS=<saved CTX/output cap>
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000
+CLAUDE_CODE_MAX_CONTEXT_TOKENS=128000
+OPENAI_MAX_CONTEXT_TOKENS=128000
+CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW=128000
+CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS={"<selected model>":128000}
+CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS={"<selected model>":128000}
 OPENAI_BASE_URL=<selected endpoint>
 OPENAI_MODEL=<selected model>
 OPENAI_API_KEY=<stored/local key>
@@ -187,7 +192,7 @@ GIT_TERMINAL_PROMPT=0
 GIT_CONFIG_NOSYSTEM=1
 ```
 
-The **Set Ctx / Output Cap** action changes the saved `CLAUDE_CODE_MAX_OUTPUT_TOKENS` value. Running OpenClaude sessions must be restarted to use a changed cap.
+OpenClaude launches with both context and output token caps fixed at `128000`. Older saved `CLAUDE_CODE_MAX_OUTPUT_TOKENS` values such as `24000` or `32000` are promoted to `128000` when the terminal environment is built. FZAstro also pins the selected OpenAI-compatible model in OpenClaude's per-model context/output override maps so `/ctx` does not fall back to a lower model-metadata default such as `32.0k tokens (up to 128.0k)`.
 
 ## OpenClaude UI
 

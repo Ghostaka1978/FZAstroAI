@@ -158,6 +158,8 @@ def test_session_tab_shows_powershell_tool_environment():
 
     assert "CLAUDE_CODE_USE_POWERSHELL_TOOL=" in source
     assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS=" in source
+    assert "CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS=" in source
+    assert "CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS=" in source
     assert "session_summary_label" in source
     assert "Prompt tab state:" in source
 
@@ -251,6 +253,9 @@ def test_openclaude_session_shows_prerequisites_and_fixed_context_cap():
     assert "Context cap:" in source
     assert "CLAUDE_CODE_MAX_CONTEXT_TOKENS=" in source
     assert "OPENAI_MAX_CONTEXT_TOKENS=" in source
+    assert "CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW=" in source
+    assert "CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS=" in source
+    assert "CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS=" in source
     assert "Output tokens:" in source
 
 

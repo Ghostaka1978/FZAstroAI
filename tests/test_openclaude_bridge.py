@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 
 import pytest
@@ -9,6 +10,7 @@ from fzastro_ai.dev_agent.openclaude_bridge import (
     audit_openclaude_project_root,
     build_openclaude_environment,
     build_openclaude_launcher_script,
+    build_openclaude_model_limit_override_json,
     build_openclaude_project_context,
     build_openclaude_task_prompt,
     openclaude_workspace_isolation_lines,
@@ -39,7 +41,7 @@ def test_openclaude_environment_uses_selected_runtime(tmp_path):
         model="rafw007/qwen3-coder:latest",
         base_url="http://localhost:11434/v1",
         api_key="ollama",
-        max_output_tokens="24000",
+        max_output_tokens="128000",
     )
 
     env = build_openclaude_environment(config)
@@ -48,9 +50,22 @@ def test_openclaude_environment_uses_selected_runtime(tmp_path):
     assert env["OPENAI_MODEL"] == "rafw007/qwen3-coder:latest"
     assert env["OPENAI_BASE_URL"] == "http://localhost:11434/v1"
     assert env["OPENAI_API_KEY"] == "ollama"
-    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "24000"
+    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "128000"
     assert env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "128000"
     assert env["OPENAI_MAX_CONTEXT_TOKENS"] == "128000"
+    assert env["CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW"] == "128000"
+    assert (
+        json.loads(env["CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS"])[
+            "rafw007/qwen3-coder:latest"
+        ]
+        == 128000
+    )
+    assert (
+        json.loads(env["CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS"])[
+            "rafw007/qwen3-coder:latest"
+        ]
+        == 128000
+    )
     assert "FZASTRO_OPENCLAUDE_API_KEY_FILE" not in env
     assert env["FZASTRO_OPENCLAUDE_SETTINGS_FILE"].endswith("openclaude_settings.json")
     assert env["FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE"].endswith("openclaude_settings.json")
@@ -65,6 +80,15 @@ def test_openclaude_environment_uses_selected_runtime(tmp_path):
     assert env["GIT_CONFIG_VALUE_0"] == ""
 
 
+def test_openclaude_model_limit_override_json_pins_selected_model():
+    payload = build_openclaude_model_limit_override_json("Qwen3.6-Coding:35B", "128000")
+
+    limits = json.loads(payload)
+
+    assert limits["Qwen3.6-Coding:35B"] == 128000
+    assert limits["qwen3.6-coding:35b"] == 128000
+
+
 def test_openclaude_launcher_forwards_args_and_caps_output_tokens(tmp_path):
     root = make_fzastro_root(tmp_path)
     config = OpenClaudeLaunchConfig(project_root=root, model="qwen3:32b")
@@ -74,8 +98,11 @@ def test_openclaude_launcher_forwards_args_and_caps_output_tokens(tmp_path):
     assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS" in script
     assert "CLAUDE_CODE_MAX_CONTEXT_TOKENS" in script
     assert "OPENAI_MAX_CONTEXT_TOKENS" in script
+    assert "CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW" in script
+    assert "CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS" in script
+    assert "CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS" in script
     assert "CLAUDE_CODE_USE_POWERSHELL_TOOL" in script
-    assert "16000" in script
+    assert "128000" in script
     assert "& $openClaudeCommand.Source @args" in script
     assert "openclaude --continue" in script
 
@@ -337,10 +364,10 @@ def test_launcher_script_reads_git_api_token_without_embedding_secret(tmp_path):
 
 
 def test_openclaude_max_output_tokens_normalizer_clamps_provider_budget():
-    assert normalize_claude_code_max_output_tokens("512") == "1024"
-    assert normalize_claude_code_max_output_tokens("16000") == "16000"
-    assert normalize_claude_code_max_output_tokens("999999") == "24000"
-    assert normalize_claude_code_max_output_tokens("not-a-number") == "16000"
+    assert normalize_claude_code_max_output_tokens("512") == "128000"
+    assert normalize_claude_code_max_output_tokens("32000") == "128000"
+    assert normalize_claude_code_max_output_tokens("999999") == "128000"
+    assert normalize_claude_code_max_output_tokens("not-a-number") == "128000"
 
 
 def test_openclaude_context_cap_is_fixed_at_128000():

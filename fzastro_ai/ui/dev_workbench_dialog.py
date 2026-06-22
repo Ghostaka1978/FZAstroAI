@@ -65,11 +65,13 @@ from ..dev_agent.openclaude_bridge import (
     OpenClaudeLaunchConfig,
     DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS,
     DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS,
+    DEFAULT_CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW,
     DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL,
     audit_openclaude_project_root,
     get_openclaude_tool_status,
     normalize_claude_code_max_output_tokens,
     normalize_claude_code_max_context_tokens,
+    build_openclaude_model_limit_override_json,
     openclaude_workspace_isolation_lines,
     build_openclaude_task_prompt,
     launch_openclaude_companion,
@@ -844,12 +846,13 @@ class DevWorkbenchDialog(QWidget):
             "Show the active OpenClaude context state."
         )
         self.openclaude_ctx_button.clicked.connect(self.send_openclaude_ctx_command)
-        # Context is fixed at 128000 and output-token budget is kept out of
-        # the visible Claude controls to avoid accidental provider limit changes.
+        # Context and output tokens are fixed at 128000 so OpenClaude launches at
+        # the largest advertised coding limits. Manual changes remain hidden behind
+        # the compatibility helper, and lower legacy settings are promoted.
         self.openclaude_set_ctx_button = QPushButton("Context Fixed")
         self.openclaude_set_ctx_button.setVisible(False)
         self.openclaude_set_ctx_button.setToolTip(
-            "Claude context is fixed at 128000 tokens."
+            "Claude context and output are fixed at 128000 tokens."
         )
         self.openclaude_slash_clear_button = QPushButton("Clear")
         self.openclaude_slash_clear_button.setToolTip(
@@ -1741,6 +1744,13 @@ class DevWorkbenchDialog(QWidget):
         git_state = openclaude_git_token_state(settings)
         max_output_tokens = self._active_openclaude_max_output_tokens()
         max_context_tokens = normalize_claude_code_max_context_tokens()
+        model_name = runtime.model or DEFAULT_MODEL_NAME
+        openai_context_windows = build_openclaude_model_limit_override_json(
+            model_name, max_context_tokens
+        )
+        openai_max_output_tokens = build_openclaude_model_limit_override_json(
+            model_name, max_output_tokens
+        )
         openclaude_tools = get_openclaude_tool_status()
         openclaude_missing = (
             ", ".join(openclaude_tools.missing) if openclaude_tools.missing else "none"
@@ -1756,8 +1766,11 @@ class DevWorkbenchDialog(QWidget):
             f"CLAUDE_CODE_MAX_OUTPUT_TOKENS={max_output_tokens}",
             f"CLAUDE_CODE_MAX_CONTEXT_TOKENS={max_context_tokens}",
             f"OPENAI_MAX_CONTEXT_TOKENS={max_context_tokens}",
+            f"CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW={DEFAULT_CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW}",
+            f"CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS={openai_context_windows}",
+            f"CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS={openai_max_output_tokens}",
             f"OPENAI_BASE_URL={runtime.base_url or BASE_URL}",
-            f"OPENAI_MODEL={runtime.model or DEFAULT_MODEL_NAME}",
+            f"OPENAI_MODEL={model_name}",
             api_state,
             "OPENAI_API_KEY purpose: model endpoint only",
             f"GITHUB_TOKEN={'stored locally for Git API / hidden' if settings.has_git_api_token else 'not set by FZAstro'}",
@@ -2310,10 +2323,10 @@ class DevWorkbenchDialog(QWidget):
         value, ok = QInputDialog.getInt(
             self,
             "OpenClaude output tokens",
-            "Max output tokens for the next Claude start (safe range 1024-24000):",
+            "Max output tokens for the next Claude start (fixed maximum 128000):",
             current,
-            1024,
-            24000,
+            128000,
+            128000,
             512,
         )
         if not ok:

@@ -17,7 +17,7 @@ from typing import Any
 from ..config import API_KEY, APP_DIR
 from ..json_store import atomic_write_json, preserve_corrupt_file
 
-OPENCLAUDE_SETTINGS_SCHEMA_VERSION = 3
+OPENCLAUDE_SETTINGS_SCHEMA_VERSION = 4
 OPENCLAUDE_SETTINGS_FILE = APP_DIR / "openclaude" / "openclaude_settings.json"
 # Backwards-compatible internal alias. Do not expose this name in UI/env output.
 OPENCLAUDE_API_SETTINGS_FILE = OPENCLAUDE_SETTINGS_FILE
@@ -78,8 +78,9 @@ def _coerce_token_budget(value: Any) -> str:
     """Return a safe persisted token budget or an empty string.
 
     This stores the OpenClaude/Claude Code output-token cap for compatibility
-    with existing local settings. The visible UI no longer exposes this as a
-    context-set control; OpenClaude context is fixed separately at 128000.
+    with existing local settings. The value is intentionally raised to the
+    128000-token maximum so older 24000/32000 settings cannot downgrade new
+    launches.
     """
 
     raw = str(value or "").strip()
@@ -89,7 +90,7 @@ def _coerce_token_budget(value: Any) -> str:
         number = int(raw)
     except (TypeError, ValueError):
         return ""
-    number = max(1024, min(24000, number))
+    number = max(128000, min(128000, number))
     return str(number)
 
 
@@ -245,7 +246,7 @@ def save_openclaude_max_output_tokens(
 
 
 def openclaude_max_output_tokens_state(
-    settings: OpenClaudeApiSettings, *, default: str = "16000"
+    settings: OpenClaudeApiSettings, *, default: str = "128000"
 ) -> str:
     """Return a UI-safe status line for the output-token budget."""
 

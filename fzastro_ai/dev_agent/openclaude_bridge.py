@@ -9,6 +9,7 @@ coding-agent terminal with the same selected model and endpoint.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import shutil
@@ -27,13 +28,16 @@ OPENCLAUDE_CONTEXT_NAME = "latest_project_context.md"
 OPENCLAUDE_OUTPUT_LOG_NAME = "latest_openclaude_output.log"
 OPENCLAUDE_DIFF_NAME = "latest_diff.patch"
 OPENCLAUDE_REPORT_NAME = "latest_report.md"
-DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS = "16000"
+DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS = "128000"
 DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS = "128000"
+DEFAULT_CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW = (
+    DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS
+)
 DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL = "1"
 
 
 def normalize_claude_code_max_output_tokens(value: object) -> str:
-    """Return a safe Claude Code output-token cap for OpenClaude launches."""
+    """Return the fixed maximum Claude Code output-token cap for OpenClaude launches."""
 
     raw = str(value or "").strip()
     if not raw:
@@ -42,7 +46,7 @@ def normalize_claude_code_max_output_tokens(value: object) -> str:
         number = int(raw)
     except (TypeError, ValueError):
         return DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS
-    number = max(1024, min(24000, number))
+    number = max(128000, min(128000, number))
     return str(number)
 
 
@@ -56,6 +60,27 @@ def normalize_claude_code_max_context_tokens(value: object = None) -> str:
         number = int(DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS)
     number = max(8192, min(128000, number))
     return str(number)
+
+
+def build_openclaude_model_limit_override_json(model: object, tokens: object) -> str:
+    """Return compact OpenClaude per-model limit override JSON.
+
+    OpenClaude can resolve OpenAI-compatible model limits from provider metadata.
+    Local Ollama metadata may advertise a lower default output limit even when the
+    upper limit is 128k, so FZAstro pins the selected model explicitly.
+    """
+
+    clean_model = str(model or DEFAULT_MODEL_NAME).strip() or DEFAULT_MODEL_NAME
+    try:
+        token_count = int(str(tokens or DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS).strip())
+    except (TypeError, ValueError):
+        token_count = int(DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+    token_count = max(8192, min(128000, token_count))
+    limits: dict[str, int] = {clean_model: token_count}
+    lower_model = clean_model.lower()
+    if lower_model != clean_model:
+        limits[lower_model] = token_count
+    return json.dumps(limits, separators=(",", ":"), ensure_ascii=True)
 
 
 @dataclass(frozen=True)
@@ -393,6 +418,12 @@ def build_openclaude_environment(config: OpenClaudeLaunchConfig) -> dict[str, st
         config.max_output_tokens
     )
     max_context_tokens = normalize_claude_code_max_context_tokens()
+    openai_context_windows = build_openclaude_model_limit_override_json(
+        model, max_context_tokens
+    )
+    openai_max_output_tokens = build_openclaude_model_limit_override_json(
+        model, max_output_tokens
+    )
     root = validate_openclaude_project_root(config.project_root)
     env = {
         "CLAUDE_CODE_USE_OPENAI": "1",
@@ -400,13 +431,16 @@ def build_openclaude_environment(config: OpenClaudeLaunchConfig) -> dict[str, st
         "OPENAI_BASE_URL": base_url,
         "OPENAI_MODEL": model,
         "OPENAI_API_KEY": api_key,
-        # Keep OpenClaude/Claude Code below provider ceilings. Some local/OpenAI-compatible
-        # providers hard-fail when Claude Code requests the 32k default output budget.
+        # Use the full Claude/OpenClaude coding budget exposed by current local
+        # OpenAI-compatible providers: 128k output tokens with a fixed 128k context.
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS": max_output_tokens,
-        # Keep the context window fixed and capped for LClaude/OpenClaude.
+        # Keep the context window fixed and capped for OpenClaude/Claude Code.
         # The UI intentionally no longer exposes a mutable context-set control.
         "CLAUDE_CODE_MAX_CONTEXT_TOKENS": max_context_tokens,
         "OPENAI_MAX_CONTEXT_TOKENS": max_context_tokens,
+        "CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW": DEFAULT_CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW,
+        "CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS": openai_context_windows,
+        "CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS": openai_max_output_tokens,
         "FZASTRO_OPENCLAUDE_SETTINGS_FILE": str(OPENCLAUDE_SETTINGS_FILE),
         "FZASTRO_OPENCLAUDE_GIT_TOKEN_FILE": str(OPENCLAUDE_SETTINGS_FILE),
         "FZASTRO_PROJECT_ROOT": str(root),
@@ -492,6 +526,10 @@ def build_openclaude_project_context(
             "- Provider style: Ollama/OpenAI-compatible",
             f"- Model: `{env_map['OPENAI_MODEL']}`",
             f"- Endpoint: `{env_map['OPENAI_BASE_URL']}`",
+            f"- Max context tokens: `{env_map['CLAUDE_CODE_MAX_CONTEXT_TOKENS']}`",
+            f"- Max output tokens: `{env_map['CLAUDE_CODE_MAX_OUTPUT_TOKENS']}`",
+            f"- OpenAI context override: `{env_map['CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS']}`",
+            f"- OpenAI max output override: `{env_map['CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS']}`",
             "",
             "## Project Rules",
             "- OpenClaude owns the interactive review/edit/test flow inside the terminal.",
@@ -688,6 +726,9 @@ def build_openclaude_launcher_script(config: OpenClaudeLaunchConfig) -> str:
             f"if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) {{ $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = {powershell_single_quote(DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS)} }}",
             f"if (-not $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS) {{ $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = {powershell_single_quote(DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS)} }}",
             f"if (-not $env:OPENAI_MAX_CONTEXT_TOKENS) {{ $env:OPENAI_MAX_CONTEXT_TOKENS = {powershell_single_quote(DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS)} }}",
+            f"if (-not $env:CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW) {{ $env:CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW = {powershell_single_quote(DEFAULT_CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW)} }}",
+            f"if (-not $env:CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS) {{ $env:CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = {powershell_single_quote(build_openclaude_model_limit_override_json(config.model, DEFAULT_CLAUDE_CODE_MAX_CONTEXT_TOKENS))} }}",
+            f"if (-not $env:CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS) {{ $env:CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS = {powershell_single_quote(build_openclaude_model_limit_override_json(config.model, DEFAULT_CLAUDE_CODE_MAX_OUTPUT_TOKENS))} }}",
             f"if (-not $env:CLAUDE_CODE_USE_POWERSHELL_TOOL) {{ $env:CLAUDE_CODE_USE_POWERSHELL_TOOL = {powershell_single_quote(DEFAULT_CLAUDE_CODE_USE_POWERSHELL_TOOL)} }}",
             "",
             f"$installIfMissing = {install_flag}",
@@ -854,6 +895,10 @@ def format_openclaude_status_markdown(
             f"**Project:** `{root_text}` ({source_state})",
             f"**Model:** `{env_map['OPENAI_MODEL']}`",
             f"**Endpoint:** `{env_map['OPENAI_BASE_URL']}`",
+            f"**Max context tokens:** `{env_map['CLAUDE_CODE_MAX_CONTEXT_TOKENS']}`",
+            f"**Max output tokens:** `{env_map['CLAUDE_CODE_MAX_OUTPUT_TOKENS']}`",
+            f"**OpenAI model context override:** `{env_map['CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS']}`",
+            f"**OpenAI model output override:** `{env_map['CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS']}`",
             f"**Git API token:** `{'configured / hidden' if env_map.get('GITHUB_TOKEN') else 'not configured'}`",
             "",
             "## Tool paths",

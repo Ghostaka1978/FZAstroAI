@@ -26,6 +26,20 @@ function Resolve-RequiredCommand {
     throw "$Name was not found on PATH. $InstallHint"
 }
 
+function New-OpenClaudeModelLimitJson {
+    param(
+        [string]$ModelName,
+        [int]$Tokens
+    )
+
+    if (-not $ModelName) { $ModelName = "qwen3:32b" }
+    $limits = [ordered]@{}
+    $limits[$ModelName] = $Tokens
+    $lowerModel = $ModelName.ToLowerInvariant()
+    if ($lowerModel -ne $ModelName) { $limits[$lowerModel] = $Tokens }
+    return ($limits | ConvertTo-Json -Compress)
+}
+
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 if (-not (Test-Path -LiteralPath $ProjectRoot)) {
     throw "Project root not found: $ProjectRoot"
@@ -57,7 +71,12 @@ if (-not $openclaude) {
 
 $env:CLAUDE_CODE_USE_OPENAI = "1"
 $env:CLAUDE_CODE_USE_POWERSHELL_TOOL = "1"
-if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) { $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = "16000" }
+if (-not $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS) { $env:CLAUDE_CODE_MAX_OUTPUT_TOKENS = "128000" }
+if (-not $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS) { $env:CLAUDE_CODE_MAX_CONTEXT_TOKENS = "128000" }
+if (-not $env:OPENAI_MAX_CONTEXT_TOKENS) { $env:OPENAI_MAX_CONTEXT_TOKENS = "128000" }
+if (-not $env:CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW) { $env:CLAUDE_CODE_OPENAI_FALLBACK_CONTEXT_WINDOW = "128000" }
+if (-not $env:CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS) { $env:CLAUDE_CODE_OPENAI_CONTEXT_WINDOWS = New-OpenClaudeModelLimitJson -ModelName $Model -Tokens 128000 }
+if (-not $env:CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS) { $env:CLAUDE_CODE_OPENAI_MAX_OUTPUT_TOKENS = New-OpenClaudeModelLimitJson -ModelName $Model -Tokens 128000 }
 $env:OPENAI_BASE_URL = $BaseUrl
 $env:OPENAI_MODEL = $Model
 $env:OPENAI_API_KEY = $ApiKey
