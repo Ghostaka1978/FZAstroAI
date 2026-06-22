@@ -174,6 +174,48 @@ function Set-FZAstroBuildEnvironment {
     }
 }
 
+function Invoke-FZAstroVirtualEnvironmentActivation {
+    param(
+        [string]$PythonPath,
+        [string]$Root,
+        [string]$BuildPath
+    )
+
+    if (-not $PythonPath) { return }
+
+    if (Test-Path $PythonPath) {
+        $PythonPath = (Resolve-Path $PythonPath).Path
+    }
+
+    $ScriptsDir = Split-Path -Parent $PythonPath
+    $VenvPath = Split-Path -Parent $ScriptsDir
+    if (-not $VenvPath -or -not (Test-Path (Join-Path $VenvPath "pyvenv.cfg"))) {
+        Write-Host "[deploy] Python is not from a virtual environment; activation skipped: $PythonPath"
+        return
+    }
+
+    $ActivateScript = Join-Path $VenvPath "Scripts\Activate.ps1"
+    if (-not (Test-Path $ActivateScript)) {
+        throw "Virtual environment activation script not found: $ActivateScript. Recreate it with: powershell -ExecutionPolicy Bypass -File .\scripts\reset_venv.ps1 -Force"
+    }
+
+    Write-Host "[deploy] Activating virtual environment: $VenvPath"
+    . $ActivateScript
+
+    # Activate.ps1 adjusts PATH and VIRTUAL_ENV; re-assert FZAstro-specific
+    # variables afterwards so nested build scripts inherit the exact deploy
+    # configuration selected above.
+    $env:FZASTRO_PROJECT_ROOT = $Root
+    $env:FZASTRO_BUILD_ROOT = $BuildPath
+    $env:FZASTRO_PYTHON = $PythonPath
+    $env:VIRTUAL_ENV = $VenvPath
+
+    $PathParts = @($env:PATH -split ";" | Where-Object { $_ })
+    if ($PathParts -notcontains $ScriptsDir) {
+        $env:PATH = ($ScriptsDir + ";" + $env:PATH)
+    }
+}
+
 function Invoke-OfflineVoiceSetup {
     param(
         [string]$Root,
@@ -417,6 +459,7 @@ if ($GitRelease -and $CleanOnly) {
 
 $ResolvedPython = Resolve-PythonExecutable -RequestedPython $PythonExe -Root $ProjectRoot
 Set-FZAstroBuildEnvironment -PythonPath $ResolvedPython -Root $ProjectRoot -BuildPath $BuildRoot
+Invoke-FZAstroVirtualEnvironmentActivation -PythonPath $ResolvedPython -Root $ProjectRoot -BuildPath $BuildRoot
 
 $LogDir = Join-Path $BuildRoot "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
