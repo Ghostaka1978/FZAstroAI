@@ -451,7 +451,10 @@ def is_document_inventory_response(text):
         return True
 
     return "document-inventory-table" in clean_text or (
-        ("Document Knowledge Library" in clean_text or "Imported documents" in clean_text)
+        (
+            "Document Knowledge Library" in clean_text
+            or "Imported documents" in clean_text
+        )
         and re.search(r"(?im)^\s*(?:\|\s*#\s*\||\d+\.\s+\*\*)", clean_text) is not None
     )
 

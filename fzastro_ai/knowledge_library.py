@@ -1506,11 +1506,13 @@ class DocumentKnowledgeLibrary:
                 "No documents are currently imported in the Document Knowledge Library."
             )
 
-        total_visuals = sum(int(document.get("visual_count") or 0) for document in documents)
+        total_visuals = sum(
+            int(document.get("visual_count") or 0) for document in documents
+        )
         lines = [
             '<div class="document-inventory">',
-            '<p><strong>Documents currently imported in the Document Knowledge Library</strong></p>',
-            f'<p>{len(documents):,} document(s) · {total_visuals:,} visual page(s)</p>',
+            "<p><strong>Documents currently imported in the Document Knowledge Library</strong></p>",
+            f"<p>{len(documents):,} document(s) · {total_visuals:,} visual page(s)</p>",
             '<div class="document-inventory-list">',
         ]
 
@@ -1529,13 +1531,13 @@ class DocumentKnowledgeLibrary:
                     '<div class="document-inventory-card">',
                     '<p class="document-inventory-title">'
                     f'<span class="document-inventory-index">{index}.</span> '
-                    f'<strong>{name}</strong></p>',
+                    f"<strong>{name}</strong></p>",
                     f'<p class="document-inventory-stats">{stats}</p>',
-                    '</div>',
+                    "</div>",
                 ]
             )
 
-        lines.extend(['</div>', '</div>'])
+        lines.extend(["</div>", "</div>"])
         return "\n".join(lines).strip()
 
     def remove_document(self, document_id):
