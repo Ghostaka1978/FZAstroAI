@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import math
 import os
+import sys
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +14,48 @@ from ..config import APP_DIR
 AU_LIGHT_MINUTES = 8.316746397269274
 PACKAGE_SKYFIELD_DIR = Path(__file__).resolve().parent / "fzastro" / ".skyfield"
 EPHEMERIS_FILE = "de440s.bsp"
+
+
+class _NullTextStream:
+    """Tiny text stream used when Windows GUI builds expose no stdout/stderr."""
+
+    def write(self, _text: object) -> int:
+        return 0
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return False
+
+
+@contextmanager
+def _safe_skyfield_stdio():
+    """Protect Skyfield downloads from PyInstaller windowed-mode null stdio.
+
+    Windows GUI executables commonly run with ``sys.stdout``/``sys.stderr`` set
+    to ``None``. Some Skyfield download paths still call ``flush()`` on those
+    streams while fetching an ephemeris, which turns a normal download into the
+    user-facing ``'NoneType' object has no attribute 'flush'`` Solar Map error.
+    Use a local null stream only for the ephemeris load/download window.
+    """
+
+    previous_stdout = sys.stdout
+    previous_stderr = sys.stderr
+    null_stream = _NullTextStream()
+    changed_stdout = previous_stdout is None
+    changed_stderr = previous_stderr is None
+    if changed_stdout:
+        sys.stdout = null_stream  # type: ignore[assignment]
+    if changed_stderr:
+        sys.stderr = null_stream  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        if changed_stdout:
+            sys.stdout = previous_stdout  # type: ignore[assignment]
+        if changed_stderr:
+            sys.stderr = previous_stderr  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -142,10 +186,11 @@ def _load_skyfield_snapshot(dt_utc: datetime) -> dict[str, Any]:
 
     data_dir = _skyfield_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    loader = Loader(str(data_dir))
-    timescale = loader.timescale()
-    time = timescale.from_datetime(dt_utc)
-    ephemeris = loader(EPHEMERIS_FILE)
+    loader = Loader(str(data_dir), verbose=False)
+    with _safe_skyfield_stdio():
+        timescale = loader.timescale()
+        time = timescale.from_datetime(dt_utc)
+        ephemeris = loader(EPHEMERIS_FILE)
     sun = ephemeris["sun"]
     earth = ephemeris["earth barycenter"]
 

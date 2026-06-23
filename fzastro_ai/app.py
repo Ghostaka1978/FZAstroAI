@@ -1241,15 +1241,13 @@ class FZAstroAI(
         )
         mode_group_layout.addWidget(self.profile_menu_button, 0, Qt.AlignVCenter)
 
-        self.system_menu_button = QPushButton("Menu ▾")
+        self.system_menu_button = QPushButton("Chat history")
         self.system_menu_button.setObjectName("cockpitSystemMenuButton")
-        self.system_menu_button.setFixedSize(88, 36)
+        self.system_menu_button.setFixedSize(124, 36)
         self.system_menu_button.setCursor(Qt.PointingHandCursor)
-        self.system_menu_button.setToolTip(
-            "Open system tools: history, help, diagnostics, and version info"
-        )
-        self.system_menu_button.setAccessibleName("Open system tools menu")
-        self.system_menu_button.setMenu(self.build_system_menu())
+        self.system_menu_button.setToolTip("Open or close the chat history panel")
+        self.system_menu_button.setAccessibleName("Open or close chat history")
+        self.system_menu_button.clicked.connect(self.toggle_history_panel)
 
         system_group, system_group_layout = _create_cockpit_group(
             "SYS", "cockpitSystemGroup", title_width=36
@@ -1976,50 +1974,6 @@ class FZAstroAI(
         self.web_companion_settings["auto_start_desktop"] = enabled
         self.save_web_companion_settings()
         self.update_web_companion_sidebar()
-
-    def build_system_menu(self):
-        menu = QMenu(self)
-        set_tooltips_visible = getattr(menu, "setToolTipsVisible", None)
-        if callable(set_tooltips_visible):
-            set_tooltips_visible(True)
-
-        self.system_history_action = QAction("Chat history", self)
-        self.system_history_action.setCheckable(True)
-        self.system_history_action.setToolTip("Open or close the chat history panel")
-        self.system_history_action.triggered.connect(
-            lambda _checked=False: self.toggle_history_panel()
-        )
-        menu.addAction(self.system_history_action)
-
-        help_action = QAction("Help cheat sheet", self)
-        help_action.setToolTip("Open FZAstro AI help and command hints")
-        help_action.triggered.connect(
-            lambda _checked=False: self.open_help_cheat_sheet()
-        )
-        menu.addAction(help_action)
-
-        diagnostics_action = QAction("Diagnostics / error log", self)
-        diagnostics_action.setToolTip("Open diagnostics, paths, and recent error logs")
-        diagnostics_action.triggered.connect(
-            lambda _checked=False: self.open_diagnostics_window()
-        )
-        menu.addAction(diagnostics_action)
-
-        menu.addSeparator()
-
-        about_action = QAction("About / version", self)
-        about_action.setToolTip("Open FZAstro AI version and release information")
-        about_action.triggered.connect(lambda _checked=False: self.open_about_window())
-        menu.addAction(about_action)
-
-        menu.aboutToShow.connect(self.refresh_system_menu_state)
-        return menu
-
-    def refresh_system_menu_state(self):
-        history_action = getattr(self, "system_history_action", None)
-        if history_action is not None:
-            history_action.setChecked(bool(self.history_panel.isVisible()))
-            history_action.setEnabled(bool(self.history_button.isEnabled()))
 
     def build_web_companion_menu(self):
         menu = QMenu(self)

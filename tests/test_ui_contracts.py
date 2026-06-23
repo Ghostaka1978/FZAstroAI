@@ -191,6 +191,25 @@ def test_workspace_apps_button_opens_key_tabbed_tools():
     assert "QTabWidget#workspaceTabs QTabBar::tab:selected" in styles_text
 
 
+def test_main_system_button_opens_chat_history_directly():
+    app_text = (PROJECT_ROOT / "fzastro_ai" / "app.py").read_text(encoding="utf-8-sig")
+
+    assert 'QPushButton("Chat history")' in app_text
+    system_button_body = app_text.split(
+        'self.system_menu_button = QPushButton("Chat history")', 1
+    )[1].split("system_group, system_group_layout", 1)[0]
+    assert (
+        "self.system_menu_button.clicked.connect(self.toggle_history_panel)"
+        in system_button_body
+    )
+    assert "self.system_menu_button.setMenu" not in system_button_body
+    assert "def build_system_menu" not in app_text
+    assert 'QAction("Chat history", self)' not in app_text
+    assert "open_help_cheat_sheet" not in system_button_body
+    assert "open_diagnostics_window" not in system_button_body
+    assert "open_about_window" not in system_button_body
+
+
 def test_major_tool_helpers_open_as_workspace_tabs():
     tabbed_files = {
         "lookup": PROJECT_ROOT / "fzastro_ai" / "ui" / "astro_lookup_dialog.py",
@@ -299,7 +318,32 @@ def test_idle_matrix_overlay_is_installed_and_testable():
     assert "self.idle_stars_overlay.install_on(QApplication.instance())" in app_source
     assert "QColor(0, 0, 0, 255)" in overlay_source
     assert "Qt.WA_OpaquePaintEvent" in overlay_source
+    assert "QElapsedTimer" in overlay_source
+    assert "Qt.PreciseTimer" in overlay_source
+    assert "_frame_interval_ms = 42" in overlay_source
+    assert "_target_fps = 24.0" in overlay_source
+    assert "QOpenGLWidget" in overlay_source
+    assert "_OPENGL_ACCELERATED" in overlay_source
+    assert "drawStaticText" in overlay_source
+    assert "AggressiveCaching" in overlay_source
     assert "_draw_code_rain" in overlay_source
+    assert "_draw_performance_hud" in overlay_source
+    assert "_cached_color" in overlay_source
+    assert "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ" in overlay_source
+    assert "αβγδεζηθικλμνξοπρστυφχψω" in overlay_source
+    assert "head_span = height + row_step * trail_rows" in overlay_source
+    assert "wrap_gap =" not in overlay_source
+    assert "stream_count = rng.choice((1, 1, 1, 1, 2))" in overlay_source
+    assert "head_seeds" in overlay_source
+    assert "count = min(92" in overlay_source
+    assert "ambient_step" in overlay_source
+    assert "_apply_frame_budget_guard" in overlay_source
+    assert "_frame_budget_ms = 13.5" in overlay_source
+    assert "head_positions" not in overlay_source
+    assert "MATRIX ENGINE" in overlay_source
+    assert "GPU RENDER · ECO" in overlay_source
+    assert "LOW LOAD GREEK" in overlay_source
+    assert "VRAM" in overlay_source
     assert "_draw_matrix_frame" not in overlay_source
     assert "_draw_scanlines" not in overlay_source
     assert "drawRect" not in overlay_source
@@ -314,7 +358,7 @@ def test_qmenu_tooltips_are_guarded_for_pyside_versions():
     app_text = Path("fzastro_ai/app.py").read_text(encoding="utf-8")
     tabs_text = Path("fzastro_ai/ui/workspace_tabs.py").read_text(encoding="utf-8")
 
-    assert 'getattr(menu, "setToolTipsVisible", None)' in app_text
+    assert 'getattr(submenu, "setToolTipsVisible", None)' in app_text
     assert 'getattr(skill_menu, "setToolTipsVisible", None)' in app_text
     assert 'getattr(menu, "setToolTipsVisible", None)' in tabs_text
     assert "menu.setToolTipsVisible(True)" not in app_text
@@ -397,3 +441,22 @@ def test_shared_interactive_cursor_filter_is_installed_for_buttons():
     assert "QAbstractButton" in cursor_text
     assert "Qt.PointingHandCursor" in cursor_text
     assert "QEvent.Type.ChildAdded" in cursor_text
+
+
+def test_idle_screensaver_pauses_gc_and_avoids_per_glyph_qpoint_allocations():
+    text = (PROJECT_ROOT / "fzastro_ai" / "ui" / "idle_stars_overlay.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "import gc" in text
+    assert "def _enter_animation_mode" in text
+    assert "gc.collect(0)" in text
+    assert "gc.disable()" in text
+    assert "def _leave_animation_mode" in text
+    assert "gc.enable()" in text
+    assert "painter.drawStaticText(int(x), int(y), glyph)" in text
+    assert "QPointF" not in text
+    assert "QLinearGradient" not in text
+    assert "text = tuple(rng.choice(self._GLYPHS)" in text
+    assert "_adaptive_skip_tier" in text
+    assert "self._telemetry_refresh_at = self._elapsed_seconds + 3.0" in text

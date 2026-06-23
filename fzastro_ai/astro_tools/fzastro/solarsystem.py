@@ -13,6 +13,24 @@ from skyfield.api import Loader
 from skyfield.framelib import ecliptic_frame
 
 
+class _NullTextStream:
+    def write(self, _text):
+        return 0
+
+    def flush(self):
+        return None
+
+    def isatty(self):
+        return False
+
+
+def _protect_null_stdio():
+    if sys.stdout is None:
+        sys.stdout = _NullTextStream()
+    if sys.stderr is None:
+        sys.stderr = _NullTextStream()
+
+
 def parse_args():
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument("--dt", default="", type=str)
@@ -37,6 +55,7 @@ def get_time(ts, dt_str):
 
 
 def main():
+    _protect_null_stdio()
     args = parse_args()
 
     import os
@@ -45,7 +64,7 @@ def main():
         os.environ.get("FZASTRO_SKYFIELD_DIR") or (Path(__file__).parent / ".skyfield")
     )
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    loader = Loader(str(DATA_DIR))
+    loader = Loader(str(DATA_DIR), verbose=False)
 
     ts = loader.timescale()
     t = get_time(ts, args.dt)

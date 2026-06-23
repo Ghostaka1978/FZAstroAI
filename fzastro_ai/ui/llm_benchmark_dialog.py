@@ -72,9 +72,12 @@ class _BenchmarkPowerInhibitor:
     ES_CONTINUOUS = 0x80000000
     ES_SYSTEM_REQUIRED = 0x00000001
     ES_DISPLAY_REQUIRED = 0x00000002
+    SPI_GETSCREENSAVEACTIVE = 0x0010
+    SPI_SETSCREENSAVEACTIVE = 0x0011
 
     def __init__(self):
         self._active = False
+        self._screensaver_was_active: bool | None = None
 
     @property
     def active(self) -> bool:
@@ -101,12 +104,56 @@ class _BenchmarkPowerInhibitor:
             log_warning("LlmBenchmarkDialog.power_inhibitor acquire", exc)
             return False
 
+    def _disable_screensaver(self) -> None:
+        """Temporarily disable the Windows screensaver while benchmarks run."""
+
+        if sys.platform != "win32":
+            return
+
+        try:
+            import ctypes
+
+            active = ctypes.c_int()
+            if ctypes.windll.user32.SystemParametersInfoW(
+                self.SPI_GETSCREENSAVEACTIVE, 0, ctypes.byref(active), 0
+            ):
+                self._screensaver_was_active = bool(active.value)
+            else:
+                self._screensaver_was_active = None
+
+            if self._screensaver_was_active:
+                ctypes.windll.user32.SystemParametersInfoW(
+                    self.SPI_SETSCREENSAVEACTIVE, 0, None, 0
+                )
+        except Exception as exc:
+            log_warning("LlmBenchmarkDialog.power_inhibitor screensaver disable", exc)
+
+    def _restore_screensaver(self) -> None:
+        if sys.platform != "win32":
+            self._screensaver_was_active = None
+            return
+        if self._screensaver_was_active is not True:
+            self._screensaver_was_active = None
+            return
+
+        try:
+            import ctypes
+
+            ctypes.windll.user32.SystemParametersInfoW(
+                self.SPI_SETSCREENSAVEACTIVE, 1, None, 0
+            )
+        except Exception as exc:
+            log_warning("LlmBenchmarkDialog.power_inhibitor screensaver restore", exc)
+        finally:
+            self._screensaver_was_active = None
+
     def acquire(self):
         if self._active:
             self.refresh()
             return
 
         if self._set_awake_state():
+            self._disable_screensaver()
             self._active = True
 
     def refresh(self):
@@ -118,6 +165,7 @@ class _BenchmarkPowerInhibitor:
 
     def release(self):
         if not self._active or sys.platform != "win32":
+            self._restore_screensaver()
             self._active = False
             return
 
@@ -132,6 +180,7 @@ class _BenchmarkPowerInhibitor:
         except Exception as exc:
             log_warning("LlmBenchmarkDialog.power_inhibitor release", exc)
         finally:
+            self._restore_screensaver()
             self._active = False
 
 
@@ -1084,7 +1133,7 @@ class LlmBenchmarkDialog(QDialog):
             or (self.worker is not None and self.worker.isRunning())
         )
         power_state = (
-            "ACTIVE — Windows display/system idle timers held awake"
+            "ACTIVE — Windows display/system idle timers held awake; screensaver temporarily off"
             if running
             else "ARMED — activates automatically while a benchmark is running"
         )

@@ -277,3 +277,18 @@ def test_llm_benchmark_run_metadata_and_power_guard_state(monkeypatch):
         dialog.deleteLater()
         fake_window.deleteLater()
         app.processEvents()
+
+
+def test_llm_benchmark_power_guard_temporarily_disables_screensaver():
+    source = (
+        __import__("pathlib").Path(__file__).resolve().parents[1]
+        / "fzastro_ai"
+        / "ui"
+        / "llm_benchmark_dialog.py"
+    ).read_text(encoding="utf-8-sig")
+
+    assert "SPI_GETSCREENSAVEACTIVE" in source
+    assert "SPI_SETSCREENSAVEACTIVE" in source
+    assert "_disable_screensaver" in source
+    assert "_restore_screensaver" in source
+    assert "screensaver temporarily off" in source
