@@ -16,7 +16,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import StringIO
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
+from urllib.request import Request, urlopen
 from html import escape as html_escape
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -45,6 +46,7 @@ TARGET_FILE = FZASTRO_DIR / "target.py"
 SOLAR_FILE = FZASTRO_DIR / "solarsystem.py"
 RESOURCES_DIR = PACKAGE_DIR.parent / "resources"
 ASTROPY_ICON_FALLBACK = RESOURCES_DIR / "astropy_icon.png"
+SOLAR_SYSTEM_REFERENCE_DIR = RESOURCES_DIR / "astro_reference_images"
 _ASTROPY_RUNTIME_DATA_READY = False
 _ASTROPY_ICON_URLS = {
     "http://data.astropy.org/data/astropy_icon.png",
@@ -129,6 +131,20 @@ SIMBAD_TAP_ENDPOINTS = (
 SESAME_LOOKUP_ENDPOINT_PATTERNS = (
     "https://cds.unistra.fr/cgi-bin/nph-sesame/-oxpI/S?{query}",
     "https://cds.unistra.fr/cgi-bin/nph-sesame/-oxpI/SNV?{query}",
+)
+
+SIMBAD_RESEARCH_TABLES = (
+    # These raw SIMBAD TAP tables are displayed as research details only.
+    # They must not feed or reorder the FZAstro distance ladder.
+    ("mesDistance", "Distance measurements"),
+    ("mesDiameter", "Diameter / angular-size measurements"),
+    ("mesPM", "Proper-motion measurements"),
+    ("mesPLX", "Parallax measurements"),
+    ("mesVelocities", "Velocity / redshift measurements"),
+    ("mesVar", "Variability measurements"),
+    ("mesFe_H", "Metallicity measurements"),
+    ("mesRot", "Rotation measurements"),
+    ("mesSpT", "Spectral-type measurements"),
 )
 
 
@@ -670,6 +686,25 @@ def _imagefetch_module():
     return module
 
 
+def lookup_survey_presets() -> List[Dict[str, str]]:
+    """Return curated HiPS survey choices for LOOKUP previews."""
+    try:
+        imagefetch = _imagefetch_module()
+        presets = imagefetch.lookup_survey_presets()
+        if isinstance(presets, list):
+            return [dict(item) for item in presets if isinstance(item, dict)]
+    except Exception as exc:
+        log_debug("astro_tools.lookup_survey_presets fallback used", exc)
+    return [
+        {"label": "Auto optical color · DSS2", "survey": ""},
+        {"label": "DSS2 color · broadband optical", "survey": "DSS2/color"},
+        {
+            "label": "Finkbeiner H-alpha composite · narrowband full sky",
+            "survey": "https://alasky.cds.unistra.fr/FinkbeinerHalpha/",
+        },
+    ]
+
+
 def _format_pc_distance(distance_pc: Optional[float]) -> List[str]:
     if distance_pc is None:
         return []
@@ -805,6 +840,491 @@ def _is_fzastro_horizons_target(query: str) -> bool:
     clean = _normalise_horizons_query_key(query)
     return clean in _FZASTRO_HORIZONS_NAMES or _looks_like_comet_or_interstellar_query(
         clean
+    )
+
+
+_PLANET_REFERENCE_NAMES = {
+    "mercury",
+    "venus",
+    "earth",
+    "mars",
+    "jupiter",
+    "saturn",
+    "uranus",
+    "neptune",
+    "pluto",
+}
+
+_MOON_REFERENCE_NAMES = {
+    "moon",
+    "luna",
+    "phobos",
+    "deimos",
+    "io",
+    "europa",
+    "ganymede",
+    "callisto",
+    "amalthea",
+    "himalia",
+    "mimas",
+    "enceladus",
+    "tethys",
+    "dione",
+    "rhea",
+    "titan",
+    "hyperion",
+    "iapetus",
+    "phoebe",
+    "miranda",
+    "ariel",
+    "umbriel",
+    "titania",
+    "oberon",
+    "triton",
+    "proteus",
+    "nereid",
+    "charon",
+}
+
+_REFERENCE_BODY_PALETTES: Dict[
+    str, Tuple[Tuple[int, int, int], Tuple[int, int, int]]
+] = {
+    "mercury": ((128, 122, 111), (204, 198, 184)),
+    "venus": ((166, 126, 72), (246, 209, 139)),
+    "earth": ((36, 85, 155), (90, 171, 111)),
+    "mars": ((118, 61, 43), (229, 121, 71)),
+    "jupiter": ((155, 111, 79), (237, 202, 155)),
+    "saturn": ((170, 140, 83), (240, 215, 152)),
+    "uranus": ((91, 168, 176), (189, 238, 239)),
+    "neptune": ((40, 67, 150), (118, 150, 243)),
+    "pluto": ((112, 92, 80), (210, 190, 171)),
+    "moon": ((103, 103, 108), (213, 213, 216)),
+}
+
+_SOLAR_SYSTEM_REFERENCE_SEARCH_QUERIES = {
+    "mercury": "Mercury planet NASA true color",
+    "venus": "Venus planet NASA real image",
+    "earth": "Earth planet NASA blue marble",
+    "mars": "Mars planet NASA global mosaic",
+    "jupiter": "Jupiter planet NASA Juno image",
+    "saturn": "Saturn planet NASA Cassini image",
+    "uranus": "Uranus planet NASA Voyager 2 image",
+    "neptune": "Neptune planet NASA Voyager 2 image",
+    "pluto": "Pluto planet NASA New Horizons image",
+    "moon": "Moon NASA full disk real image",
+    "phobos": "Phobos moon NASA image",
+    "deimos": "Deimos moon NASA image",
+    "io": "Io moon NASA Galileo image",
+    "europa": "Europa moon NASA Galileo image",
+    "ganymede": "Ganymede moon NASA Galileo image",
+    "callisto": "Callisto moon NASA Galileo image",
+    "mimas": "Mimas moon NASA Cassini image",
+    "enceladus": "Enceladus moon NASA Cassini image",
+    "tethys": "Tethys moon NASA Cassini image",
+    "dione": "Dione moon NASA Cassini image",
+    "rhea": "Rhea moon NASA Cassini image",
+    "titan": "Titan moon NASA Cassini image",
+    "hyperion": "Hyperion moon NASA Cassini image",
+    "iapetus": "Iapetus moon NASA Cassini image",
+    "phoebe": "Phoebe moon NASA Cassini image",
+    "miranda": "Miranda moon NASA Voyager 2 image",
+    "ariel": "Ariel moon NASA Voyager 2 image",
+    "umbriel": "Umbriel moon NASA Voyager 2 image",
+    "titania": "Titania moon NASA Voyager 2 image",
+    "oberon": "Oberon moon NASA Voyager 2 image",
+    "triton": "Triton moon NASA Voyager 2 image",
+    "charon": "Charon moon NASA New Horizons image",
+}
+
+_SOLAR_SYSTEM_REFERENCE_STATIC_URLS = {
+    "mars": "https://commons.wikimedia.org/wiki/Special:FilePath/Mars_Valles_Marineris_EDIT.jpg",
+    "jupiter": "https://commons.wikimedia.org/wiki/Special:FilePath/Jupiter_and_its_shrunken_Great_Red_Spot.jpg",
+    "saturn": "https://commons.wikimedia.org/wiki/Special:FilePath/Saturn_during_Equinox.jpg",
+    "moon": "https://commons.wikimedia.org/wiki/Special:FilePath/FullMoon2010.jpg",
+    "earth": "https://commons.wikimedia.org/wiki/Special:FilePath/The_Earth_seen_from_Apollo_17.jpg",
+    "pluto": "https://commons.wikimedia.org/wiki/Special:FilePath/Pluto_in_True_Color_-_High-Res.jpg",
+}
+
+
+def _solar_system_reference_kind(query: str, object_type: object = "") -> str:
+    clean = _normalise_horizons_query_key(query)
+    object_text = str(object_type or "").casefold()
+    if clean in _PLANET_REFERENCE_NAMES or "planet" in object_text:
+        return "planet"
+    if (
+        clean in _MOON_REFERENCE_NAMES
+        or "moon" in object_text
+        or "satellite" in object_text
+    ):
+        return "moon"
+    return ""
+
+
+def _solar_system_reference_label(query: str) -> str:
+    clean = _normalise_horizons_query_key(query)
+    if clean == "luna":
+        clean = "moon"
+    if not clean:
+        return "Solar-system body"
+    return " ".join(part[:1].upper() + part[1:] for part in clean.split())
+
+
+def _reference_body_key(query: str) -> str:
+    clean = _normalise_horizons_query_key(query)
+    if clean == "luna":
+        clean = "moon"
+    return re.sub(r"[^a-z0-9]+", "_", clean).strip("_") or "body"
+
+
+def _bundled_solar_system_reference_image(query: str) -> Optional[Path]:
+    key = _reference_body_key(query)
+    for suffix in (".jpg", ".jpeg", ".png", ".webp"):
+        path = SOLAR_SYSTEM_REFERENCE_DIR / f"{key}{suffix}"
+        if path.exists() and path.is_file():
+            return path
+    return None
+
+
+def _is_probably_image_payload(data: bytes, content_type: str = "") -> bool:
+    head = bytes(data[:16])
+    ctype = str(content_type or "").casefold()
+    return (
+        ctype.startswith("image/")
+        or head.startswith(b"\xff\xd8\xff")
+        or head.startswith(b"\x89PNG\r\n\x1a\n")
+        or head.startswith(b"RIFF")
+        and b"WEBP" in head[:16]
+    )
+
+
+def _download_reference_image(url: str, dest: Path, *, timeout: int = 12) -> bool:
+    clean_url = str(url or "").strip()
+    if not clean_url:
+        return False
+    request = Request(
+        clean_url,
+        headers={
+            "User-Agent": "FZAstroAI/2.1 lookup reference image cache",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+    )
+    with urlopen(request, timeout=max(3, int(timeout))) as response:
+        content_type = response.headers.get("Content-Type", "")
+        data = response.read(24 * 1024 * 1024)
+    if not _is_probably_image_payload(data, content_type):
+        return False
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    return True
+
+
+def _nasa_images_reference_url(query: str, *, timeout: int = 8) -> str:
+    body_key = _reference_body_key(query)
+    search_text = _SOLAR_SYSTEM_REFERENCE_SEARCH_QUERIES.get(
+        body_key,
+        f"{_solar_system_reference_label(query)} NASA planetary moon image",
+    )
+    api_url = (
+        "https://images-api.nasa.gov/search?media_type=image&page_size=1&q="
+        + quote_plus(search_text)
+    )
+    request = Request(api_url, headers={"User-Agent": "FZAstroAI/2.1 lookup"})
+    with urlopen(request, timeout=max(3, int(timeout))) as response:
+        payload = json.loads(response.read(2 * 1024 * 1024).decode("utf-8", "replace"))
+    items = ((payload or {}).get("collection") or {}).get("items") or []
+    for item in items:
+        for link in item.get("links") or []:
+            href = str(link.get("href") or "").strip()
+            if href and str(link.get("render") or "").casefold() == "image":
+                return href
+        href = str(item.get("href") or "").strip()
+        if href:
+            return href
+    return ""
+
+
+def _fetch_solar_system_real_reference_image(
+    query: str, kind: str, *, width: int = 1536, height: int = 1024
+) -> Optional[AstroToolResult]:
+    """Return a real local/cached reference image when one is available.
+
+    Preference order:
+    1. Bundled app resource in fzastro_ai/resources/astro_reference_images.
+    2. Cached online image from a previous lookup.
+    3. Static trusted file URL / NASA Images API result, cached locally.
+
+    The deterministic painted disk remains only a final offline fallback.
+    """
+    if not kind:
+        return None
+    key = _reference_body_key(query)
+    bundled = _bundled_solar_system_reference_image(query)
+    if bundled is not None:
+        return AstroToolResult(
+            title="Solar-system real reference image",
+            text=f"Real bundled reference image: {bundled}",
+            files=[str(bundled)],
+            success=True,
+            metadata={
+                "reference_image": str(bundled),
+                "reference_image_kind": kind,
+                "reference_image_source": "bundled real image",
+            },
+        )
+
+    if os.environ.get("FZASTRO_LOOKUP_REAL_REFERENCE_IMAGES", "1").strip() == "0":
+        return None
+
+    cache_dir = APP_DIR / "lookup_reference_images"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached_candidates = [
+        cache_dir / f"solar_real_{key}.jpg",
+        cache_dir / f"solar_real_{key}.png",
+        cache_dir / f"solar_real_{key}.webp",
+    ]
+    for path in cached_candidates:
+        if path.exists() and path.is_file():
+            return AstroToolResult(
+                title="Solar-system real reference image",
+                text=f"Cached real reference image: {path}",
+                files=[str(path)],
+                success=True,
+                metadata={
+                    "reference_image": str(path),
+                    "reference_image_kind": kind,
+                    "reference_image_source": "cached real image",
+                },
+            )
+
+    urls = []
+    static_url = _SOLAR_SYSTEM_REFERENCE_STATIC_URLS.get(key)
+    if static_url:
+        urls.append((static_url, "static real image"))
+    try:
+        nasa_url = _nasa_images_reference_url(query, timeout=8)
+        if nasa_url:
+            urls.append((nasa_url, "NASA Images API"))
+    except Exception as exc:
+        log_debug("astro_tools.lookup NASA reference search skipped", exc)
+
+    for url, source_label in urls:
+        suffix = ".png" if ".png" in url.casefold() else ".jpg"
+        dest = cache_dir / f"solar_real_{key}{suffix}"
+        try:
+            if _download_reference_image(url, dest, timeout=12):
+                return AstroToolResult(
+                    title="Solar-system real reference image",
+                    text=f"Real reference image: {dest}",
+                    files=[str(dest)],
+                    success=True,
+                    metadata={
+                        "reference_image": str(dest),
+                        "reference_image_kind": kind,
+                        "reference_image_source": source_label,
+                        "reference_image_url": url,
+                    },
+                )
+        except Exception as exc:
+            log_debug(
+                "astro_tools.lookup real reference download skipped",
+                f"{source_label}: {exc}",
+            )
+    return None
+
+
+def _generate_solar_system_reference_image(
+    query: str, width: int = 1536, height: int = 1024
+) -> AstroToolResult:
+    """Return a real cached reference image for planets/moons when possible.
+
+    HIPS sky-survey frames are not useful for nearby Solar System bodies because
+    their apparent position and disk change with time. LOOKUP therefore tries to
+    use a real bundled/cached/NASA reference image first. The deterministic disk
+    below remains only an offline fallback and is marked as generated fallback
+    metadata so the UI never mistakes it for a real source frame.
+    """
+    kind = _solar_system_reference_kind(query)
+    if not kind:
+        return AstroToolResult(
+            title="Reference image", text="No reference image needed."
+        )
+
+    real_reference = _fetch_solar_system_real_reference_image(
+        query, kind, width=width, height=height
+    )
+    if real_reference is not None:
+        return real_reference
+
+    try:
+        from PIL import Image, ImageDraw, ImageFilter
+    except Exception as exc:
+        return AstroToolResult(
+            title="Reference image",
+            text=f"Solar-system reference image skipped: Pillow unavailable ({exc})",
+            success=False,
+        )
+
+    clean_key = (
+        re.sub(r"[^a-z0-9]+", "_", _normalise_horizons_query_key(query)).strip("_")
+        or "body"
+    )
+    width = int(max(480, min(1920, int(width or 1536))))
+    height = int(max(360, min(1280, int(height or 1024))))
+    cache_dir = APP_DIR / "lookup_reference_images"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = cache_dir / f"solar_ref_{clean_key}_{width}x{height}.png"
+    if path.exists():
+        return AstroToolResult(
+            title="Solar-system reference image",
+            text=f"Reference image: {path}",
+            files=[str(path)],
+            success=True,
+            metadata={
+                "reference_image": str(path),
+                "reference_image_kind": kind,
+                "reference_image_source": "generated fallback",
+            },
+        )
+
+    label = _solar_system_reference_label(query)
+    palette_key = _normalise_horizons_query_key(query)
+    if palette_key == "luna" or palette_key in _MOON_REFERENCE_NAMES:
+        palette_key = "moon"
+    base, highlight = _REFERENCE_BODY_PALETTES.get(
+        palette_key,
+        (
+            ((92, 100, 110), (210, 216, 224))
+            if kind == "moon"
+            else ((77, 102, 130), (177, 198, 224))
+        ),
+    )
+
+    image = Image.new("RGB", (width, height), (6, 9, 13))
+    draw = ImageDraw.Draw(image, "RGBA")
+    for y in range(height):
+        tone = int(9 + 18 * y / max(1, height - 1))
+        draw.line([(0, y), (width, y)], fill=(tone // 2, tone, tone + 7, 255))
+
+    # Deterministic star field keyed to the requested body.
+    seed = int(hashlib.sha1(clean_key.encode("utf-8")).hexdigest()[:8], 16)
+    for idx in range(150):
+        seed = (1103515245 * seed + 12345) & 0x7FFFFFFF
+        x = seed % width
+        seed = (1103515245 * seed + 12345) & 0x7FFFFFFF
+        y = seed % height
+        alpha = 55 + (seed % 130)
+        size = 1 + (seed % 3 == 0)
+        draw.ellipse((x, y, x + size, y + size), fill=(210, 225, 255, alpha))
+
+    cx, cy = width // 2, int(height * 0.47)
+    radius = int(min(width, height) * (0.27 if palette_key != "saturn" else 0.22))
+    # Glow.
+    glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    gdraw = ImageDraw.Draw(glow, "RGBA")
+    gdraw.ellipse(
+        (cx - radius - 25, cy - radius - 25, cx + radius + 25, cy + radius + 25),
+        fill=(*highlight, 38),
+    )
+    glow = glow.filter(ImageFilter.GaussianBlur(22))
+    image = Image.alpha_composite(image.convert("RGBA"), glow)
+    draw = ImageDraw.Draw(image, "RGBA")
+
+    if palette_key == "saturn":
+        ring_h = max(18, radius // 3)
+        draw.ellipse(
+            (
+                cx - int(radius * 1.85),
+                cy - ring_h,
+                cx + int(radius * 1.85),
+                cy + ring_h,
+            ),
+            outline=(219, 198, 145, 190),
+            width=max(4, radius // 18),
+        )
+        draw.ellipse(
+            (
+                cx - int(radius * 1.55),
+                cy - ring_h // 2,
+                cx + int(radius * 1.55),
+                cy + ring_h // 2,
+            ),
+            outline=(131, 111, 79, 150),
+            width=max(3, radius // 28),
+        )
+
+    # Body disk with simple directional shading.
+    for r in range(radius, 0, -1):
+        f = r / max(1, radius)
+        mix = 1.0 - f
+        col = tuple(int(base[i] * f + highlight[i] * mix) for i in range(3))
+        shade = 0.70 + 0.30 * mix
+        fill = tuple(int(c * shade) for c in col) + (255,)
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill)
+
+    if palette_key in {"jupiter", "saturn"}:
+        for offset, alpha in ((-0.45, 90), (-0.22, 70), (0.05, 100), (0.31, 75)):
+            y = cy + int(radius * offset)
+            draw.rounded_rectangle(
+                (cx - radius, y - radius // 18, cx + radius, y + radius // 18),
+                radius=radius // 20,
+                fill=(95, 64, 44, alpha),
+            )
+    elif kind == "moon":
+        for n in range(20):
+            seed = (1103515245 * seed + 12345) & 0x7FFFFFFF
+            rx = cx - radius + (seed % (2 * radius))
+            seed = (1103515245 * seed + 12345) & 0x7FFFFFFF
+            ry = cy - radius + (seed % (2 * radius))
+            if (rx - cx) ** 2 + (ry - cy) ** 2 > radius**2:
+                continue
+            rr = max(3, radius // (14 + (seed % 22)))
+            draw.ellipse(
+                (rx - rr, ry - rr, rx + rr, ry + rr),
+                fill=(48, 50, 55, 55),
+                outline=(230, 230, 235, 35),
+            )
+    elif palette_key == "mars":
+        draw.pieslice(
+            (cx - radius // 2, cy - radius, cx + radius // 2, cy - radius // 3),
+            180,
+            360,
+            fill=(235, 218, 188, 115),
+        )
+
+    # Terminator shading for a disk-like reference look.
+    shadow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    sdraw = ImageDraw.Draw(shadow, "RGBA")
+    sdraw.ellipse(
+        (cx - radius, cy - radius, cx + radius, cy + radius), fill=(0, 0, 0, 0)
+    )
+    sdraw.rectangle((cx, cy - radius, cx + radius + 4, cy + radius), fill=(0, 0, 0, 50))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(max(8, radius // 10)))
+    image = Image.alpha_composite(image, shadow)
+    draw = ImageDraw.Draw(image, "RGBA")
+
+    title = f"{label} reference image"
+    note = "Generated fallback disk · no real reference image available"
+    draw.rounded_rectangle(
+        (28, height - 82, width - 28, height - 24),
+        radius=14,
+        fill=(8, 14, 20, 190),
+        outline=(77, 93, 110, 120),
+        width=1,
+    )
+    draw.text((48, height - 72), title, fill=(245, 249, 255, 255))
+    draw.text((48, height - 48), note, fill=(170, 188, 205, 255))
+
+    image.convert("RGB").save(path, "PNG")
+    return AstroToolResult(
+        title="Solar-system reference image",
+        text=f"Reference image: {path}",
+        files=[str(path)],
+        success=True,
+        metadata={
+            "reference_image": str(path),
+            "reference_image_kind": kind,
+            "reference_image_source": "generated fallback",
+        },
     )
 
 
@@ -1120,6 +1640,127 @@ def _simbad_tap_csv(adql: str, timeout: int) -> List[Dict[str, str]]:
     raise RuntimeError("; ".join(errors) if errors else "SIMBAD TAP request failed")
 
 
+def _fetch_simbad_aliases_for_oid(oid: Any, timeout: int = 6) -> List[str]:
+    """Return every SIMBAD identifier for an object oid.
+
+    SIMBAD stores aliases in the `ident` table.  Do not add an artificial
+    `TOP` limit here: the LOOKUP result card should show the complete alias set
+    returned by SIMBAD, not only a preview subset.
+    """
+    oid_text = str(oid or "").strip().lstrip("@")
+    if not oid_text.isdigit():
+        return []
+    alias_rows = _simbad_tap_csv(
+        f"SELECT id FROM ident WHERE oidref = {int(oid_text)} ORDER BY id",
+        max(4, min(int(timeout), 8)),
+    )
+    return _clean_aliases([_row_value_any(item, "id", "ID") for item in alias_rows])
+
+
+def _lookup_clean_text_value(value: Any, *, max_chars: int = 240) -> str:
+    """Normalize a TAP/CSV value for metadata and Qt-rich-text rendering."""
+    if value is None:
+        return ""
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text or text.casefold() in {"--", "nan", "none", "null", "masked"}:
+        return ""
+    if max_chars > 0 and len(text) > max_chars:
+        return text[: max_chars - 1].rstrip() + "…"
+    return text
+
+
+def _lookup_clean_tap_row(
+    row: Dict[str, Any], *, max_chars: int = 240
+) -> Dict[str, str]:
+    """Return all non-empty TAP row fields with stable, readable key names."""
+    clean: Dict[str, str] = {}
+    for key, value in (row or {}).items():
+        field = re.sub(r"\s+", " ", str(key or "").strip())
+        if not field:
+            continue
+        # TAP CSV headers sometimes include table prefixes. Preserve the useful
+        # field name while avoiding duplicate labels in the detail card.
+        if "." in field:
+            field = field.rsplit(".", 1)[-1]
+        text = _lookup_clean_text_value(value, max_chars=max_chars)
+        if not text:
+            continue
+        if field not in clean:
+            clean[field] = text
+    return clean
+
+
+def _lookup_research_row_limit() -> int:
+    """Small safety cap for large SIMBAD measurement tables.
+
+    This is intentionally configurable. Some objects have very large literature
+    measurement sets; unbounded TAP pulls would make LOOKUP feel frozen and could
+    stress public CDS services.
+    """
+    raw = os.environ.get("FZASTRO_LOOKUP_RESEARCH_ROW_LIMIT", "200").strip()
+    try:
+        value = int(raw)
+    except Exception:
+        value = 200
+    return max(1, min(value, 1000))
+
+
+def _simbad_research_tables() -> List[Tuple[str, str]]:
+    """Return SIMBAD measurement tables requested for research lookup panels."""
+    raw = os.environ.get("FZASTRO_LOOKUP_RESEARCH_TABLES", "").strip()
+    if not raw:
+        return list(SIMBAD_RESEARCH_TABLES)
+    requested = [item.strip() for item in re.split(r"[;,]", raw) if item.strip()]
+    labels = {name.casefold(): label for name, label in SIMBAD_RESEARCH_TABLES}
+    return [(name, labels.get(name.casefold(), name)) for name in requested]
+
+
+def _fetch_simbad_research_tables_for_oid(
+    oid: Any, *, timeout: int = 6
+) -> Dict[str, Dict[str, Any]]:
+    """Fetch broad SIMBAD measurement rows for an object.
+
+    Each table is isolated: a missing/renamed table or endpoint timeout should
+    not break the main LOOKUP result. Rows include all non-empty columns returned
+    by TAP, not a hand-picked subset.
+    """
+    oid_text = str(oid or "").strip().lstrip("@")
+    if not oid_text.isdigit():
+        return {}
+    limit = _lookup_research_row_limit()
+    details: Dict[str, Dict[str, Any]] = {}
+    for table, label in _simbad_research_tables():
+        _check_cancelled()
+        # Keep table names conservative; they come from constants or an advanced
+        # local environment override, not from user query text.
+        safe_table = re.sub(r"[^A-Za-z0-9_]", "", str(table or "").strip())
+        if not safe_table:
+            continue
+        try:
+            rows = _simbad_tap_csv(
+                f"SELECT TOP {limit} * FROM {safe_table} WHERE oidref = {int(oid_text)}",
+                # Research rows are extra display data. Keep each table attempt
+                # short so LOOKUP still fails soft when CDS is slow.
+                max(3, min(int(timeout), 3)),
+            )
+        except Exception as exc:
+            log_debug(
+                "astro_tools.fast_lookup SIMBAD research table skipped",
+                f"{safe_table}: {exc}",
+            )
+            continue
+        clean_rows = [
+            clean for clean in (_lookup_clean_tap_row(row) for row in rows) if clean
+        ]
+        if clean_rows:
+            details[safe_table] = {
+                "label": label,
+                "row_limit": limit,
+                "rows": clean_rows,
+            }
+    return details
+
+
 def _enrich_fast_object_details_via_tap(
     info: Dict[str, Any],
     aliases: Iterable[Any],
@@ -1132,7 +1773,7 @@ def _enrich_fast_object_details_via_tap(
     full SIMBAD identifier list or stellar motion fields. When the resolver
     gives us the SIMBAD oid, run one short TAP enrichment query for the details
     that matter in the desktop lookup output: canonical main id, proper motion,
-    redshift/radial velocity, parallax, and aliases.
+    redshift/radial velocity, parallax, and every SIMBAD alias.
     """
     out = dict(info or {})
     merged_aliases = _clean_aliases(aliases or [])
@@ -1142,24 +1783,15 @@ def _enrich_fast_object_details_via_tap(
 
     try:
         rows = _simbad_tap_csv(
-            f"""
-SELECT TOP 1
-    basic.main_id,
-    basic.otype,
-    basic.ra,
-    basic.dec,
-    basic.pmra,
-    basic.pmdec,
-    basic.plx_value,
-    basic.rvz_redshift,
-    basic.rvz_radvel
-FROM basic
-WHERE basic.oid = {oid}
-""".strip(),
+            f"SELECT TOP 1 * FROM basic WHERE basic.oid = {oid}",
             max(4, min(int(timeout), 8)),
         )
         if rows:
             row = rows[0]
+            basic_fields = _lookup_clean_tap_row(row)
+            if basic_fields:
+                out["simbad_basic_fields"] = basic_fields
+
             display_name = str(_row_value_any(row, "main_id") or "").strip()
             if display_name:
                 out["display_name"] = display_name
@@ -1175,9 +1807,20 @@ WHERE basic.oid = {oid}
                 "parallax_mas": ("plx_value", "parallax", "PLX_VALUE"),
                 "redshift": ("rvz_redshift", "z_value", "redshift"),
                 "radial_velocity_kms": ("rvz_radvel", "radvel", "radial_velocity"),
+                "spectral_type": ("sp_type", "sptype", "spectral_type"),
+                "morphology": ("morph_type", "mtype", "morphology"),
+                "angular_size_major": ("galdim_majaxis", "diameter", "majaxis"),
+                "angular_size_minor": ("galdim_minaxis", "minaxis"),
+                "angular_size_angle": ("galdim_angle", "posangle"),
             }
             for key, names in detail_map.items():
-                value = _float_or_none(_row_value_any(row, *names))
+                raw_value = _row_value_any(row, *names)
+                if key in {"spectral_type", "morphology"}:
+                    text_value = _lookup_clean_text_value(raw_value)
+                    if text_value and out.get(key) in (None, ""):
+                        out[key] = text_value
+                    continue
+                value = _float_or_none(raw_value)
                 if value is None:
                     continue
                 if key.startswith("pm") or out.get(key) is None:
@@ -1186,17 +1829,20 @@ WHERE basic.oid = {oid}
         log_debug("astro_tools.fast_lookup detail enrichment skipped", exc)
 
     try:
-        alias_rows = _simbad_tap_csv(
-            f"SELECT TOP 40 id FROM ident WHERE oidref = {oid}",
-            max(4, min(int(timeout), 8)),
-        )
-        tap_aliases = _clean_aliases(
-            [_row_value_any(item, "id", "ID") for item in alias_rows]
-        )
+        tap_aliases = _fetch_simbad_aliases_for_oid(oid, timeout=timeout)
         main_id = out.get("display_name")
         merged_aliases = _clean_aliases([main_id, *merged_aliases, *tap_aliases])
+        out["_simbad_aliases_complete"] = True
     except Exception as exc:
         log_debug("astro_tools.fast_lookup alias enrichment skipped", exc)
+
+    if not out.get("simbad_measurements"):
+        research_tables = _fetch_simbad_research_tables_for_oid(oid, timeout=timeout)
+        if research_tables:
+            out["simbad_measurements"] = research_tables
+        out["_simbad_research_enriched"] = True
+    elif out.get("simbad_measurements"):
+        out["_simbad_research_enriched"] = True
 
     if oid.isdigit():
         out["_simbad_details_enriched"] = True
@@ -1328,7 +1974,12 @@ def _simbad_fast_lookup_via_sesame(
                 value = _float_or_none(
                     _xml_nested_text(mag, "v") or _xml_child_text(mag, "v")
                 )
-                if value is not None and band in {"B", "V", "G"}:
+                if value is None or not band:
+                    continue
+                photometry_bands = dict(info.get("photometry_bands") or {})
+                photometry_bands[band] = value
+                info["photometry_bands"] = photometry_bands
+                if band in {"B", "V", "G"}:
                     info[f"mag_{band}"] = value
 
             info, aliases = _enrich_fast_object_details_via_tap(
@@ -2141,11 +2792,8 @@ WHERE ident.id IN ({in_list})
     if oid:
         info["oid"] = oid
         try:
-            alias_rows = _simbad_tap_csv(
-                f"SELECT TOP 40 id FROM ident WHERE oidref = {oid}",
-                max(5, min(int(timeout), 10)),
-            )
-            aliases = _clean_aliases([item.get("id") for item in alias_rows])
+            aliases = _fetch_simbad_aliases_for_oid(oid, timeout=timeout)
+            info["_simbad_aliases_complete"] = True
         except Exception as exc:
             log_debug("astro_tools.fast_lookup aliases skipped", exc)
 
@@ -2206,6 +2854,97 @@ def _lookup_fmt_float(value: object, digits: int = 3, signed: bool = False) -> s
         return str(value)
 
 
+def _lookup_ra_hms(ra_deg: object) -> str:
+    """Format ICRS right ascension as hours/minutes/seconds for observers."""
+    try:
+        ra = float(ra_deg) % 360.0
+        total_seconds = ra / 15.0 * 3600.0
+        hours = int(total_seconds // 3600)
+        minutes = int((total_seconds - hours * 3600) // 60)
+        seconds = total_seconds - hours * 3600 - minutes * 60
+        if seconds >= 59.995:
+            seconds = 0.0
+            minutes += 1
+        if minutes >= 60:
+            minutes = 0
+            hours = (hours + 1) % 24
+        return f"{hours:02d}h {minutes:02d}m {seconds:05.2f}s"
+    except Exception:
+        return ""
+
+
+def _lookup_dec_dms(dec_deg: object) -> str:
+    """Format ICRS declination as signed degrees/minutes/seconds."""
+    try:
+        dec = float(dec_deg)
+        sign = "+" if dec >= 0 else "-"
+        total_seconds = abs(dec) * 3600.0
+        degrees = int(total_seconds // 3600)
+        minutes = int((total_seconds - degrees * 3600) // 60)
+        seconds = total_seconds - degrees * 3600 - minutes * 60
+        if seconds >= 59.995:
+            seconds = 0.0
+            minutes += 1
+        if minutes >= 60:
+            minutes = 0
+            degrees += 1
+        return f"{sign}{degrees:02d}° {minutes:02d}' {seconds:05.2f}\""
+    except Exception:
+        return ""
+
+
+def _lookup_galactic_coords(
+    ra_deg: object, dec_deg: object
+) -> Tuple[Optional[float], Optional[float]]:
+    """Return galactic longitude/latitude when Astropy is available.
+
+    The lookup UI must remain usable in stripped-down/frozen environments, so this
+    helper is intentionally optional and never raises if coordinate transforms are
+    unavailable.
+    """
+    try:
+        from astropy import units as u  # type: ignore
+        from astropy.coordinates import SkyCoord  # type: ignore
+
+        coord = SkyCoord(float(ra_deg) * u.deg, float(dec_deg) * u.deg, frame="icrs")
+        return float(coord.galactic.l.deg), float(coord.galactic.b.deg)
+    except Exception as exc:
+        log_debug("astro_tools.fast_lookup galactic coordinate transform skipped", exc)
+        return None, None
+
+
+def _lookup_distance_modulus(distance_pc: object) -> str:
+    try:
+        pc = float(distance_pc)
+    except Exception:
+        return ""
+    if not math.isfinite(pc) or pc <= 0:
+        return ""
+    return f"{(5.0 * math.log10(pc) - 5.0):.2f} mag"
+
+
+def _lookup_absolute_magnitude(apparent_mag: object, distance_pc: object) -> str:
+    try:
+        apparent = float(apparent_mag)
+        pc = float(distance_pc)
+    except Exception:
+        return ""
+    if not math.isfinite(apparent) or not math.isfinite(pc) or pc <= 0:
+        return ""
+    return f"{(apparent - (5.0 * math.log10(pc) - 5.0)):.2f} mag"
+
+
+def _lookup_color_index(blue_mag: object, visual_mag: object) -> str:
+    try:
+        blue = float(blue_mag)
+        visual = float(visual_mag)
+    except Exception:
+        return ""
+    if not math.isfinite(blue) or not math.isfinite(visual):
+        return ""
+    return f"{(blue - visual):+.3f} mag"
+
+
 def _lookup_distance_summary(distance_pc: object) -> str:
     if distance_pc is None:
         return ""
@@ -2257,12 +2996,169 @@ def _lookup_inline_items(items: List[Tuple[str, object]]) -> str:
 def _lookup_panel(title: str, inner_html: str) -> str:
     if not inner_html:
         return ""
+    safe_title = html_escape(str(title), quote=True)
     return (
-        '<div style="margin:5px 0 0 0;padding:5px 0 0 0;border-top:1px solid #202a34;color:#e9eef5;">'
-        f'<div style="color:#eaf3ff;font-size:12px;font-weight:900;margin:0 0 4px 0;letter-spacing:.01em;">{html_escape(str(title))}</div>'
+        f'<section class="lookup-panel" data-lookup-title="{safe_title}" '
+        'style="margin:5px 0 0 0;padding:5px 0 0 0;border-top:1px solid #202a34;color:#e9eef5;">'
+        f'<div class="lookup-panel-title" style="color:#eaf3ff;font-size:12px;font-weight:900;margin:0 0 4px 0;letter-spacing:.01em;">{html_escape(str(title))}</div>'
         f"{inner_html}"
+        "</section>"
+    )
+
+
+def _lookup_imaging_setup_html(imaging_lines: List[str]) -> str:
+    if not imaging_lines:
+        return ""
+    safe_line = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
+        html_escape(str(line)) for line in imaging_lines if str(line).strip()
+    )
+    if not safe_line:
+        return ""
+    return _lookup_panel(
+        "Imaging setup",
+        f'<div style="color:#d9e2ee;font-size:11px;line-height:1.35;">{safe_line}</div>',
+    )
+
+
+def _lookup_link_row(label: str, url: str, note: str = "") -> str:
+    clean_url = str(url or "").strip()
+    if not clean_url:
+        return ""
+    note_html = (
+        f'<span style="color:#8f9fb0;font-size:10px;"> — {html_escape(str(note))}</span>'
+        if str(note or "").strip()
+        else ""
+    )
+    return (
+        '<div style="margin:2px 0;line-height:1.35;">'
+        f'<a href="{html_escape(clean_url, quote=True)}" style="color:#8fc7ff;font-size:11px;font-weight:800;text-decoration:none;">'
+        f"{html_escape(str(label))}</a>{note_html}"
         "</div>"
     )
+
+
+def _lookup_external_links_html(
+    clean_query: str, info: Dict[str, Any], aliases: List[str]
+) -> str:
+    """Build source links for the Links tab without fetching extra science data."""
+    display_name = str(info.get("display_name") or clean_query or "").strip()
+    primary_name = display_name or str(clean_query or "").strip()
+    if not primary_name:
+        return ""
+    encoded_name = quote_plus(primary_name)
+    rows: List[str] = []
+
+    rows.append(
+        _lookup_link_row(
+            "SIMBAD object page",
+            "https://simbad.cds.unistra.fr/simbad/sim-id?Ident=" + encoded_name,
+            "identity, identifiers, bibliography, measurements",
+        )
+    )
+    oid = str(info.get("oid") or "").strip().lstrip("@")
+    if oid.isdigit():
+        rows.append(
+            _lookup_link_row(
+                "SIMBAD TAP basic row by OID",
+                "https://simbad.cds.unistra.fr/simbad/sim-tap/sync?REQUEST=doQuery&LANG=ADQL&FORMAT=HTML&QUERY="
+                + quote_plus(f"SELECT TOP 1 * FROM basic WHERE oid = {oid}"),
+                "raw SIMBAD basic table row",
+            )
+        )
+    rows.append(
+        _lookup_link_row(
+            "CDS Sesame resolver",
+            "https://cds.unistra.fr/cgi-bin/Sesame/-oxp/~?" + encoded_name,
+            "name resolution and aliases",
+        )
+    )
+    rows.append(
+        _lookup_link_row(
+            "VizieR catalog search",
+            "https://vizier.cds.unistra.fr/viz-bin/VizieR?-source=all&-out.max=50&-out.form=HTML%20Table&-c="
+            + encoded_name,
+            "catalog/survey rows near the object",
+        )
+    )
+
+    ra = _float_or_none(info.get("ra_deg"))
+    dec = _float_or_none(info.get("dec_deg"))
+    if ra is not None and dec is not None:
+        coord = f"{ra:.7f} {dec:+.7f}"
+        rows.append(
+            _lookup_link_row(
+                "Aladin Lite sky atlas",
+                "https://aladin.cds.unistra.fr/AladinLite/?target="
+                + quote(coord)
+                + "&fov=0.5",
+                "interactive sky image and survey overlays",
+            )
+        )
+        rows.append(
+            _lookup_link_row(
+                "VizieR cone search at coordinates",
+                "https://vizier.cds.unistra.fr/viz-bin/VizieR?-source=all&-out.max=50&-out.form=HTML%20Table&-c="
+                + quote(coord)
+                + "&-c.rs=5",
+                "5 arcmin catalog cone",
+            )
+        )
+
+    object_type = str(info.get("object_type") or "").casefold()
+    if (
+        _is_extragalactic_distance_type(str(info.get("object_type") or ""))
+        or "galaxy" in object_type
+    ):
+        rows.append(
+            _lookup_link_row(
+                "NASA/IPAC NED by name",
+                "https://ned.ipac.caltech.edu/byname?objname=" + encoded_name,
+                "galaxy redshifts, distances, photometry, references",
+            )
+        )
+
+    if _is_fzastro_horizons_target(primary_name) or _solar_system_reference_kind(
+        primary_name, object_type
+    ):
+        rows.append(
+            _lookup_link_row(
+                "JPL Horizons",
+                "https://ssd.jpl.nasa.gov/horizons/app.html#/",
+                "live ephemerides for Solar System bodies",
+            )
+        )
+        rows.append(
+            _lookup_link_row(
+                "NASA Images search",
+                "https://images.nasa.gov/search-results?q=" + encoded_name,
+                "real public-domain mission imagery",
+            )
+        )
+
+    rows.append(
+        _lookup_link_row(
+            "Wikimedia Commons image search",
+            "https://commons.wikimedia.org/w/index.php?search="
+            + encoded_name
+            + "&title=Special:MediaSearch&type=image",
+            "reference imagery and diagrams",
+        )
+    )
+
+    clean_rows = [row for row in rows if row]
+    if not clean_rows:
+        return ""
+    alias_hint = ""
+    clean_aliases = _clean_aliases(aliases or [])
+    if clean_aliases:
+        alias_hint = (
+            '<div style="margin:0 0 5px 0;color:#93a3b3;font-size:10px;line-height:1.3;">'
+            + html_escape(
+                f"Search name: {primary_name} · aliases available: {len(clean_aliases)}"
+            )
+            + "</div>"
+        )
+    return alias_hint + "".join(clean_rows)
 
 
 def _lookup_method_parts(method: object) -> Tuple[str, str]:
@@ -2337,17 +3233,21 @@ def _lookup_distance_block(
     return "".join(rows)
 
 
-def _lookup_alias_line(aliases: List[str], max_visible: int = 8) -> str:
+def _lookup_alias_line(aliases: List[str], max_visible: Optional[int] = None) -> str:
     """Render aliases in a Qt-safe way.
 
     QTextDocument does not reliably honor inline-block/margin CSS inside QLabel
     rich text, so chip spans can visually collapse into one long word.  Use
     explicit text separators instead; this renders consistently in the chat UI.
+
+    By default this renders every alias. Pass a positive max_visible only for
+    intentional previews; LOOKUP result cards should not hide SIMBAD aliases.
     """
     clean = _clean_aliases(aliases or [])
     if not clean:
         return ""
-    shown = clean[:max_visible]
+    limit = int(max_visible or 0)
+    shown = clean[:limit] if limit > 0 else clean
     alias_bits = [
         '<span style="color:#dce7f4;font-size:11px;white-space:nowrap;">'
         + html_escape(str(a))
@@ -2355,10 +3255,10 @@ def _lookup_alias_line(aliases: List[str], max_visible: int = 8) -> str:
         for a in shown
         if str(a).strip()
     ]
-    if len(clean) > max_visible:
+    if limit > 0 and len(clean) > limit:
         alias_bits.append(
             '<span style="color:#9fc7ff;font-size:11px;font-weight:850;white-space:nowrap;">'
-            + html_escape(f"+{len(clean) - max_visible} more")
+            + html_escape(f"+{len(clean) - limit} more")
             + "</span>"
         )
     sep = '<span style="color:#5f7489;font-size:11px;">&nbsp;·&nbsp;</span>'
@@ -2367,6 +3267,107 @@ def _lookup_alias_line(aliases: List[str], max_visible: int = 8) -> str:
         + sep.join(alias_bits)
         + "</div>"
     )
+
+
+def _lookup_field_label(raw: object) -> str:
+    """Convert TAP column names into compact labels for the LOOKUP card."""
+    text = str(raw or "").strip()
+    if not text:
+        return "Field"
+    base = text.rsplit(".", 1)[-1]
+    norm = re.sub(r"[^a-z0-9]+", "", base.casefold())
+    known = {
+        "oid": "SIMBAD OID",
+        "oidref": "SIMBAD OID",
+        "mainid": "Main ID",
+        "otype": "Object type",
+        "ra": "RA deg",
+        "dec": "Dec deg",
+        "pmra": "PM RA",
+        "pmdec": "PM Dec",
+        "plxvalue": "Parallax",
+        "rvzredshift": "Redshift",
+        "rvzradvel": "Radial velocity",
+        "sptype": "Spectral type",
+        "morphtype": "Morphology",
+        "galdimmajaxis": "Major axis",
+        "galdimminaxis": "Minor axis",
+        "galdimangle": "Position angle",
+        "bibcode": "Bibcode",
+        "unit": "Unit",
+        "method": "Method",
+        "qual": "Quality",
+        "quality": "Quality",
+        "ref": "Reference",
+        "id": "Identifier",
+    }
+    if norm in known:
+        return known[norm]
+    label = re.sub(r"[_\-]+", " ", base).strip()
+    return label[:1].upper() + label[1:] if label else "Field"
+
+
+def _lookup_generic_fields_html(fields: Dict[str, Any]) -> str:
+    """Render all non-empty key/value fields returned by TAP."""
+    items: List[Tuple[str, object]] = []
+    for key, value in (fields or {}).items():
+        clean_value = _lookup_clean_text_value(value)
+        if not clean_value:
+            continue
+        items.append((_lookup_field_label(key), clean_value))
+    return _lookup_inline_items(items)
+
+
+def _lookup_measurement_rows_html(rows: List[Dict[str, Any]]) -> str:
+    """Render all fetched SIMBAD measurement rows without hiding columns."""
+    rendered: List[str] = []
+    for idx, row in enumerate(rows or [], start=1):
+        row_html = _lookup_generic_fields_html(row)
+        if not row_html:
+            continue
+        rendered.append(
+            '<div style="margin:3px 0 5px 0;padding:3px 0;border-bottom:1px solid #18212b;">'
+            f'<div style="color:#9fb2c8;font-size:10px;font-weight:850;margin:0 0 2px 0;">Row {idx}</div>'
+            f"{row_html}"
+            "</div>"
+        )
+    return "".join(rendered)
+
+
+def _lookup_measurement_tables_html(measurements: Dict[str, Dict[str, Any]]) -> str:
+    """Render every fetched SIMBAD measurement table as display-only data.
+
+    This function intentionally does not calculate or replace distance fields;
+    the existing distance ladder remains the only source of the top distance
+    summary.
+    """
+    blocks: List[str] = []
+    for table_name in sorted((measurements or {}).keys()):
+        table = measurements.get(table_name) or {}
+        rows = table.get("rows") if isinstance(table, dict) else None
+        if not isinstance(rows, list) or not rows:
+            continue
+        label = _lookup_clean_text_value(table.get("label") or table_name)
+        row_limit = table.get("row_limit")
+        count_text = f"{len(rows)} row(s)"
+        if row_limit:
+            count_text += f" · capped at {row_limit}"
+        blocks.append(
+            '<div style="margin:4px 0 7px 0;padding:5px 6px;border:1px solid #1e2a36;border-radius:6px;background:#071019;">'
+            f'<div style="color:#dce7f4;font-size:12px;font-weight:900;margin:0 0 2px 0;">{html_escape(label)}</div>'
+            f'<div style="color:#8fa0b3;font-size:10px;margin:0 0 4px 0;">{html_escape(str(table_name))} · {html_escape(count_text)}</div>'
+            + _lookup_measurement_rows_html(rows)
+            + "</div>"
+        )
+    if not blocks:
+        return ""
+    note = (
+        '<div style="color:#9fb2c8;font-size:10px;line-height:1.35;margin:0 0 5px 0;">'
+        "Raw SIMBAD TAP rows are display-only. Distance values shown here do not "
+        "replace the FZAstro distance ladder summary above."
+        "</div>"
+    )
+    return note + "".join(blocks)
 
 
 def _lookup_parse_sectioned_text(output: str) -> Dict[str, List[str]]:
@@ -2417,7 +3418,7 @@ def _lookup_header_html(display_name: str, object_type: str, source: str) -> str
     safe_type = html_escape(str(object_type or "Object"))
     safe_source = html_escape(str(source or "FZASTRO LOOKUP"))
     return (
-        '<div style="margin:0 0 5px 0;padding:4px 0 2px 0;color:#e9eef5;">'
+        '<div class="lookup-header" style="margin:0 0 5px 0;padding:4px 0 2px 0;color:#e9eef5;">'
         f'<div style="font-size:16px;font-weight:900;color:#ffffff;line-height:1.15;margin:0 0 3px 0;">{safe_name}</div>'
         '<div style="color:#d4deea;font-size:11px;line-height:1.3;">'
         f'<span style="color:#9fb2c8;font-size:11px;font-weight:850;">Type:</span> {safe_type}'
@@ -2463,7 +3464,7 @@ def _format_legacy_lookup_html(
             html_parts.append(_lookup_panel(title, inner))
 
     aliases = [line for line in sections.get("ALIASES", []) if str(line).strip()]
-    alias_html = _lookup_alias_line(aliases, max_visible=8)
+    alias_html = _lookup_alias_line(aliases)
     if alias_html:
         html_parts.append(_lookup_panel("Aliases", alias_html))
 
@@ -2492,25 +3493,45 @@ def _format_legacy_lookup_html(
 def _format_fast_lookup_html(
     clean_query: str, info: Dict[str, Any], aliases: List[str], lookup_source: str
 ) -> str:
-    """Render fast lookup output as compact HTML without changing lookup science."""
+    """Render fast lookup output as compact HTML without changing lookup science.
+
+    Keep the science/data-fetch path stable, but surface the details already
+    present in the structured lookup payload so the desktop result panel is more
+    useful than a coordinate-only card.
+    """
     display_name = str(info.get("display_name") or clean_query or "Object").strip()
     pretty_type = _lookup_pretty_type(info.get("object_type") or "Object")
     source = str(lookup_source or "fast lookup").strip()
 
     html_parts: List[str] = [_lookup_header_html(display_name, pretty_type, source)]
 
-    pos_items: List[Tuple[str, object]] = [
-        ("RA", f"{float(info['ra_deg']):.6f}°"),
-        ("Dec", f"{float(info['dec_deg']):+.6f}°"),
+    ra_deg = float(info["ra_deg"])
+    dec_deg = float(info["dec_deg"])
+    gal_l, gal_b = _lookup_galactic_coords(ra_deg, dec_deg)
+    coord_items: List[Tuple[str, object]] = [
+        ("RA deg", f"{ra_deg:.6f}°"),
+        ("Dec deg", f"{dec_deg:+.6f}°"),
+        ("RA HMS", _lookup_ra_hms(ra_deg)),
+        ("Dec DMS", _lookup_dec_dms(dec_deg)),
     ]
+    if gal_l is not None and gal_b is not None:
+        coord_items.extend(
+            [
+                ("Galactic l", f"{gal_l:.4f}°"),
+                ("Galactic b", f"{gal_b:+.4f}°"),
+            ]
+        )
+    html_parts.append(_lookup_panel("Coordinates", _lookup_inline_items(coord_items)))
+
+    motion_items: List[Tuple[str, object]] = []
     if info.get("parallax_mas") is not None:
-        pos_items.append(("Parallax", f"{float(info['parallax_mas']):.3f} mas"))
+        motion_items.append(("Parallax", f"{float(info['parallax_mas']):.3f} mas"))
     pmra = info.get("pmra_masyr")
     pmdec = info.get("pmdec_masyr")
     if pmra is not None or pmdec is not None:
         sra = f"{float(pmra):.2f}" if pmra is not None else "n/a"
         sdc = f"{float(pmdec):.2f}" if pmdec is not None else "n/a"
-        pos_items.append(("PM", f"RA {sra}, Dec {sdc} mas/yr"))
+        motion_items.append(("Proper motion", f"RA {sra}, Dec {sdc} mas/yr"))
     redshift_value = info.get("redshift")
     radial_velocity = info.get("radial_velocity_kms")
     if redshift_value is not None and radial_velocity is None:
@@ -2519,10 +3540,26 @@ def _format_fast_lookup_html(
         except Exception:
             radial_velocity = None
     if redshift_value is not None:
-        pos_items.append(("Redshift", f"{float(redshift_value):.6f}"))
+        motion_items.append(("Redshift", f"{float(redshift_value):.6f}"))
     if radial_velocity is not None:
-        pos_items.append(("RV", f"{float(radial_velocity):.1f} km/s"))
-    html_parts.append(_lookup_panel("Position", _lookup_inline_items(pos_items)))
+        motion_items.append(("Radial velocity", f"{float(radial_velocity):.1f} km/s"))
+    if motion_items:
+        html_parts.append(
+            _lookup_panel("Motion / velocity", _lookup_inline_items(motion_items))
+        )
+
+    physical_items: List[Tuple[str, object]] = [("Object type", pretty_type)]
+    if info.get("morphology"):
+        physical_items.append(("Morphology", str(info.get("morphology"))))
+    if info.get("distance_pc") is not None:
+        distance_modulus = _lookup_distance_modulus(info.get("distance_pc"))
+        if distance_modulus:
+            physical_items.append(("Distance modulus", distance_modulus))
+    if info.get("oid") is not None:
+        physical_items.append(("SIMBAD OID", str(info.get("oid"))))
+    html_parts.append(
+        _lookup_panel("Physical details", _lookup_inline_items(physical_items))
+    )
 
     html_parts.append(
         _lookup_panel(
@@ -2535,77 +3572,57 @@ def _format_fast_lookup_html(
         )
     )
 
+    distance_pc = info.get("distance_pc")
     phot_items: List[Tuple[str, object]] = []
-    for label, key in (("V", "mag_V"), ("G", "mag_G"), ("B", "mag_B")):
+    for label, key in (("B", "mag_B"), ("V", "mag_V"), ("G", "mag_G")):
         if info.get(key) is not None:
             phot_items.append((label, f"{float(info[key]):.3f} mag"))
+    color_bv = _lookup_color_index(info.get("mag_B"), info.get("mag_V"))
+    if color_bv:
+        phot_items.append(("Color B-V", color_bv))
+    for label, key in (("Abs V", "mag_V"), ("Abs G", "mag_G")):
+        absolute_mag = _lookup_absolute_magnitude(info.get(key), distance_pc)
+        if absolute_mag:
+            phot_items.append((label, absolute_mag))
     if phot_items:
         html_parts.append(_lookup_panel("Photometry", _lookup_inline_items(phot_items)))
 
-    alias_html = _lookup_alias_line(aliases, max_visible=8)
-    if alias_html:
-        html_parts.append(_lookup_panel("Aliases", alias_html))
-
-    return "\n".join(part for part in html_parts if part).strip()
-
-    html_parts: List[str] = []
-    html_parts.append(
-        '<div style="margin:0 0 6px 0;padding:9px 12px;border:1px solid #2a3440;'
-        'border-radius:9px;background:#10161d;color:#e9eef5;">'
-        f'<div style="font-size:19px;font-weight:900;color:#ffffff;line-height:1.25;margin-bottom:2px;">{html_escape(display_name)}</div>'
-        '<div style="color:#c8d4e2;font-size:13px;line-height:1.45;">'
-        f'<span style="color:#9fb2c8;font-weight:800;">Type</span> {html_escape(pretty_type)}'
-        f'&nbsp;&nbsp;·&nbsp;&nbsp;<span style="color:#9fb2c8;font-weight:800;">Source</span> {html_escape(source)}'
-        "</div>"
-        "</div>"
-    )
-
-    pos_items: List[Tuple[str, object]] = [
-        ("RA", f"{float(info['ra_deg']):.6f}°"),
-        ("Dec", f"{float(info['dec_deg']):+.6f}°"),
-    ]
-    if info.get("parallax_mas") is not None:
-        pos_items.append(("Parallax", f"{float(info['parallax_mas']):.3f} mas"))
-    pmra = info.get("pmra_masyr")
-    pmdec = info.get("pmdec_masyr")
-    if pmra is not None or pmdec is not None:
-        sra = f"{float(pmra):.2f}" if pmra is not None else "n/a"
-        sdc = f"{float(pmdec):.2f}" if pmdec is not None else "n/a"
-        pos_items.append(("Proper motion", f"pmRA {sra}, pmDEC {sdc} mas/yr"))
-    redshift_value = info.get("redshift")
-    radial_velocity = info.get("radial_velocity_kms")
-    if redshift_value is not None and radial_velocity is None:
-        try:
-            radial_velocity = float(redshift_value) * 299792.458
-        except Exception:
-            radial_velocity = None
-    if redshift_value is not None:
-        pos_items.append(("Redshift", f"{float(redshift_value):.6f}"))
-    if radial_velocity is not None:
-        pos_items.append(("Radial velocity", f"{float(radial_velocity):.1f} km/s"))
-    html_parts.append(_lookup_panel("Position", _lookup_inline_items(pos_items)))
-
-    html_parts.append(
-        _lookup_panel(
-            "Distance",
-            _lookup_distance_block(
-                info.get("distance_pc"),
-                info.get("distance_method"),
-                info.get("distance_reference"),
-            ),
+    catalog_items: List[Tuple[str, object]] = []
+    if info.get("oid") is not None:
+        catalog_items.append(("SIMBAD OID", str(info.get("oid"))))
+    clean_aliases = _clean_aliases(aliases or [])
+    if clean_aliases:
+        catalog_items.append(("Alias count", str(len(clean_aliases))))
+    if catalog_items:
+        html_parts.append(
+            _lookup_panel("Catalog IDs", _lookup_inline_items(catalog_items))
         )
-    )
 
-    phot_items: List[Tuple[str, object]] = []
-    for label, key in (("V mag", "mag_V"), ("G mag", "mag_G"), ("B mag", "mag_B")):
-        if info.get(key) is not None:
-            phot_items.append((label, f"{float(info[key]):.3f}"))
-    if phot_items:
-        html_parts.append(_lookup_panel("Photometry", _lookup_inline_items(phot_items)))
+    links_html = _lookup_external_links_html(clean_query, info, clean_aliases)
+    if links_html:
+        html_parts.append(_lookup_panel("Links", links_html))
 
-    alias_html = _lookup_alias_line(aliases, max_visible=10)
+    alias_html = _lookup_alias_line(clean_aliases)
     if alias_html:
         html_parts.append(_lookup_panel("Aliases", alias_html))
+
+    basic_fields_html = _lookup_generic_fields_html(
+        info.get("simbad_basic_fields") or {}
+    )
+    if basic_fields_html:
+        html_parts.append(
+            _lookup_panel("SIMBAD basic row · all fields", basic_fields_html)
+        )
+
+    measurements_html = _lookup_measurement_tables_html(
+        info.get("simbad_measurements") or {}
+    )
+    if measurements_html:
+        html_parts.append(
+            _lookup_panel(
+                "SIMBAD measurement tables · all fetched rows", measurements_html
+            )
+        )
 
     return "\n".join(part for part in html_parts if part).strip()
 
@@ -2682,12 +3699,12 @@ def _fast_lookup_object_text(
                 continue
             if info.get(key) in (None, "", "Object"):
                 info[key] = value
-        aliases = _clean_aliases([*aliases, *fallback.get("aliases", [])])[:12]
+        aliases = _clean_aliases([*aliases, *fallback.get("aliases", [])])
 
     if info.get("ra_deg") is None or info.get("dec_deg") is None:
         if fallback:
             info.update(fallback)
-            aliases = _clean_aliases(fallback.get("aliases", []))[:12]
+            aliases = _clean_aliases(fallback.get("aliases", []))
         else:
             raise RuntimeError(simbad_error or "No fast SIMBAD result returned.")
 
@@ -2695,8 +3712,14 @@ def _fast_lookup_object_text(
         aliases = _clean_aliases([clean_query, info.get("display_name")])
 
     # Refresh cached/Sesame results with the same core details the original
-    # astroquery path printed: proper motion and a richer SIMBAD alias list.
-    if not info.get("_simbad_details_enriched"):
+    # astroquery path printed: proper motion and the complete SIMBAD alias list.
+    # Older caches may already have `_simbad_details_enriched` but only contain
+    # the previous preview alias subset, so also check `_simbad_aliases_complete`.
+    if (
+        not info.get("_simbad_details_enriched")
+        or (info.get("oid") is not None and not info.get("_simbad_aliases_complete"))
+        or (info.get("oid") is not None and not info.get("_simbad_research_enriched"))
+    ):
         info, aliases = _enrich_fast_object_details_via_tap(
             info, aliases, timeout=min(int(timeout), 6)
         )
@@ -2728,11 +3751,27 @@ def _fast_lookup_object_text(
         metadata["pmra_masyr"] = float(info.get("pmra_masyr"))
     if info.get("pmdec_masyr") is not None:
         metadata["pmdec_masyr"] = float(info.get("pmdec_masyr"))
-    if aliases:
-        metadata["alias_count"] = len(aliases)
+    clean_metadata_aliases = _clean_aliases(aliases or [])
+    if clean_metadata_aliases:
+        metadata["alias_count"] = len(clean_metadata_aliases)
+        metadata["aliases"] = clean_metadata_aliases
     if info.get("distance_pc") is not None:
         metadata["distance_pc"] = float(info.get("distance_pc"))
         metadata["distance_method"] = str(info.get("distance_method") or "")
+    if info.get("morphology"):
+        metadata["morphology"] = str(info.get("morphology") or "")
+    if info.get("redshift") is not None:
+        metadata["redshift"] = float(info.get("redshift"))
+    if info.get("radial_velocity_kms") is not None:
+        metadata["radial_velocity_kms"] = float(info.get("radial_velocity_kms"))
+    for band in ("B", "V", "G"):
+        key = f"mag_{band}"
+        if info.get(key) is not None:
+            metadata[key] = float(info.get(key))
+    if info.get("simbad_basic_fields"):
+        metadata["simbad_basic_fields"] = dict(info.get("simbad_basic_fields") or {})
+    if info.get("simbad_measurements"):
+        metadata["simbad_measurements"] = dict(info.get("simbad_measurements") or {})
     return text_output.rstrip() + "\n", metadata
 
 
@@ -2806,6 +3845,7 @@ def lookup_object(
     width: int = 1536,
     height: int = 1024,
     rotation_angle: float = 270.0,
+    survey: Optional[str] = None,
     camera_name: Optional[str] = None,
     focal_mm: Optional[float] = None,
     fov_y_deg: Optional[float] = None,
@@ -2945,6 +3985,36 @@ def lookup_object(
 
     if ra is not None and dec is not None:
         metadata.update({"ra_deg": float(ra), "dec_deg": float(dec)})
+    if str(survey or "").strip():
+        metadata["survey_requested"] = str(survey).strip()
+
+    reference_note_html = ""
+    if with_image and _solar_system_reference_kind(clean_query, obj_type):
+        reference_result = _generate_solar_system_reference_image(
+            clean_query, width=int(width), height=int(height)
+        )
+        if reference_result.files:
+            files.extend(reference_result.files)
+            metadata.update(
+                {
+                    "image_status": "solar_system_reference_attached",
+                    **(reference_result.metadata or {}),
+                }
+            )
+            reference_note_html = _lookup_panel(
+                "Reference image",
+                _lookup_inline_items(
+                    [
+                        ("Image", "Generated local reference disk for planets/moons"),
+                        (
+                            "Use",
+                            "Visual reference only; ephemeris values remain from FZASTRO/Horizons",
+                        ),
+                    ]
+                ),
+            )
+        elif reference_result.text:
+            metadata["reference_image_status"] = str(reference_result.text)
 
     if (
         with_image
@@ -2962,6 +4032,7 @@ def lookup_object(
             fov_deg=fov_deg,
             width=int(width),
             height=int(height),
+            survey=survey,
             rotation_angle=float(rotation_angle),
         )
 
@@ -2981,6 +4052,8 @@ def lookup_object(
         imaging_lines.append(
             f"Image: {int(width)} × {int(height)} px, rotation {float(rotation_angle):.0f}°"
         )
+        if str(survey or "").strip():
+            imaging_lines.append(f"Survey: {str(survey).strip()}")
         if camera_name or focal_mm is not None:
             label = str(camera_name or "Camera")
             if focal_mm is not None:
@@ -3014,18 +4087,11 @@ def lookup_object(
     )
 
     if output_is_html:
-        html_tail = ""
-        if imaging_lines:
-            safe_line = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
-                html_escape(str(line)) for line in imaging_lines
-            )
-            html_tail = (
-                '<div style="margin:5px 0 0 0;padding:5px 0 0 0;border-top:1px solid #222b35;color:#e9eef5;">'
-                '<div style="color:#eaf3ff;font-size:12px;font-weight:900;margin:0 0 4px 0;">Imaging setup</div>'
-                f'<div style="color:#d9e2ee;font-size:11px;line-height:1.35;">{safe_line}</div>'
-                "</div>"
-            )
-        rendered_text = output_stripped + html_tail
+        rendered_text = (
+            output_stripped
+            + reference_note_html
+            + _lookup_imaging_setup_html(imaging_lines)
+        )
     else:
         legacy_html = _format_legacy_lookup_html(
             clean_query,
@@ -3033,18 +4099,11 @@ def lookup_object(
             "FZASTRO Horizons" if force_fzastro_horizons else "embedded FZASTRO lookup",
         )
         if legacy_html:
-            html_tail = ""
-            if imaging_lines:
-                safe_line = "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
-                    html_escape(str(line)) for line in imaging_lines
-                )
-                html_tail = (
-                    '<div style="margin:5px 0 0 0;padding:5px 0 0 0;border-top:1px solid #222b35;color:#e9eef5;">'
-                    '<div style="color:#eaf3ff;font-size:12px;font-weight:900;margin:0 0 4px 0;">Imaging setup</div>'
-                    f'<div style="color:#d9e2ee;font-size:11px;line-height:1.35;">{safe_line}</div>'
-                    "</div>"
-                )
-            rendered_text = legacy_html + html_tail
+            rendered_text = (
+                legacy_html
+                + reference_note_html
+                + _lookup_imaging_setup_html(imaging_lines)
+            )
         else:
             rendered_text = header + "```text\n" + output_stripped + "\n```" + note
 

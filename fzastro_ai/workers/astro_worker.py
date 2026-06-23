@@ -54,6 +54,7 @@ class AstroWorker(QThread):
                         width=int(self.params.get("width", 1536)),
                         height=int(self.params.get("height", 1024)),
                         rotation_angle=float(self.params.get("rotation_angle", 270.0)),
+                        survey=self.params.get("survey"),
                         camera_name=self.params.get("camera_name"),
                         focal_mm=self.params.get("focal_mm"),
                         fov_y_deg=self.params.get("fov_y_deg"),

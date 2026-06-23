@@ -25,7 +25,9 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QSplitter,
     QTextBrowser,
+    QTabWidget,
     QVBoxLayout,
 )
 
@@ -100,6 +102,33 @@ DEFAULT_ASTRO_IMAGING = {
 }
 
 
+def lookup_survey_options() -> list[dict[str, str]]:
+    try:
+        from ..astro_tools import engine as astro_engine
+
+        presets = astro_engine.lookup_survey_presets()
+        if isinstance(presets, list) and presets:
+            return [dict(item) for item in presets if isinstance(item, dict)]
+    except Exception:
+        pass
+    return [
+        {"label": "Auto optical color · DSS2", "survey": ""},
+        {"label": "DSS2 color · broadband optical", "survey": "DSS2/color"},
+        {
+            "label": "Finkbeiner H-alpha composite · narrowband full sky",
+            "survey": "https://alasky.cds.unistra.fr/FinkbeinerHalpha/",
+        },
+    ]
+
+
+def _survey_label_for_value(value: str) -> str:
+    clean = str(value or "").strip()
+    for item in lookup_survey_options():
+        if str(item.get("survey") or "").strip() == clean:
+            return str(item.get("label") or clean or "Auto optical color · DSS2")
+    return clean or "Auto optical color · DSS2"
+
+
 def normalise_astro_imaging(value: Optional[dict]) -> dict:
     data = dict(DEFAULT_ASTRO_IMAGING)
     if isinstance(value, dict):
@@ -129,6 +158,7 @@ def normalise_astro_imaging(value: Optional[dict]) -> dict:
     height = int(preset_info["output_height"])
     fov_y = fov_x * height / max(1, width)
 
+    survey = str(data.get("survey") or "").strip() if isinstance(data, dict) else ""
     return {
         "preset": preset,
         "preset_name": str(preset_info["name"]),
@@ -142,6 +172,8 @@ def normalise_astro_imaging(value: Optional[dict]) -> dict:
         "native_width": int(preset_info["native_width"]),
         "native_height": int(preset_info["native_height"]),
         "sensor_width_mm": float(preset_info["sensor_width_mm"]),
+        "survey": survey,
+        "survey_label": _survey_label_for_value(survey),
     }
 
 
@@ -172,6 +204,7 @@ def _lookup_params_from_dialog_data(data: dict) -> dict:
         "width": int(normalised["width"]),
         "height": int(normalised["height"]),
         "rotation_angle": float(normalised["rotation_angle"]),
+        "survey": str(normalised.get("survey") or "").strip(),
         "camera_preset": str(normalised["preset"]),
         "camera_name": str(normalised["preset_name"]),
         "preset_label": str(normalised["preset_label"]),
@@ -185,6 +218,80 @@ def _looks_like_html(text: str) -> bool:
     return clean.startswith(
         ("<div", "<table", "<section", "<article", "<!doctype", "<html")
     )
+
+
+def _strip_html_shell(text: str) -> str:
+    """Return the body fragment from a small HTML document when present."""
+    body = str(text or "").strip()
+    match = re.search(r"<body[^>]*>(.*?)</body>", body, flags=re.IGNORECASE | re.DOTALL)
+    return (match.group(1).strip() if match else body).strip()
+
+
+def _strip_lookup_imaging_panel(body: str) -> str:
+    """Remove the result-side imaging panel; the dialog shows it below the image."""
+    clean = str(body or "")
+    clean = re.sub(
+        r'<section\b[^>]*data-lookup-title="Imaging setup"[^>]*>.*?</section>',
+        "",
+        clean,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    clean = re.sub(
+        r"<div\b[^>]*>\s*<div\b[^>]*>\s*Imaging setup\s*</div>.*?</div>\s*</div>",
+        "",
+        clean,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return clean.strip()
+
+
+def _lookup_section_title(section_html: str) -> str:
+    match = re.search(
+        r'data-lookup-title="([^"]+)"',
+        str(section_html or ""),
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return html.unescape(match.group(1)).strip()
+    match = re.search(
+        r'<div\b[^>]*class="[^"]*lookup-panel-title[^"]*"[^>]*>(.*?)</div>',
+        str(section_html or ""),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if match:
+        return re.sub(r"<[^>]+>", "", html.unescape(match.group(1))).strip()
+    return ""
+
+
+def _split_lookup_sections(body: str) -> tuple[str, list[tuple[str, str]], str]:
+    """Split LOOKUP HTML into header, marked section panels, and unparsed tail."""
+    clean = str(body or "").strip()
+    pattern = re.compile(
+        r'(<section\b[^>]*class="[^"]*lookup-panel[^"]*"[^>]*>.*?</section>)',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    parts = pattern.split(clean)
+    header_parts: list[str] = []
+    sections: list[tuple[str, str]] = []
+    tail_parts: list[str] = []
+    seen_section = False
+    for part in parts:
+        if not part:
+            continue
+        if pattern.fullmatch(part):
+            seen_section = True
+            title = _lookup_section_title(part)
+            sections.append((title, part))
+        elif not seen_section:
+            header_parts.append(part)
+        else:
+            tail_parts.append(part)
+    return "".join(header_parts).strip(), sections, "".join(tail_parts).strip()
+
+
+def _section_matches(title: str, needles: tuple[str, ...]) -> bool:
+    clean = str(title or "").casefold()
+    return any(needle in clean for needle in needles)
 
 
 def _markdown_to_html(text: str) -> str:
@@ -322,12 +429,8 @@ def _legacy_lookup_to_html(text: str) -> str:
     if aliases:
         alias_bits = [
             f'<span style="color:#dce7f4;font-size:11px;white-space:nowrap;">{html.escape(alias)}</span>'
-            for alias in aliases[:8]
+            for alias in aliases
         ]
-        if len(aliases) > 8:
-            alias_bits.append(
-                f'<span style="color:#9fc7ff;font-size:11px;font-weight:850;">+{len(aliases)-8} more</span>'
-            )
         parts.append(
             _legacy_lookup_panel(
                 "Aliases",
@@ -455,9 +558,9 @@ class AstroLookupDialog(QDialog):
         self.setWindowTitle(
             "Astro Lookup" if include_query else "Astro Imaging Settings"
         )
-        self.resize(1120 if include_query else 540, 700 if include_query else 300)
+        self.resize(1280 if include_query else 540, 760 if include_query else 300)
         if include_query:
-            self.setMinimumSize(880, 600)
+            self.setMinimumSize(980, 640)
 
         current = normalise_astro_imaging(imaging)
 
@@ -555,13 +658,7 @@ class AstroLookupDialog(QDialog):
             self.lookup_button.setMinimumWidth(120)
             self.lookup_button.clicked.connect(self.run_lookup)
 
-            object_row = QHBoxLayout()
-            object_row.setContentsMargins(0, 0, 0, 0)
-            object_row.setSpacing(8)
-            object_row.addWidget(self.query_edit, 1)
-            object_row.addWidget(self.lookup_button)
-            add_layout_field(1, 0, "Object", object_row, 4)
-            camera_row = 2
+            camera_row = 1
         else:
             self.catalog_combo = None
             self.catalog_object_combo = None
@@ -595,7 +692,28 @@ class AstroLookupDialog(QDialog):
         self.rotation_spin.setValue(float(current["rotation_angle"]))
         add_field(camera_row, 3, "Rotation", self.rotation_spin, 1)
 
-        summary_row = camera_row + 1
+        self.survey_combo = QComboBox()
+        self.survey_combo.setObjectName("astroLookupCombo")
+        self.survey_combo.setMinimumWidth(240)
+        for item in lookup_survey_options():
+            label = str(item.get("label") or item.get("survey") or "Survey")
+            survey_value = str(item.get("survey") or "").strip()
+            self.survey_combo.addItem(label, survey_value)
+            coverage = str(item.get("coverage") or "").strip()
+            if coverage:
+                self.survey_combo.setItemData(
+                    self.survey_combo.count() - 1,
+                    coverage,
+                    Qt.ToolTipRole,
+                )
+        survey_idx = self.survey_combo.findData(
+            str(current.get("survey") or "").strip()
+        )
+        self.survey_combo.setCurrentIndex(max(0, survey_idx))
+        survey_row = camera_row + 1
+        add_field(survey_row, 0, "Sky survey / narrowband", self.survey_combo, 4)
+
+        summary_row = survey_row + 1
         self.fov_label = QLabel("")
         self.fov_label.setObjectName("astroLookupPill")
         self.fov_label.setWordWrap(True)
@@ -616,7 +734,38 @@ class AstroLookupDialog(QDialog):
         reset_button.clicked.connect(self.reset_defaults)
         quick_row.addWidget(reset_button)
         quick_row.addStretch(1)
+        self.setup_inside_hide_button = QPushButton("Collapse setup")
+        self.setup_inside_hide_button.setObjectName("astroLookupToggleButton")
+        self.setup_inside_hide_button.setToolTip(
+            "Hide catalog and imaging setup controls to give more room to image/results"
+        )
+        self.setup_inside_hide_button.clicked.connect(self.toggle_setup_panel)
+        quick_row.addWidget(self.setup_inside_hide_button)
         settings_layout.addLayout(quick_row)
+
+        self.lookup_bar_card = None
+        self.setup_toggle_button = None
+        if include_query:
+            self.lookup_bar_card = QFrame()
+            self.lookup_bar_card.setObjectName("astroLookupTopBarCard")
+            lookup_bar = QHBoxLayout(self.lookup_bar_card)
+            lookup_bar.setContentsMargins(10, 7, 10, 7)
+            lookup_bar.setSpacing(8)
+
+            object_caption = QLabel("Object")
+            object_caption.setObjectName("toolbarCaption")
+            object_caption.setMinimumWidth(48)
+            lookup_bar.addWidget(object_caption)
+            lookup_bar.addWidget(self.query_edit, 1)
+            lookup_bar.addWidget(self.lookup_button)
+
+            self.setup_toggle_button = QPushButton("Setup")
+            self.setup_toggle_button.setObjectName("astroLookupToggleButton")
+            self.setup_toggle_button.setToolTip(
+                "Show or hide catalog and imaging setup controls"
+            )
+            self.setup_toggle_button.clicked.connect(self.toggle_setup_panel)
+            lookup_bar.addWidget(self.setup_toggle_button)
 
         self.result_card = QFrame()
         self.result_card.setObjectName("astroLookupResultCard")
@@ -643,18 +792,10 @@ class AstroLookupDialog(QDialog):
         self.progress_bar.hide()
         result_layout.addWidget(self.progress_bar)
 
-        split_row = QHBoxLayout()
-        split_row.setContentsMargins(0, 0, 0, 0)
-        split_row.setSpacing(10)
-
-        self.result_browser = QTextBrowser()
-        self.result_browser.setObjectName("astroLookupResultBrowser")
-        self.result_browser.setOpenExternalLinks(True)
-        self.result_browser.setMinimumHeight(220)
-        self.result_browser.setMinimumWidth(260)
-        self.result_browser.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.result_browser.setHtml(self._empty_result_html())
-        split_row.addWidget(self.result_browser, 1)
+        self.result_splitter = QSplitter(Qt.Horizontal)
+        self.result_splitter.setObjectName("astroLookupResultSplitter")
+        self.result_splitter.setChildrenCollapsible(False)
+        self.result_splitter.setHandleWidth(8)
 
         image_panel = QFrame()
         image_panel.setObjectName("astroLookupImagePanel")
@@ -663,7 +804,7 @@ class AstroLookupDialog(QDialog):
         image_layout.setSpacing(6)
         image_header = QHBoxLayout()
         image_header.setContentsMargins(0, 0, 0, 0)
-        image_title = QLabel("Sky preview")
+        image_title = QLabel("Image preview")
         image_title.setObjectName("astroLookupSectionTitle")
         self.open_image_button = QPushButton("Open image")
         self.open_image_button.setEnabled(False)
@@ -675,17 +816,52 @@ class AstroLookupDialog(QDialog):
         self.image_label.setObjectName("astroLookupImagePreview")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setWordWrap(True)
-        self.image_label.setMinimumSize(520, 300)
+        self.image_label.setMinimumSize(520, 360)
         self.image_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.image_setup_label = QLabel("")
+        self.image_setup_label.setObjectName("astroLookupImageSetupStrip")
+        self.image_setup_label.setWordWrap(False)
+        self.image_setup_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.image_path_label = QLabel("")
         self.image_path_label.setObjectName("helpDialogSubtitle")
         self.image_path_label.setWordWrap(True)
         self.image_path_label.hide()
         image_layout.addLayout(image_header)
         image_layout.addWidget(self.image_label, 1)
+        image_layout.addWidget(self.image_setup_label)
         image_layout.addWidget(self.image_path_label)
-        split_row.addWidget(image_panel, 3)
-        result_layout.addLayout(split_row, 1)
+
+        self.details_tabs = QTabWidget()
+        self.details_tabs.setObjectName("astroLookupDetailsTabs")
+        self.details_tabs.setMinimumHeight(220)
+        self.details_tabs.setMinimumWidth(300)
+        self.details_tabs.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+
+        self.result_browser = self._create_result_browser()
+        self.aliases_browser = self._create_result_browser()
+        self.links_browser = self._create_result_browser()
+        self.all_data_browser = self._create_result_browser()
+
+        empty_html = self._empty_result_html()
+        for browser in (
+            self.result_browser,
+            self.aliases_browser,
+            self.links_browser,
+            self.all_data_browser,
+        ):
+            browser.setHtml(empty_html)
+
+        self.details_tabs.addTab(self.result_browser, "Overview")
+        self.details_tabs.addTab(self.aliases_browser, "Aliases")
+        self.details_tabs.addTab(self.links_browser, "Links")
+        self.details_tabs.addTab(self.all_data_browser, "All data")
+
+        self.result_splitter.addWidget(image_panel)
+        self.result_splitter.addWidget(self.details_tabs)
+        self.result_splitter.setStretchFactor(0, 5)
+        self.result_splitter.setStretchFactor(1, 3)
+        self.result_splitter.setSizes([820, 460])
+        result_layout.addWidget(self.result_splitter, 1)
 
         button_row = QDialogButtonBox()
         self.close_button = button_row.addButton("Close", QDialogButtonBox.AcceptRole)
@@ -695,7 +871,10 @@ class AstroLookupDialog(QDialog):
         self._cancel_button = cancel_button
 
         layout.addWidget(header_card)
+        if include_query and self.lookup_bar_card is not None:
+            layout.addWidget(self.lookup_bar_card)
         layout.addWidget(settings_card)
+        self.settings_card = settings_card
         if include_query:
             layout.addWidget(self.result_card, 1)
         layout.addWidget(button_row)
@@ -703,10 +882,112 @@ class AstroLookupDialog(QDialog):
         self.preset_combo.currentIndexChanged.connect(self.refresh_summary)
         self.focal_spin.valueChanged.connect(self.refresh_summary)
         self.rotation_spin.valueChanged.connect(self.refresh_summary)
+        self.survey_combo.currentIndexChanged.connect(self.refresh_summary)
         self.refresh_summary()
 
-        if not include_query:
+        if include_query:
+            # Default to a compact lookup view: object name + Run button remain on top,
+            # while catalog/camera controls can be expanded only when needed.
+            self.set_setup_panel_visible(False)
+        else:
             self.result_card.hide()
+
+    def _create_result_browser(self) -> QTextBrowser:
+        browser = QTextBrowser()
+        browser.setObjectName("astroLookupResultBrowser")
+        browser.setOpenExternalLinks(True)
+        browser.setMinimumHeight(220)
+        browser.setMinimumWidth(280)
+        browser.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        return browser
+
+    def toggle_setup_panel(self):
+        card = getattr(self, "settings_card", None)
+        if card is None:
+            return
+        self.set_setup_panel_visible(not card.isVisible())
+
+    def set_setup_panel_visible(self, visible: bool):
+        card = getattr(self, "settings_card", None)
+        if card is not None:
+            card.setVisible(bool(visible))
+        button = getattr(self, "setup_toggle_button", None)
+        if button is not None:
+            button.setText("Hide setup" if visible else "Show setup")
+        inside_button = getattr(self, "setup_inside_hide_button", None)
+        if inside_button is not None:
+            inside_button.setText("Collapse setup" if visible else "Setup hidden")
+            inside_button.setEnabled(bool(visible))
+
+    def _set_result_tab_html(
+        self, overview: str, aliases: str = "", links: str = "", all_data: str = ""
+    ):
+        self.result_browser.setHtml(overview or self._empty_result_html())
+        self.aliases_browser.setHtml(
+            aliases or self._status_html("No aliases returned")
+        )
+        self.links_browser.setHtml(
+            links or self._status_html("No object links returned")
+        )
+        self.all_data_browser.setHtml(all_data or overview or self._empty_result_html())
+
+    def _current_imaging_setup_text(self) -> str:
+        data = self.result_data(include_query=False)
+        return (
+            f"{data['preset_name']} · {data['focal_mm']:.0f} mm · "
+            f"FOV {data['fov_deg']:.3f}° × {data['fov_y_deg']:.3f}° · "
+            f"{data['width']}×{data['height']} px · rot {data['rotation_angle']:.0f}° · "
+            f"{data.get('survey_label') or 'Auto optical color · DSS2'}"
+        )
+
+    def _refresh_image_setup_strip(self):
+        label = getattr(self, "image_setup_label", None)
+        if label is None:
+            return
+        label.setText(self._current_imaging_setup_text())
+
+    def _split_rendered_result_tabs(self, rendered_html: str) -> dict[str, str]:
+        body = _strip_html_shell(rendered_html)
+        body = _strip_lookup_imaging_panel(body)
+        header, sections, tail = _split_lookup_sections(body)
+        if not sections:
+            wrapped = self._wrap_result_html(body)
+            return {"overview": wrapped, "aliases": "", "links": "", "all": wrapped}
+
+        overview_parts = [header] if header else []
+        aliases_parts = []
+        links_parts = []
+        all_parts = [header] if header else []
+        for title, section in sections:
+            all_parts.append(section)
+            if _section_matches(title, ("alias", "catalog id")):
+                aliases_parts.append(section)
+            elif _section_matches(title, ("link", "source")):
+                links_parts.append(section)
+            elif _section_matches(
+                title,
+                ("simbad", "measurement", "research", "all fields", "all fetched"),
+            ):
+                # Raw/research data stays available, but only in the All data tab.
+                continue
+            else:
+                overview_parts.append(section)
+        if tail:
+            all_parts.append(tail)
+        return {
+            "overview": self._wrap_result_html("\n".join(overview_parts).strip()),
+            "aliases": (
+                self._wrap_result_html("\n".join(aliases_parts).strip())
+                if aliases_parts
+                else ""
+            ),
+            "links": (
+                self._wrap_result_html("\n".join(links_parts).strip())
+                if links_parts
+                else ""
+            ),
+            "all": self._wrap_result_html("\n".join(all_parts).strip()),
+        }
 
     def _empty_result_html(self) -> str:
         return self._wrap_result_html(
@@ -831,14 +1112,18 @@ class AstroLookupDialog(QDialog):
         self.preset_combo.setCurrentIndex(max(0, idx))
         self.focal_spin.setValue(float(DEFAULT_ASTRO_IMAGING["focal_mm"]))
         self.rotation_spin.setValue(float(DEFAULT_ASTRO_IMAGING["rotation_angle"]))
+        survey_idx = self.survey_combo.findData("")
+        self.survey_combo.setCurrentIndex(max(0, survey_idx))
         self.refresh_summary()
 
     def refresh_summary(self):
         data = self.result_data(include_query=False)
         self.fov_label.setText(f"{data['fov_deg']:.3f}° × {data['fov_y_deg']:.3f}°")
+        survey_text = str(data.get("survey_label") or "Auto optical color · DSS2")
         self.output_label.setText(
-            f"{data['width']} × {data['height']} preview from {data['native_width']} × {data['native_height']} sensor"
+            f"{data['width']} × {data['height']} preview from {data['native_width']} × {data['native_height']} sensor · {survey_text}"
         )
+        self._refresh_image_setup_strip()
 
     def result_data(self, include_query: bool = True) -> dict:
         preset = str(self.preset_combo.currentData() or DEFAULT_ASTRO_IMAGING["preset"])
@@ -847,6 +1132,7 @@ class AstroLookupDialog(QDialog):
                 "preset": preset,
                 "focal_mm": float(self.focal_spin.value()),
                 "rotation_angle": float(self.rotation_spin.value()),
+                "survey": str(self.survey_combo.currentData() or "").strip(),
             }
         )
         if include_query and self.include_query:
@@ -877,12 +1163,13 @@ class AstroLookupDialog(QDialog):
         self.image_path_label.setText("")
         self.image_path_label.hide()
         self.status_label.setText(f"Running {clean_query}…")
-        self.result_browser.setHtml(
+        self._set_result_tab_html(
             self._status_html(
                 f"Looking up {clean_query}",
                 "Resolving object data and generating the preview in this window.",
             )
         )
+        self._refresh_image_setup_strip()
         self.progress_bar.show()
         self._set_lookup_controls_enabled(False)
 
@@ -902,6 +1189,7 @@ class AstroLookupDialog(QDialog):
             self.preset_combo,
             self.focal_spin,
             self.rotation_spin,
+            self.survey_combo,
             getattr(self, "lookup_button", None),
             getattr(self, "close_button", None),
         ]
@@ -922,10 +1210,18 @@ class AstroLookupDialog(QDialog):
 
         if success:
             self.status_label.setText(f"Finished • {float(elapsed):.2f}s")
-            self.result_browser.setHtml(self._render_result_text(clean_text))
+            tabs = self._split_rendered_result_tabs(
+                self._render_result_text(clean_text)
+            )
+            self._set_result_tab_html(
+                tabs.get("overview", ""),
+                tabs.get("aliases", ""),
+                tabs.get("links", ""),
+                tabs.get("all", ""),
+            )
         else:
             self.status_label.setText(f"Problem • {float(elapsed):.2f}s")
-            self.result_browser.setHtml(
+            self._set_result_tab_html(
                 self._status_html("Astro lookup problem", clean_text)
             )
 
@@ -1035,15 +1331,13 @@ class AstroLookupDialog(QDialog):
         self.progress_bar.hide()
         self._set_lookup_controls_enabled(True)
         self.status_label.setText(f"Stopped • {float(elapsed):.2f}s")
-        self.result_browser.setHtml(self._status_html("Astro lookup stopped"))
+        self._set_result_tab_html(self._status_html("Astro lookup stopped"))
 
     def handle_lookup_error(self, error):
         self.progress_bar.hide()
         self._set_lookup_controls_enabled(True)
         self.status_label.setText("Failed")
-        self.result_browser.setHtml(
-            self._status_html("Astro lookup failed", str(error))
-        )
+        self._set_result_tab_html(self._status_html("Astro lookup failed", str(error)))
 
     def handle_lookup_worker_finished(self):
         worker = self.sender()

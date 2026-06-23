@@ -118,6 +118,18 @@ class WorkspaceTabsMixin:
         )
         self._add_workspace_app_action(
             menu,
+            "SPACE LIVE",
+            "open_iss_live_dialog",
+            "Live space and Earth streams, including ISS, Sen, NASA/ESA, and NOAA GOES",
+        )
+        self._add_workspace_app_action(
+            menu,
+            "FZASTRO LIVE",
+            "open_fzastro_live_dialog",
+            "Embedded single-site viewer for https://www.fzastro.com/",
+        )
+        self._add_workspace_app_action(
+            menu,
             "SOLAR MAP",
             "open_solar_system_map",
             "Interactive solar-system map",

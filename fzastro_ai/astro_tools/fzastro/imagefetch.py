@@ -12,10 +12,87 @@ CACHE_DIR = (WEB_DIR / "cache" / "images").resolve()
 HIPS_ENDPOINT = "https://alasky.u-strasbg.fr/hips-image-services/hips2fits"
 
 DEFAULT_SURVEY = "DSS2/color"
-FALLBACK_SURVEYS = [
-    "2MASS/Color",
-    "DSS2/blue",
+
+FINKBEINER_HALPHA_SURVEY = "https://alasky.cds.unistra.fr/FinkbeinerHalpha/"
+VTSS_HALPHA_SURVEY = "https://cade.irap.omp.eu/documents/Ancillary/4Aladin/VTSS/"
+SHASSA_HALPHA_SURVEY = "https://alasky.cds.unistra.fr/SHASSA-H3/"
+
+# Curated HiPS survey IDs/URLs used by LOOKUP.  HIPS2FITS accepts either
+# the common CDS survey name (for standard surveys) or a HiPS base URL
+# (useful for specialist narrow-band H-alpha maps).  The three H-alpha
+# sources below are public HiPS image services with JPEG/FITS tiles.
+LOOKUP_SURVEY_PRESETS = [
+    {"label": "Auto optical color · DSS2", "survey": ""},
+    {"label": "DSS2 color · broadband optical", "survey": "DSS2/color"},
+    {"label": "DSS2 red · broadband optical", "survey": "DSS2/red"},
+    {"label": "DSS2 blue · broadband optical", "survey": "DSS2/blue"},
+    {
+        "label": "Pan-STARRS DR1 color · optical",
+        "survey": "CDS/P/PanSTARRS/DR1/color-i-r-g",
+    },
+    {
+        "label": "Pan-STARRS DR1 color · z/g",
+        "survey": "CDS/P/PanSTARRS/DR1/color-z-zg-g",
+    },
+    {"label": "SDSS9 color · optical", "survey": "CDS/P/SDSS9/color"},
+    {"label": "2MASS color · near IR", "survey": "2MASS/Color"},
+    {"label": "AllWISE color · mid IR", "survey": "AllWISE/color"},
+    {"label": "GALEX GR6/7 color · ultraviolet", "survey": "GALEXGR6_7/color"},
+    {
+        "label": "Finkbeiner H-alpha composite · narrowband full sky",
+        "survey": FINKBEINER_HALPHA_SURVEY,
+        "coverage": "Full-sky H-alpha composite from WHAM, VTSS, and SHASSA.",
+    },
+    {
+        "label": "VTSS H-alpha · narrowband north",
+        "survey": VTSS_HALPHA_SURVEY,
+        "coverage": "Northern H-alpha survey; best for declinations above about -15°.",
+    },
+    {
+        "label": "SHASSA H-alpha · narrowband south",
+        "survey": SHASSA_HALPHA_SURVEY,
+        "coverage": "Southern H-alpha survey; best for declinations below about +15°.",
+    },
 ]
+
+FALLBACK_SURVEYS = [
+    "DSS2/color",
+    "DSS2/red",
+    "DSS2/blue",
+    "2MASS/Color",
+]
+
+SURVEY_FALLBACK_CHAINS = {
+    "CDS/P/PanSTARRS/DR1/color-i-r-g": [
+        "CDS/P/PanSTARRS/DR1/color-z-zg-g",
+        "DSS2/color",
+    ],
+    "CDS/P/PanSTARRS/DR1/color-z-zg-g": [
+        "CDS/P/PanSTARRS/DR1/color-i-r-g",
+        "DSS2/color",
+    ],
+    "CDS/P/SDSS9/color": ["DSS2/color"],
+    "AllWISE/color": ["2MASS/Color", "DSS2/color"],
+    "GALEXGR6_7/color": ["DSS2/blue", "DSS2/color"],
+    FINKBEINER_HALPHA_SURVEY: [
+        VTSS_HALPHA_SURVEY,
+        SHASSA_HALPHA_SURVEY,
+        "DSS2/red",
+        "DSS2/color",
+    ],
+    VTSS_HALPHA_SURVEY: [
+        FINKBEINER_HALPHA_SURVEY,
+        SHASSA_HALPHA_SURVEY,
+        "DSS2/red",
+        "DSS2/color",
+    ],
+    SHASSA_HALPHA_SURVEY: [
+        FINKBEINER_HALPHA_SURVEY,
+        VTSS_HALPHA_SURVEY,
+        "DSS2/red",
+        "DSS2/color",
+    ],
+}
 
 
 def _fmt_float(x: float, n: int = 6) -> str:
@@ -23,7 +100,48 @@ def _fmt_float(x: float, n: int = 6) -> str:
 
 
 def _sanitize_survey(s: str) -> str:
-    return s.replace("/", "_")
+    clean = s.replace("https://", "").replace("http://", "")
+    return clean.replace("/", "_").replace(":", "_")
+
+
+def lookup_survey_presets() -> List[dict]:
+    return [dict(item) for item in LOOKUP_SURVEY_PRESETS]
+
+
+def _coverage_allows(survey: str, dec: float | None) -> bool:
+    """Return whether a survey is expected to have useful data at declination.
+
+    The full-sky Finkbeiner composite remains the safe H-alpha default.  VTSS
+    and SHASSA overlap around the Galactic plane but have practical northern /
+    southern limits, so the fetch chain skips an out-of-coverage primary before
+    trying fallbacks.  This prevents a user-selected narrow-band survey from
+    returning a blank preview when a better H-alpha map is available.
+    """
+    if dec is None:
+        return True
+    try:
+        d = float(dec)
+    except Exception:
+        return True
+    clean = str(survey or "").strip()
+    if clean == VTSS_HALPHA_SURVEY:
+        return d >= -15.0
+    if clean == SHASSA_HALPHA_SURVEY:
+        return d <= 15.0
+    return True
+
+
+def _survey_chain(primary: str, dec: float | None = None) -> List[str]:
+    chain: List[str] = []
+    for survey in [
+        primary,
+        *SURVEY_FALLBACK_CHAINS.get(primary, []),
+        *FALLBACK_SURVEYS,
+    ]:
+        clean = str(survey or "").strip()
+        if clean and clean not in chain and _coverage_allows(clean, dec):
+            chain.append(clean)
+    return chain
 
 
 def _cache_key(
@@ -76,6 +194,7 @@ def _hips_request(
         "height": int(h),
         "format": "jpg",
         "projection": "TAN",
+        "coordsys": "icrs",
         "rotation_angle": float(rotation_angle),
     }
     try:
@@ -127,7 +246,7 @@ def fetch_image(
     primary = (
         survey.strip() if isinstance(survey, str) and survey.strip() else DEFAULT_SURVEY
     )
-    chain = [primary] + [s for s in FALLBACK_SURVEYS if s != primary]
+    chain = _survey_chain(primary, dec=dec)
     key = _cache_key(primary, ra, dec, fov_deg, w, h, rotation_angle)
     path = CACHE_DIR / key
     if _is_fresh(path, ttl_days):

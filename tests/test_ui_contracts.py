@@ -166,6 +166,7 @@ def test_workspace_apps_button_opens_key_tabbed_tools():
         "open_astro_targets_dialog",
         "open_astro_forecast_dialog",
         "open_sun_now_dialog",
+        "open_iss_live_dialog",
         "open_solar_system_map",
         "open_nina_control",
         "open_document_knowledge_library",
@@ -215,6 +216,7 @@ def test_major_tool_helpers_open_as_workspace_tabs():
         "lookup": PROJECT_ROOT / "fzastro_ai" / "ui" / "astro_lookup_dialog.py",
         "seeing": PROJECT_ROOT / "fzastro_ai" / "ui" / "seeing_dialog.py",
         "sun": PROJECT_ROOT / "fzastro_ai" / "ui" / "sun_now_dialog.py",
+        "iss": PROJECT_ROOT / "fzastro_ai" / "ui" / "iss_live_dialog.py",
         "solar": PROJECT_ROOT / "fzastro_ai" / "ui" / "solar_map_dialog.py",
         "targets": PROJECT_ROOT / "fzastro_ai" / "ui" / "targets_dialog.py",
         "nina": PROJECT_ROOT / "fzastro_ai" / "ui" / "nina_control_dialog.py",
@@ -312,9 +314,8 @@ def test_idle_matrix_overlay_is_installed_and_testable():
     )
 
     assert "from .ui.idle_stars_overlay import IdleStarsOverlay" in app_source
-    assert (
-        "self.idle_stars_overlay = IdleStarsOverlay(root, idle_ms=45_000)" in app_source
-    )
+    assert "self.idle_stars_overlay = IdleStarsOverlay(" in app_source
+    assert '"screensaver_timeout_seconds"' in app_source
     assert "self.idle_stars_overlay.install_on(QApplication.instance())" in app_source
     assert "QColor(0, 0, 0, 255)" in overlay_source
     assert "Qt.WA_OpaquePaintEvent" in overlay_source

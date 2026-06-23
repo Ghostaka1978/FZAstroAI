@@ -110,6 +110,18 @@ TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
         "Find suitable astrophotography targets for a site and time window.",
     ),
     ToolCapability(
+        "astro.space_live",
+        "Astro",
+        "Open Space Live",
+        "Open live space and Earth streams: ISS, Sen SpaceTV-1, NASA/ESA events, and NOAA GOES imagery.",
+    ),
+    ToolCapability(
+        "astro.fzastro_live",
+        "Astro",
+        "Open FZAstro Live",
+        "Open the embedded single-site viewer for https://www.fzastro.com/.",
+    ),
+    ToolCapability(
         "imaging.launch",
         "Imaging",
         "Launch imaging app",

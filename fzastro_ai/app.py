@@ -713,8 +713,12 @@ class FZAstroAI(
         self.sidebar_visible = False
         self.web_companion = WebCompanionProcess(port=7860)
         self.web_companion_settings = app_state.web_companion_settings
-        self.runtime_settings = app_state.runtime_settings
+        self.runtime_settings = self._normalise_screensaver_settings(
+            app_state.runtime_settings
+        )
         self.ollama_keep_alive_box = None
+        self.screensaver_enabled_checkbox = None
+        self.screensaver_timeout_spinbox = None
         self.web_companion_status_label = None
         self.web_companion_auto_start_checkbox = None
 
@@ -1017,6 +1021,42 @@ class FZAstroAI(
         runtime_layout.addWidget(self.restart_ollama_button)
 
         sidebar_layout.addWidget(runtime_card)
+
+        screensaver_card, screensaver_layout = self._create_settings_card(
+            "Screensaver",
+            "Configure the idle Matrix overlay. Disable it entirely or choose a longer timeout.",
+        )
+        self.screensaver_enabled_checkbox = QCheckBox("Enable idle screensaver")
+        self.screensaver_enabled_checkbox.setChecked(
+            bool(self.runtime_settings.get("screensaver_enabled", True))
+        )
+        self.screensaver_enabled_checkbox.setToolTip(
+            "When enabled, the FZAstro Matrix overlay appears after the selected idle timeout."
+        )
+        screensaver_layout.addWidget(self.screensaver_enabled_checkbox)
+
+        screensaver_timeout_caption = QLabel("Timeout")
+        screensaver_timeout_caption.setObjectName("fieldCaption")
+        screensaver_layout.addWidget(screensaver_timeout_caption)
+        self.screensaver_timeout_spinbox = QSpinBox()
+        self.screensaver_timeout_spinbox.setObjectName("runtimeSpinBox")
+        self.screensaver_timeout_spinbox.setRange(10, 3600)
+        self.screensaver_timeout_spinbox.setSingleStep(15)
+        self.screensaver_timeout_spinbox.setSuffix(" s")
+        self.screensaver_timeout_spinbox.setValue(
+            int(self.runtime_settings.get("screensaver_timeout_seconds", 45))
+        )
+        self.screensaver_timeout_spinbox.setToolTip(
+            "Idle seconds before the screensaver appears. Minimum is 10 seconds."
+        )
+        screensaver_layout.addWidget(self.screensaver_timeout_spinbox)
+        self.screensaver_enabled_checkbox.stateChanged.connect(
+            self.on_screensaver_enabled_changed
+        )
+        self.screensaver_timeout_spinbox.valueChanged.connect(
+            self.on_screensaver_timeout_changed
+        )
+        sidebar_layout.addWidget(screensaver_card)
 
         web_card, web_layout = self._create_settings_card(
             "Web Companion",
@@ -1338,6 +1378,28 @@ class FZAstroAI(
         )
         self.astro_sun_now_button.setAccessibleName("Show latest Sun images")
 
+        self.astro_iss_live_button = QPushButton("SPACE LIVE")
+        self.astro_iss_live_button.setObjectName("stockPriceButton")
+        self.astro_iss_live_button.setFixedSize(104, 36)
+        self.astro_iss_live_button.setCursor(Qt.PointingHandCursor)
+        self.astro_iss_live_button.clicked.connect(self.open_iss_live_dialog)
+        self.astro_iss_live_button.setToolTip(
+            "Open live space and Earth sources: ISS, Sen, NASA/ESA events, and NOAA GOES"
+        )
+        self.astro_iss_live_button.setAccessibleName(
+            "Show live space and Earth streams"
+        )
+
+        self.astro_fzastro_live_button = QPushButton("FZASTRO LIVE")
+        self.astro_fzastro_live_button.setObjectName("stockPriceButton")
+        self.astro_fzastro_live_button.setFixedSize(116, 36)
+        self.astro_fzastro_live_button.setCursor(Qt.PointingHandCursor)
+        self.astro_fzastro_live_button.clicked.connect(self.open_fzastro_live_dialog)
+        self.astro_fzastro_live_button.setToolTip(
+            "Open the embedded FZAstro live website viewer"
+        )
+        self.astro_fzastro_live_button.setAccessibleName("Show FZAstro live website")
+
         self.astro_targets_button = QPushButton("TARGETS")
         self.astro_targets_button.setObjectName("stockPriceButton")
         self.astro_targets_button.setFixedSize(86, 36)
@@ -1486,6 +1548,8 @@ class FZAstroAI(
         astro_bar_layout.addSpacing(12)
         astro_bar_layout.addWidget(self.astro_lookup_button)
         astro_bar_layout.addWidget(self.astro_sun_now_button)
+        astro_bar_layout.addWidget(self.astro_iss_live_button)
+        astro_bar_layout.addWidget(self.astro_fzastro_live_button)
         astro_bar_layout.addWidget(self.astro_see_button)
         astro_bar_layout.addWidget(self.astro_targets_button)
         astro_bar_layout.addWidget(self.astro_solar_button)
@@ -1711,7 +1775,7 @@ class FZAstroAI(
         self.composer_astro_button.setObjectName("composerAstroButton")
         self.composer_astro_button.setCursor(Qt.PointingHandCursor)
         self.composer_astro_button.setToolTip(
-            "Open the Astro Tools Suite: SITE, IMAGING, LOOKUP, SUN NOW, SEEING, TARGETS, and SOLAR MAP."
+            "Open the Astro Tools Suite: SITE, IMAGING, LOOKUP, SUN NOW, SPACE LIVE, FZASTRO LIVE, SEEING, TARGETS, and SOLAR MAP."
         )
         self.composer_astro_button.setAccessibleName("Open Astro Tools Suite")
         self.composer_astro_button.setMenu(self.build_skill_menu("astro"))
@@ -1943,8 +2007,13 @@ class FZAstroAI(
         # Idle mode is intentionally visible during normal testing: after 45 seconds
         # of no keyboard or mouse activity the starfield pet overlay appears, then
         # hides on the next user action.
-        self.idle_stars_overlay = IdleStarsOverlay(root, idle_ms=45_000)
+        self.idle_stars_overlay = IdleStarsOverlay(
+            root,
+            idle_ms=int(self.runtime_settings.get("screensaver_timeout_seconds", 45))
+            * 1000,
+        )
         self.idle_stars_overlay.install_on(QApplication.instance())
+        self.apply_screensaver_settings()
         self._position_overlay_panels()
         QTimer.singleShot(0, self._position_overlay_panels)
         self.apply_styles()
@@ -1960,6 +2029,100 @@ class FZAstroAI(
         if self.web_companion_settings.get("auto_start_desktop"):
             QTimer.singleShot(750, self.start_web_companion_background)
         self.maybe_auto_check_nina_updates()
+
+    def _normalise_screensaver_settings(self, settings):
+        normalized = dict(settings or {})
+        enabled_value = normalized.get("screensaver_enabled", True)
+        if isinstance(enabled_value, str):
+            enabled = enabled_value.strip().lower() not in {"0", "false", "no", "off"}
+        else:
+            enabled = bool(enabled_value)
+        normalized["screensaver_enabled"] = enabled
+        try:
+            timeout_seconds = int(normalized.get("screensaver_timeout_seconds", 45))
+        except Exception:
+            timeout_seconds = 45
+        normalized["screensaver_timeout_seconds"] = max(10, min(3600, timeout_seconds))
+        return normalized
+
+    def apply_screensaver_settings(self):
+        settings = self._normalise_screensaver_settings(
+            getattr(self, "runtime_settings", {}) or {}
+        )
+        self.runtime_settings = settings
+        enabled = bool(settings.get("screensaver_enabled", True))
+        timeout_seconds = int(settings.get("screensaver_timeout_seconds", 45))
+
+        timeout_box = getattr(self, "screensaver_timeout_spinbox", None)
+        if timeout_box is not None:
+            try:
+                timeout_box.setEnabled(enabled)
+                if int(timeout_box.value()) != timeout_seconds:
+                    timeout_box.blockSignals(True)
+                    timeout_box.setValue(timeout_seconds)
+                    timeout_box.blockSignals(False)
+            except Exception:
+                pass
+
+        enabled_box = getattr(self, "screensaver_enabled_checkbox", None)
+        if enabled_box is not None:
+            try:
+                if bool(enabled_box.isChecked()) != enabled:
+                    enabled_box.blockSignals(True)
+                    enabled_box.setChecked(enabled)
+                    enabled_box.blockSignals(False)
+            except Exception:
+                pass
+
+        overlay = getattr(self, "idle_stars_overlay", None)
+        if overlay is not None:
+            try:
+                overlay.set_idle_timeout_ms(timeout_seconds * 1000)
+                overlay.set_enabled(enabled)
+            except Exception as exc:
+                log_debug("FZAstroAI.apply_screensaver_settings skipped", exc)
+
+    def save_screensaver_settings(self):
+        self.runtime_settings = self._normalise_screensaver_settings(
+            getattr(self, "runtime_settings", {}) or {}
+        )
+        try:
+            self.save_runtime_settings()
+        except Exception as exc:
+            log_exception("FZAstroAI.save_screensaver_settings", exc)
+
+    def on_screensaver_enabled_changed(self, state):
+        settings = dict(getattr(self, "runtime_settings", {}) or {})
+        settings["screensaver_enabled"] = int(state) != 0
+        self.runtime_settings = settings
+        self.apply_screensaver_settings()
+        self.save_screensaver_settings()
+        try:
+            label = (
+                "enabled"
+                if self.runtime_settings.get("screensaver_enabled")
+                else "disabled"
+            )
+            self.stats_label.setText(f"Screensaver {label}")
+        except Exception:
+            pass
+
+    def on_screensaver_timeout_changed(self, value):
+        settings = dict(getattr(self, "runtime_settings", {}) or {})
+        try:
+            seconds = int(value)
+        except Exception:
+            seconds = 45
+        settings["screensaver_timeout_seconds"] = max(10, min(3600, seconds))
+        self.runtime_settings = settings
+        self.apply_screensaver_settings()
+        self.save_screensaver_settings()
+        try:
+            self.stats_label.setText(
+                f"Screensaver timeout set to {self.runtime_settings['screensaver_timeout_seconds']}s"
+            )
+        except Exception:
+            pass
 
     def save_web_companion_settings(self):
         try:

@@ -102,6 +102,7 @@ class IdleStarsOverlay(_OverlayBaseWidget):
         self.setStyleSheet("background: #000000;")
         self.setFocusPolicy(Qt.NoFocus)
         self._idle_ms = max(10_000, int(idle_ms or 120_000))
+        self._enabled = True
         self._phase = 0.0
         self._elapsed_seconds = 0.0
         self._elapsed_timer = QElapsedTimer()
@@ -225,9 +226,35 @@ class IdleStarsOverlay(_OverlayBaseWidget):
             self._font_cache[key] = cached
         return cached
 
+    def set_idle_timeout_ms(self, idle_ms: int) -> None:
+        """Change the inactivity timeout used before the overlay appears."""
+
+        try:
+            self._idle_ms = max(10_000, int(idle_ms or 120_000))
+        except Exception:
+            self._idle_ms = 120_000
+        self.reset_idle_timer()
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable or disable the app screensaver without uninstalling the filter."""
+
+        self._enabled = bool(enabled)
+        if not self._enabled:
+            try:
+                self._idle_timer.stop()
+                self._animation_timer.stop()
+                if self.isVisible():
+                    self.hide()
+            except RuntimeError:
+                return
+            return
+        self.reset_idle_timer()
+
     def reset_idle_timer(self) -> None:
         """Restart inactivity tracking without changing other application state."""
 
+        if not self._enabled:
+            return
         try:
             if _is_qt_valid(self):
                 self._idle_timer.start(self._idle_ms)
@@ -263,6 +290,8 @@ class IdleStarsOverlay(_OverlayBaseWidget):
         self._columns = self._make_columns()
 
     def _show_overlay(self) -> None:
+        if not self._enabled:
+            return
         parent = self.parentWidget()
         if parent is None or not _is_qt_valid(parent) or not parent.isVisible():
             self.reset_idle_timer()

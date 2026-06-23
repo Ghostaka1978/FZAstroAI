@@ -1170,6 +1170,7 @@ def get_main_stylesheet():
             }
 
             QFrame#astroLookupHeaderCard,
+            QFrame#astroLookupTopBarCard,
             QFrame#astroLookupSettingsCard,
             QFrame#astroLookupResultCard,
             QFrame#astroLookupImagePanel {
@@ -1181,6 +1182,37 @@ def get_main_stylesheet():
             QFrame#astroLookupHeaderCard {
                 background: #121820;
                 border-color: #2f3b49;
+            }
+
+            QFrame#astroLookupTopBarCard {
+                background: #10161d;
+                border-color: #2b3744;
+            }
+
+            QPushButton#astroLookupToggleButton {
+                background: #151d27;
+                color: #cfe1f2;
+                border: 1px solid #334254;
+                border-radius: 9px;
+                padding: 5px 10px;
+                font-size: 11px;
+                font-weight: 750;
+            }
+
+            QPushButton#astroLookupToggleButton:hover {
+                background: #1a2530;
+                border-color: #4b6076;
+            }
+
+            QSplitter#astroLookupResultSplitter::handle {
+                background: #202a35;
+                border: 1px solid #2c3947;
+                border-radius: 3px;
+                margin: 2px 1px;
+            }
+
+            QSplitter#astroLookupResultSplitter::handle:hover {
+                background: #334559;
             }
 
             QLabel#astroLookupSectionTitle {
@@ -1233,6 +1265,42 @@ def get_main_stylesheet():
                 border-radius: 12px;
                 padding: 5px;
                 font-size: 10px;
+            }
+
+            QTabWidget#astroLookupDetailsTabs::pane {
+                background: #0f1318;
+                border: 1px solid #29313b;
+                border-radius: 12px;
+                top: -1px;
+            }
+
+            QTabWidget#astroLookupDetailsTabs QTabBar::tab {
+                background: #101720;
+                color: #9fb2c8;
+                border: 1px solid #29313b;
+                border-bottom: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                padding: 5px 9px;
+                margin-right: 2px;
+                font-size: 10px;
+                font-weight: 750;
+            }
+
+            QTabWidget#astroLookupDetailsTabs QTabBar::tab:selected {
+                background: #151f2b;
+                color: #f2f7fc;
+                border-color: #3a4959;
+            }
+
+            QLabel#astroLookupImageSetupStrip {
+                background: #0e141a;
+                color: #c2d6ea;
+                border: 1px solid #2a3744;
+                border-radius: 9px;
+                padding: 4px 7px;
+                font-size: 10px;
+                font-weight: 700;
             }
 
             QLabel#astroLookupImagePreview {

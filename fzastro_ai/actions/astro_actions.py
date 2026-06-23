@@ -20,6 +20,8 @@ from ..json_store import atomic_write_json
 from ..logging_utils import log_exception, log_warning, log_debug
 from ..ui.astro_location_dialog import choose_astro_location
 from ..ui.sun_now_dialog import show_sun_now_dialog
+from ..ui.iss_live_dialog import show_iss_live_dialog
+from ..ui.fzastro_live_dialog import show_fzastro_live_dialog
 from ..ui.solar_map_dialog import show_solar_map_dialog
 from ..ui.seeing_dialog import show_seeing_dialog
 from ..ui.targets_dialog import show_targets_dialog
@@ -371,6 +373,22 @@ class AstroActionsMixin:
         result = show_sun_now_dialog(self)
         status = "opened" if hasattr(result, "setParent") else "closed"
         self.stats_label.setText(f"SUN NOW {status}")
+
+    def open_iss_live_dialog(self):
+        if self._astro_busy():
+            return
+
+        result = show_iss_live_dialog(self)
+        status = "opened" if hasattr(result, "setParent") else "closed"
+        self.stats_label.setText(f"SPACE LIVE {status}")
+
+    def open_fzastro_live_dialog(self):
+        if self._astro_busy():
+            return
+
+        result = show_fzastro_live_dialog(self)
+        status = "opened" if hasattr(result, "setParent") else "closed"
+        self.stats_label.setText(f"FZASTRO LIVE {status}")
 
     def open_astro_forecast_dialog(self):
         if self._astro_busy():

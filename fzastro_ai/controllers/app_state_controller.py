@@ -16,7 +16,9 @@ from ..memory_store import (
 
 WEB_COMPANION_DEFAULT_SETTINGS: dict[str, Any] = {"auto_start_desktop": False}
 RUNTIME_DEFAULT_SETTINGS: dict[str, Any] = {
-    "ollama_keep_alive_mode": RUNTIME_OLLAMA_KEEP_ALIVE_MODE
+    "ollama_keep_alive_mode": RUNTIME_OLLAMA_KEEP_ALIVE_MODE,
+    "screensaver_enabled": True,
+    "screensaver_timeout_seconds": 45,
 }
 
 

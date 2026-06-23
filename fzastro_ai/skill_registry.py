@@ -288,7 +288,7 @@ SKILLS: tuple[Skill, ...] = (
     Skill(
         skill_id="astro",
         label="Astro",
-        description="FZASTRO observing site, imaging, lookup, SUN NOW, distance-ladder, 7Timer seeing, targets, and native solar map tools.",
+        description="FZASTRO observing site, imaging, lookup, SUN NOW, SPACE LIVE, FZASTRO LIVE, distance-ladder, 7Timer seeing, targets, and native solar map tools.",
         icon="☉",
         actions=(
             _direct(
@@ -318,6 +318,22 @@ SKILLS: tuple[Skill, ...] = (
                 "SUN NOW",
                 "Latest NASA/SDO Sun images with Helioviewer metadata and cached fallback.",
                 "open_sun_now_dialog",
+                section="TOOLS",
+                favorite=True,
+            ),
+            _direct(
+                "astro.space_live",
+                "SPACE LIVE",
+                "Live space and Earth streams with ISS, Sen SpaceTV-1, NASA/ESA events, NOAA GOES, and link fallbacks.",
+                "open_iss_live_dialog",
+                section="TOOLS",
+                favorite=True,
+            ),
+            _direct(
+                "astro.fzastro_live",
+                "FZASTRO LIVE",
+                "Embedded single-site viewer for https://www.fzastro.com/.",
+                "open_fzastro_live_dialog",
                 section="TOOLS",
                 favorite=True,
             ),

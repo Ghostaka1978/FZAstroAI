@@ -104,6 +104,8 @@ def test_astro_menu_uses_caps_for_app_actions_and_sections():
     assert [action.label for action in grouped["TOOLS"]] == [
         "LOOKUP",
         "SUN NOW",
+        "SPACE LIVE",
+        "FZASTRO LIVE",
         "SEEING",
         "TARGETS",
         "SOLAR MAP",
