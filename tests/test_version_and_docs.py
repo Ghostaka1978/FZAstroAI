@@ -256,5 +256,12 @@ def test_llm_benchmark_dialog_uses_active_model_and_fast_default():
 
     assert "ACTIVE MODEL" in benchmark_source
     assert "self.active_model_label" in benchmark_source
+    assert "Run Setup" in benchmark_source
+    assert "benchmarkProgressBar" in benchmark_source
+    assert "benchmarkDashboardSplitter" in benchmark_source
+    assert "benchmarkPromptQueue" in benchmark_source
+    assert "_power_refresh_timer" in benchmark_source
+    assert "SetThreadExecutionState" in benchmark_source
+    assert "show_selected_latest_result_response" in benchmark_source
     assert "refresh_models_from_runtime" not in benchmark_source
     assert "self.suite_depth_box.setCurrentIndex(0)" in benchmark_source

@@ -90,12 +90,19 @@ def test_llm_benchmark_tabs_and_telemetry(monkeypatch):
     try:
         assert [dialog.tabs.tabText(i) for i in range(dialog.tabs.count())] == [
             "Dashboard",
+            "Run Setup",
             "History",
             "Compare",
         ]
+        assert dialog.benchmark_progress_bar.format() == "Idle"
+        assert dialog.benchmark_progress_bar.toolTip()
         assert dialog.gpu_telemetry_label.text() == "GPU 46% • 48°C • VRAM 23.4/24.0 GB"
         assert dialog.system_telemetry_label.text() == "CPU 54% • RAM 26.1/63.8 GB"
         assert dialog.gpu_telemetry_label.toolTip() == "GPU telemetry tooltip"
+        assert dialog.prompt_list.count() >= 1
+        assert "qwen3.6:35b" in dialog.run_summary_browser.toPlainText()
+        assert "Screensaver / sleep guard" in dialog.model_health_browser.toPlainText()
+        assert dialog.dashboard_result_splitter.count() == 2
     finally:
         dialog.close()
         fake_window.close()
@@ -160,6 +167,110 @@ def test_llm_benchmark_delete_selected_history_record(monkeypatch):
             dialog.history_table.item(0, 0).data(dialog_module.Qt.UserRole)
             == "record-2"
         )
+    finally:
+        dialog.close()
+        fake_window.close()
+        dialog.deleteLater()
+        fake_window.deleteLater()
+        app.processEvents()
+
+
+def test_llm_benchmark_latest_selection_shows_selected_response(monkeypatch):
+    qt_widgets, app = _make_qt_app(monkeypatch)
+
+    import fzastro_ai.ui.llm_benchmark_dialog as dialog_module
+
+    fake_window = _make_fake_window(qt_widgets, ["qwen3.6:35b"], current_index=0)
+    dialog = dialog_module.LlmBenchmarkDialog(fake_window)
+
+    try:
+        dialog.history = [
+            {
+                "id": "latest-1",
+                "started_at": "2026-06-15T16:05:00+00:00",
+                "model": "qwen3.6:35b",
+                "persona_name": "Raw model",
+                "preset": "Quick Q&A (short)",
+                "prompt": "Prompt one",
+                "response": "First response text",
+                "tokens_per_second": 30.0,
+                "time_to_first_token_s": 1.0,
+                "total_time_s": 3.0,
+                "generation_time_s": 2.0,
+                "prompt_tokens": 10,
+                "completion_tokens": 60,
+            },
+            {
+                "id": "latest-2",
+                "started_at": "2026-06-15T16:00:00+00:00",
+                "model": "qwen3.6:35b",
+                "persona_name": "Raw model",
+                "preset": "Math Reasoning",
+                "prompt": "Prompt two",
+                "response": "Second response text",
+                "tokens_per_second": 20.0,
+                "time_to_first_token_s": 2.0,
+                "total_time_s": 5.0,
+                "generation_time_s": 3.0,
+                "prompt_tokens": 40,
+                "completion_tokens": 80,
+            },
+        ]
+        dialog.refresh_latest_results_table()
+
+        assert dialog.latest_table.rowCount() == 2
+        assert "First response text" in dialog.response_browser.toPlainText()
+
+        dialog.latest_table.selectRow(1)
+        app.processEvents()
+
+        assert dialog.current_response_result_id == "latest-2"
+        assert "Second response text" in dialog.response_browser.toPlainText()
+    finally:
+        dialog.close()
+        fake_window.close()
+        dialog.deleteLater()
+        fake_window.deleteLater()
+        app.processEvents()
+
+
+def test_llm_benchmark_run_metadata_and_power_guard_state(monkeypatch):
+    qt_widgets, app = _make_qt_app(monkeypatch)
+
+    import fzastro_ai.ui.llm_benchmark_dialog as dialog_module
+
+    fake_window = _make_fake_window(qt_widgets, ["qwen3.6:35b"], current_index=0)
+    dialog = dialog_module.LlmBenchmarkDialog(fake_window)
+
+    try:
+        dialog.run_label_edit.setText("qwen35b-after-update")
+        dialog.run_notes_edit.setPlainText("layout regression check")
+        jobs = dialog.benchmark_jobs()
+        assert jobs
+
+        run_label, run_notes = dialog._run_metadata()
+        for job in jobs:
+            job["run_label"] = run_label
+            job["run_notes"] = run_notes
+
+        worker = dialog_module.LlmBenchmarkWorker(
+            base_url="http://localhost:11434/v1",
+            api_key="ollama",
+            model="qwen3.6:35b",
+            jobs=jobs,
+            temperature=0.3,
+        )
+        assert worker.jobs[0]["run_label"] == "qwen35b-after-update"
+        assert worker.jobs[0]["run_notes"] == "layout regression check"
+
+        dialog.set_running_state(True)
+        assert dialog._power_refresh_timer.isActive()
+        assert not dialog.run_label_edit.isEnabled()
+        assert "Screensaver / sleep guard" in dialog.model_health_browser.toPlainText()
+
+        dialog.set_running_state(False)
+        assert not dialog._power_refresh_timer.isActive()
+        assert dialog.run_label_edit.isEnabled()
     finally:
         dialog.close()
         fake_window.close()

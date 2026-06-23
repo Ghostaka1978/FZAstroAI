@@ -106,7 +106,7 @@ Expected source chip: `Python` when code is executed.
 
 Open **Skills → Model Lab → LLM Benchmark**. The legacy `LLM BENCH` wording remains documented for validation continuity.
 
-The dashboard includes telemetry, Dashboard/History/Compare views, persona/calibration controls, Composite scoring, `Run All Presets`, and `Delete Selected`.
+The dashboard includes telemetry, Dashboard/Run Setup/History/Compare views, persona/calibration controls, Composite scoring, `Run All Presets`, and `Delete Selected`.
 
 ## 8. Astro Tools Suite
 

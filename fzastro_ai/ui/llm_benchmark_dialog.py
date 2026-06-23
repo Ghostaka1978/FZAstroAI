@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import statistics
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -27,8 +28,10 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QLineEdit,
     QHeaderView,
     QLabel,
+    QProgressBar,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -36,6 +39,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -60,6 +64,75 @@ from ..runtime import make_runtime_client
 from .window_utils import apply_window_defaults
 
 BENCHMARK_HISTORY_FILE = Path(APP_DIR) / "llm_benchmark_history.json"
+
+
+class _BenchmarkPowerInhibitor:
+    """Keep Windows display/system idle timers awake while a benchmark is active."""
+
+    ES_CONTINUOUS = 0x80000000
+    ES_SYSTEM_REQUIRED = 0x00000001
+    ES_DISPLAY_REQUIRED = 0x00000002
+
+    def __init__(self):
+        self._active = False
+
+    @property
+    def active(self) -> bool:
+        return bool(self._active)
+
+    def _set_awake_state(self) -> bool:
+        if sys.platform != "win32":
+            return False
+
+        try:
+            import ctypes
+
+            state = (
+                self.ES_CONTINUOUS | self.ES_SYSTEM_REQUIRED | self.ES_DISPLAY_REQUIRED
+            )
+            if ctypes.windll.kernel32.SetThreadExecutionState(state) == 0:
+                log_warning(
+                    "LlmBenchmarkDialog.power_inhibitor acquire",
+                    RuntimeError("SetThreadExecutionState returned 0"),
+                )
+                return False
+            return True
+        except Exception as exc:
+            log_warning("LlmBenchmarkDialog.power_inhibitor acquire", exc)
+            return False
+
+    def acquire(self):
+        if self._active:
+            self.refresh()
+            return
+
+        if self._set_awake_state():
+            self._active = True
+
+    def refresh(self):
+        """Re-assert the display/system awake state during long benchmark runs."""
+
+        if not self._active:
+            return
+        self._set_awake_state()
+
+    def release(self):
+        if not self._active or sys.platform != "win32":
+            self._active = False
+            return
+
+        try:
+            import ctypes
+
+            if ctypes.windll.kernel32.SetThreadExecutionState(self.ES_CONTINUOUS) == 0:
+                log_warning(
+                    "LlmBenchmarkDialog.power_inhibitor release",
+                    RuntimeError("SetThreadExecutionState returned 0"),
+                )
+        except Exception as exc:
+            log_warning("LlmBenchmarkDialog.power_inhibitor release", exc)
+        finally:
+            self._active = False
 
 
 @dataclass(frozen=True)
@@ -292,6 +365,8 @@ class LlmBenchmarkWorker(QThread):
                     "suite_depth": suite_depth or "standard",
                     "repeat_index": repeat_index,
                     "repeat_total": repeat_total,
+                    "run_label": str(job.get("run_label") or "").strip(),
+                    "run_notes": str(job.get("run_notes") or "").strip(),
                 }
             )
 
@@ -467,6 +542,8 @@ class LlmBenchmarkWorker(QThread):
                     "suite_depth": job.get("suite_depth") or "standard",
                     "repeat_index": repeat_index,
                     "repeat_total": repeat_total,
+                    "run_label": job.get("run_label") or "",
+                    "run_notes": job.get("run_notes") or "",
                     "prompt_tokens": prompt_tokens,
                     "input_tokens": input_tokens,
                     "completion_tokens": completion_tokens,
@@ -544,6 +621,12 @@ class LlmBenchmarkDialog(QDialog):
         self.worker: LlmBenchmarkWorker | None = None
         self.history: list[dict] = load_benchmark_history()
         self.current_response_result_id: str | None = None
+        self._benchmark_progress_total = 0
+        self._benchmark_progress_done = 0
+        self._power_inhibitor = _BenchmarkPowerInhibitor()
+        self._power_refresh_timer = QTimer(self)
+        self._power_refresh_timer.setInterval(30_000)
+        self._power_refresh_timer.timeout.connect(self._refresh_power_inhibitor)
 
         self.setWindowTitle("LLM Benchmark Dashboard")
         self.resize(1160, 820)
@@ -555,6 +638,7 @@ class LlmBenchmarkDialog(QDialog):
         self.refresh_personas_from_app()
         self._load_selected_preset()
         self.refresh_history_tables()
+        self.refresh_latest_results_table()
         self.refresh_dashboard()
 
     def _build_ui(self):
@@ -606,6 +690,18 @@ class LlmBenchmarkDialog(QDialog):
         telemetry_layout.addStretch(1)
         telemetry_layout.addWidget(self.system_telemetry_label, 1)
         root_layout.addWidget(telemetry_card)
+
+        self.benchmark_progress_bar = QProgressBar()
+        self.benchmark_progress_bar.setObjectName("benchmarkProgressBar")
+        self.benchmark_progress_bar.setRange(0, 1)
+        self.benchmark_progress_bar.setValue(0)
+        self.benchmark_progress_bar.setTextVisible(True)
+        self.benchmark_progress_bar.setFormat("Idle")
+        self.benchmark_progress_bar.setMinimumHeight(18)
+        self.benchmark_progress_bar.setToolTip(
+            "Benchmark progress. The app keeps the display awake while a benchmark is running."
+        )
+        root_layout.addWidget(self.benchmark_progress_bar)
 
         self.telemetry_timer = QTimer(self)
         self.telemetry_timer.timeout.connect(self.refresh_telemetry_from_app)
@@ -771,7 +867,12 @@ class LlmBenchmarkDialog(QDialog):
         controls_layout.addWidget(self.custom_prompt_edit, 7, 0, 1, 6)
 
         self.prompt_list = QListWidget(self)
-        self.prompt_list.hide()
+        self.prompt_list.setObjectName("benchmarkPromptQueue")
+        self.prompt_list.setMinimumHeight(170)
+        self.prompt_list.setToolTip(
+            "Queued benchmark prompts for the selected preset and suite depth."
+        )
+        self.prompt_list.itemSelectionChanged.connect(self.show_selected_prompt_preview)
 
         controls_layout.setColumnStretch(0, 2)
         controls_layout.setColumnStretch(1, 2)
@@ -779,22 +880,122 @@ class LlmBenchmarkDialog(QDialog):
         controls_layout.setColumnStretch(3, 0)
         controls_layout.setColumnStretch(4, 0)
         controls_layout.setColumnStretch(5, 2)
-        root_layout.addWidget(controls_card)
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("benchmarkTabs")
         root_layout.addWidget(self.tabs, 1)
 
         self.dashboard_tab = QWidget()
+        self.run_setup_tab = QWidget()
         self.history_tab = QWidget()
         self.compare_tab = QWidget()
         self.tabs.addTab(self.dashboard_tab, "Dashboard")
+        self.tabs.addTab(self.run_setup_tab, "Run Setup")
         self.tabs.addTab(self.history_tab, "History")
         self.tabs.addTab(self.compare_tab, "Compare")
+        self.tabs.setTabToolTip(
+            self.tabs.indexOf(self.run_setup_tab),
+            "Benchmark model, preset, persona, depth, token, and run controls.",
+        )
+
+        self._build_run_setup_tab(controls_card)
+        self._connect_run_setup_refresh_signals()
 
         self._build_dashboard_tab()
         self._build_history_tab()
         self._build_compare_tab()
+
+    def _build_setup_card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
+        card = QFrame()
+        card.setObjectName("benchmarkSetupCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
+
+        title_label = QLabel(str(title or "").upper())
+        title_label.setObjectName("fieldCaption")
+        layout.addWidget(title_label)
+        return card, layout
+
+    def _build_run_setup_tab(self, controls_card: QFrame):
+        setup_layout = QVBoxLayout(self.run_setup_tab)
+        setup_layout.setContentsMargins(0, 10, 0, 0)
+        setup_layout.setSpacing(10)
+        setup_layout.addWidget(controls_card)
+
+        setup_splitter = QSplitter(Qt.Horizontal)
+        setup_splitter.setObjectName("benchmarkRunSetupSplitter")
+        setup_splitter.setChildrenCollapsible(False)
+        setup_layout.addWidget(setup_splitter, 1)
+
+        prompt_card, prompt_layout = self._build_setup_card("Prompt Queue")
+        self.prompt_queue_status_label = QLabel("No prompts queued")
+        self.prompt_queue_status_label.setObjectName("settingsCardSubtitle")
+        self.prompt_queue_status_label.setWordWrap(True)
+        prompt_layout.addWidget(self.prompt_queue_status_label)
+        prompt_layout.addWidget(self.prompt_list, 2)
+
+        preview_caption = QLabel("SELECTED PROMPT PREVIEW")
+        preview_caption.setObjectName("fieldCaption")
+        prompt_layout.addWidget(preview_caption)
+        self.prompt_preview_browser = QTextBrowser()
+        self.prompt_preview_browser.setObjectName("benchmarkSetupBrowser")
+        self.prompt_preview_browser.setMinimumHeight(170)
+        self.prompt_preview_browser.setMarkdown(
+            "Select a preset to inspect the queued prompt text."
+        )
+        prompt_layout.addWidget(self.prompt_preview_browser, 3)
+
+        right_column = QWidget()
+        right_layout = QVBoxLayout(right_column)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)
+
+        summary_card, summary_layout = self._build_setup_card("Run Summary")
+        self.run_summary_browser = QTextBrowser()
+        self.run_summary_browser.setObjectName("benchmarkSetupBrowser")
+        self.run_summary_browser.setMinimumHeight(150)
+        summary_layout.addWidget(self.run_summary_browser)
+        right_layout.addWidget(summary_card, 2)
+
+        health_card, health_layout = self._build_setup_card("Model Health / Safety")
+        self.model_health_browser = QTextBrowser()
+        self.model_health_browser.setObjectName("benchmarkSetupBrowser")
+        self.model_health_browser.setMinimumHeight(125)
+        health_layout.addWidget(self.model_health_browser)
+        right_layout.addWidget(health_card, 1)
+
+        notes_card, notes_layout = self._build_setup_card("Run Notes / Tag")
+        self.run_label_edit = QLineEdit()
+        self.run_label_edit.setObjectName("benchmarkLineEdit")
+        self.run_label_edit.setPlaceholderText(
+            "Optional run label, e.g. qwen35b-after-update"
+        )
+        self.run_notes_edit = QTextEdit()
+        self.run_notes_edit.setObjectName("systemPromptBox")
+        self.run_notes_edit.setPlaceholderText(
+            "Optional notes saved with each benchmark result…"
+        )
+        self.run_notes_edit.setMaximumHeight(92)
+        notes_layout.addWidget(self.run_label_edit)
+        notes_layout.addWidget(self.run_notes_edit)
+        right_layout.addWidget(notes_card, 0)
+
+        setup_splitter.addWidget(prompt_card)
+        setup_splitter.addWidget(right_column)
+        setup_splitter.setStretchFactor(0, 3)
+        setup_splitter.setStretchFactor(1, 2)
+        setup_splitter.setSizes([720, 440])
+
+    def _connect_run_setup_refresh_signals(self):
+        for spin in (self.repeat_spin, self.temperature_spin, self.max_tokens_spin):
+            spin.valueChanged.connect(lambda *_args: self.refresh_run_setup_panels())
+        self.run_label_edit.textChanged.connect(
+            lambda *_args: self.refresh_run_setup_panels()
+        )
+        self.run_notes_edit.textChanged.connect(
+            lambda *_args: self.refresh_run_setup_panels()
+        )
 
     def refresh_telemetry_from_app(self):
         """Mirror the main window hardware telemetry inside the benchmark dialog."""
@@ -818,6 +1019,109 @@ class LlmBenchmarkDialog(QDialog):
             "system_label", self.system_telemetry_label, "CPU/RAM telemetry unavailable"
         )
         self.refresh_active_model_label(set_status=False)
+        self.refresh_run_setup_panels()
+
+    def _refresh_power_inhibitor(self):
+        if self.worker is not None and self.worker.isRunning():
+            self._power_inhibitor.refresh()
+            self.refresh_run_setup_panels()
+
+    def _run_metadata(self) -> tuple[str, str]:
+        label_widget = getattr(self, "run_label_edit", None)
+        notes_widget = getattr(self, "run_notes_edit", None)
+        try:
+            run_label = label_widget.text().strip() if label_widget is not None else ""
+        except RuntimeError:
+            run_label = ""
+        try:
+            run_notes = (
+                notes_widget.toPlainText().strip() if notes_widget is not None else ""
+            )
+        except RuntimeError:
+            run_notes = ""
+        return run_label, run_notes
+
+    def refresh_run_setup_panels(self):
+        if not hasattr(self, "run_summary_browser"):
+            return
+
+        jobs = self.benchmark_jobs()
+        model = self.selected_model_name() or "No active model"
+        persona = self.selected_persona_payload()
+        persona_name = persona.get("name") or "Raw model"
+        system_tokens = LlmBenchmarkWorker._estimate_tokens(
+            persona.get("system_prompt") or ""
+        )
+        run_label, run_notes = self._run_metadata()
+        prompt_count = len(jobs)
+        repeat_count = self.selected_repeat_count()
+        max_output_tokens = sum(int(job.get("max_tokens") or 0) for job in jobs)
+        input_tokens = sum(
+            LlmBenchmarkWorker._estimate_tokens(job.get("prompt") or "") for job in jobs
+        ) + (system_tokens * prompt_count)
+        preset_name = self.preset_box.currentText().strip() or "Custom Prompt"
+        depth_label = "Deep" if self.selected_suite_depth() == "deep" else "Standard"
+
+        self.prompt_queue_status_label.setText(
+            f"{prompt_count} queued run(s) · {repeat_count} repeat(s) · {depth_label} depth"
+        )
+        self.run_summary_browser.setMarkdown(
+            f"**Model:** `{model}`\n\n"
+            f"**Preset:** {preset_name}\n\n"
+            f"**Persona:** {persona_name} "
+            f"(~{system_tokens} system tokens)\n\n"
+            f"**Temperature:** {float(self.temperature_spin.value()):.2f}\n\n"
+            f"**Max tokens / prompt:** {int(self.max_tokens_spin.value())}\n\n"
+            f"**Total generations:** {prompt_count}\n\n"
+            f"**Estimated input tokens:** ~{input_tokens}\n\n"
+            f"**Estimated max output tokens:** {max_output_tokens}\n\n"
+            f"**Run label:** {run_label or '_not set_'}\n\n"
+            f"**Notes:** {run_notes or '_not set_'}"
+        )
+
+        running = bool(
+            self.stop_button.isEnabled()
+            or (self.worker is not None and self.worker.isRunning())
+        )
+        power_state = (
+            "ACTIVE — Windows display/system idle timers held awake"
+            if running
+            else "ARMED — activates automatically while a benchmark is running"
+        )
+        self.model_health_browser.setMarkdown(
+            f"**Runtime model:** `{model}`\n\n"
+            f"**GPU:** {self.gpu_telemetry_label.text()}\n\n"
+            f"**System:** {self.system_telemetry_label.text()}\n\n"
+            f"**Screensaver / sleep guard:** {power_state}\n\n"
+            f"**Progress:** {self.benchmark_progress_bar.format()}"
+        )
+
+    def show_selected_prompt_preview(self):
+        if not hasattr(self, "prompt_preview_browser"):
+            return
+
+        prompt = ""
+        for item in self.prompt_list.selectedItems():
+            prompt = str(item.data(Qt.UserRole) or "").strip()
+            if prompt:
+                break
+
+        if not prompt:
+            custom_prompt = self.custom_prompt_edit.toPlainText().strip()
+            if custom_prompt:
+                prompt = custom_prompt
+
+        if not prompt:
+            self.prompt_preview_browser.setMarkdown(
+                "No prompt selected. Choose a preset or type a custom prompt."
+            )
+            return
+
+        estimated_tokens = LlmBenchmarkWorker._estimate_tokens(prompt)
+        self.prompt_preview_browser.setMarkdown(
+            f"**Estimated prompt tokens:** ~{estimated_tokens}\n\n"
+            f"```text\n{prompt}\n```"
+        )
 
     def _build_dashboard_tab(self):
         layout = QVBoxLayout(self.dashboard_tab)
@@ -855,24 +1159,46 @@ class LlmBenchmarkDialog(QDialog):
 
         layout.addLayout(metric_grid)
 
+        self.dashboard_result_splitter = QSplitter(Qt.Vertical)
+        self.dashboard_result_splitter.setObjectName("benchmarkDashboardSplitter")
+        self.dashboard_result_splitter.setChildrenCollapsible(False)
+        layout.addWidget(self.dashboard_result_splitter, 1)
+
+        results_panel = QWidget()
+        results_layout = QVBoxLayout(results_panel)
+        results_layout.setContentsMargins(0, 0, 0, 0)
+        results_layout.setSpacing(6)
         result_label = QLabel("LATEST BENCHMARK RESULTS")
         result_label.setObjectName("fieldCaption")
-        layout.addWidget(result_label)
+        results_layout.addWidget(result_label)
 
         self.latest_table = self._create_results_table()
-        layout.addWidget(self.latest_table, 1)
+        self.latest_table.itemSelectionChanged.connect(
+            self.show_selected_latest_result_response
+        )
+        results_layout.addWidget(self.latest_table, 1)
 
-        response_label = QLabel("MODEL RESPONSE")
+        response_panel = QWidget()
+        response_layout = QVBoxLayout(response_panel)
+        response_layout.setContentsMargins(0, 0, 0, 0)
+        response_layout.setSpacing(6)
+        response_label = QLabel("SELECTED MODEL RESPONSE — DRAG DIVIDER TO RESIZE")
         response_label.setObjectName("fieldCaption")
-        layout.addWidget(response_label)
+        response_layout.addWidget(response_label)
 
         self.response_browser = QTextBrowser()
         self.response_browser.setObjectName("helpCheatSheetBrowser")
-        self.response_browser.setMinimumHeight(150)
+        self.response_browser.setMinimumHeight(110)
         self.response_browser.setMarkdown(
             "Run a benchmark to see the model output here."
         )
-        layout.addWidget(self.response_browser, 1)
+        response_layout.addWidget(self.response_browser, 1)
+
+        self.dashboard_result_splitter.addWidget(results_panel)
+        self.dashboard_result_splitter.addWidget(response_panel)
+        self.dashboard_result_splitter.setStretchFactor(0, 3)
+        self.dashboard_result_splitter.setStretchFactor(1, 2)
+        self.dashboard_result_splitter.setSizes([430, 300])
 
     def _build_history_tab(self):
         layout = QVBoxLayout(self.history_tab)
@@ -903,6 +1229,9 @@ class LlmBenchmarkDialog(QDialog):
         )
         self.history_table.itemSelectionChanged.connect(
             self.update_history_action_state
+        )
+        self.history_table.itemSelectionChanged.connect(
+            self.show_selected_history_result_response
         )
         self.delete_history_shortcut = QShortcut(
             QKeySequence.Delete, self.history_table
@@ -1121,6 +1450,7 @@ class LlmBenchmarkDialog(QDialog):
                 "which is best for pure speed baselines."
             )
         self.persona_box.setToolTip(tip)
+        self.refresh_run_setup_panels()
 
     def selected_preset(self):
         selected_name = self.preset_box.currentText().strip()
@@ -1186,14 +1516,23 @@ class LlmBenchmarkDialog(QDialog):
         self.custom_prompt_edit.setVisible(custom_mode)
 
         if preset is None:
+            custom_prompt = self.custom_prompt_edit.toPlainText().strip()
             self.prompt_summary_label.setText(
                 "Custom prompt mode. Type one prompt below, then use Run Selected. "
                 "Run All Presets still executes the built-in suite."
             )
-            if not self.custom_prompt_edit.toPlainText().strip():
+            if custom_prompt:
+                item = QListWidgetItem("1. Custom Prompt")
+                item.setToolTip(custom_prompt)
+                item.setData(Qt.UserRole, custom_prompt)
+                self.prompt_list.addItem(item)
+                self.prompt_list.setCurrentRow(0)
+            else:
                 self.custom_prompt_edit.setPlaceholderText(
                     "Type a custom benchmark prompt here…"
                 )
+            self.show_selected_prompt_preview()
+            self.refresh_run_setup_panels()
             return
 
         self.max_tokens_spin.setValue(preset.max_tokens)
@@ -1204,8 +1543,10 @@ class LlmBenchmarkDialog(QDialog):
         suite_depth = self.selected_suite_depth()
         prompts = self._preset_prompts_for_depth(preset, suite_depth)
         for index, prompt in enumerate(prompts, start=1):
-            item = QListWidgetItem(f"{index}. {prompt}")
+            preview = prompt if len(prompt) <= 120 else f"{prompt[:117]}…"
+            item = QListWidgetItem(f"{index}. {preview}")
             item.setToolTip(prompt)
+            item.setData(Qt.UserRole, prompt)
             self.prompt_list.addItem(item)
 
         shown_count = len(prompts)
@@ -1223,10 +1564,24 @@ class LlmBenchmarkDialog(QDialog):
             item.setFlags(item.flags() & ~Qt.ItemIsSelectable)
             self.prompt_list.addItem(item)
 
+        if self.prompt_list.count():
+            self.prompt_list.setCurrentRow(0)
+        self.show_selected_prompt_preview()
+        self.refresh_run_setup_panels()
+
     def _custom_prompt_changed(self):
-        if self.custom_prompt_edit.toPlainText().strip():
+        custom_prompt = self.custom_prompt_edit.toPlainText().strip()
+        if custom_prompt:
             self.preset_box.setCurrentText("Custom Prompt")
-            self.prompt_list.clear()
+        self.prompt_list.clear()
+        if custom_prompt:
+            item = QListWidgetItem("1. Custom Prompt")
+            item.setToolTip(custom_prompt)
+            item.setData(Qt.UserRole, custom_prompt)
+            self.prompt_list.addItem(item)
+            self.prompt_list.setCurrentRow(0)
+        self.show_selected_prompt_preview()
+        self.refresh_run_setup_panels()
 
     def benchmark_jobs(self):
         custom_prompt = self.custom_prompt_edit.toPlainText().strip()
@@ -1317,7 +1672,15 @@ class LlmBenchmarkDialog(QDialog):
             else ""
         )
 
+        run_label, run_notes = self._run_metadata()
+        for job in jobs:
+            job["run_label"] = run_label
+            job["run_notes"] = run_notes
+
         self.latest_table.setRowCount(0)
+        self._benchmark_progress_total = len(jobs)
+        self._benchmark_progress_done = 0
+        self.update_benchmark_progress(0, len(jobs), "Queued")
         persona_name = persona.get("name") or "Raw model"
         persona_note = (
             f"Persona: **{persona_name}**"
@@ -1342,7 +1705,7 @@ class LlmBenchmarkDialog(QDialog):
             persona_name=persona.get("name", "Raw model"),
             parent=self,
         )
-        self.worker.progress.connect(self.status_label.setText)
+        self.worker.progress.connect(self.handle_benchmark_progress)
         self.worker.sample_finished.connect(self.handle_sample_finished)
         self.worker.benchmark_finished.connect(self.handle_benchmark_finished)
         self.worker.benchmark_stopped.connect(self.handle_benchmark_stopped)
@@ -1370,9 +1733,84 @@ class LlmBenchmarkDialog(QDialog):
         self.max_tokens_spin.setEnabled(not running)
         self.custom_prompt_edit.setEnabled(not running)
         self.prompt_list.setEnabled(not running)
+        self.run_label_edit.setEnabled(not running)
+        self.run_notes_edit.setEnabled(not running)
         self.update_history_action_state()
+        if running:
+            self._power_inhibitor.acquire()
+            if not self._power_refresh_timer.isActive():
+                self._power_refresh_timer.start()
+        else:
+            self._power_refresh_timer.stop()
+            self._power_inhibitor.release()
         if not running and self.status_label.text() in {"Stopping…", "Running…"}:
             self.status_label.setText("Idle")
+        self.refresh_run_setup_panels()
+
+    def update_benchmark_progress(self, done: int, total: int, label: str = ""):
+        total = max(1, int(total or 0))
+        done = max(0, min(int(done or 0), total))
+        self._benchmark_progress_total = total
+        self._benchmark_progress_done = done
+        self.benchmark_progress_bar.setRange(0, total)
+        self.benchmark_progress_bar.setValue(done)
+
+        clean_label = str(label or "").strip()
+        if done >= total and clean_label.lower().startswith("completed"):
+            self.benchmark_progress_bar.setFormat(f"Completed {done}/{total} prompts")
+        elif clean_label:
+            self.benchmark_progress_bar.setFormat(f"{clean_label} · {done}/{total}")
+        else:
+            self.benchmark_progress_bar.setFormat(f"{done}/{total} prompts")
+        self.refresh_run_setup_panels()
+
+    def handle_benchmark_progress(self, message: str):
+        clean_message = str(message or "Running…").strip() or "Running…"
+        self.status_label.setText(clean_message)
+        total = self._benchmark_progress_total or max(1, self.latest_table.rowCount())
+        done = self._benchmark_progress_done
+        self.update_benchmark_progress(done, total, clean_message)
+
+    def selected_table_record_id(self, table: QTableWidget) -> str:
+        if table is None or table.selectionModel() is None:
+            return ""
+
+        rows = table.selectionModel().selectedRows()
+        if not rows:
+            return ""
+
+        item = table.item(rows[0].row(), 0)
+        if item is None:
+            return ""
+        return str(item.data(Qt.UserRole) or "").strip()
+
+    def find_result_by_id(self, record_id: str) -> dict | None:
+        clean_id = str(record_id or "").strip()
+        if not clean_id:
+            return None
+
+        for entry in self.history:
+            if str(entry.get("id") or "").strip() == clean_id:
+                return entry
+        return None
+
+    def show_result_response_by_id(self, record_id: str):
+        result = self.find_result_by_id(record_id)
+        if not result:
+            return
+
+        self.current_response_result_id = str(result.get("id") or "") or None
+        self.response_browser.setMarkdown(self.result_response_markdown(result))
+
+    def show_selected_latest_result_response(self):
+        self.show_result_response_by_id(
+            self.selected_table_record_id(self.latest_table)
+        )
+
+    def show_selected_history_result_response(self):
+        self.show_result_response_by_id(
+            self.selected_table_record_id(self.history_table)
+        )
 
     def result_response_markdown(self, result: dict) -> str:
         quality_score = _fmt_quality(result.get("quality_score"))
@@ -1432,10 +1870,19 @@ class LlmBenchmarkDialog(QDialog):
             if gpu_text or system_text
             else ""
         )
+        run_label = str(result.get("run_label") or "").strip()
+        run_notes = str(result.get("run_notes") or "").strip()
+        run_metadata_text = ""
+        if run_label or run_notes:
+            run_metadata_text = (
+                f"**Run label:** {run_label or '_not set_'}\n\n"
+                f"**Run notes:** {run_notes or '_not set_'}\n\n"
+            )
         return (
             f"**Preset:** {result.get('preset', '')}{prompt_name_text}{case_text}{repeat_text}\n\n"
             f"{persona_text}"
             f"{telemetry_text}"
+            f"{run_metadata_text}"
             f"**Accuracy:** {accuracy_score}  |  **Speed:** {_fmt_tps(result.get('tokens_per_second'))}  |  "
             f"**Trust:** {trust_score}  |  **Instruction:** {instruction_score}\n\n"
             f"**Overall quality:** {quality_score} — {quality_label} "
@@ -1454,26 +1901,42 @@ class LlmBenchmarkDialog(QDialog):
         result["evidence"] = build_result_evidence(result)
         self.history.insert(0, result)
         save_benchmark_history(self.history)
-        self.add_result_to_table(self.latest_table, result, prepend=False)
+        row = self.add_result_to_table(self.latest_table, result, prepend=False)
+        self.current_response_result_id = str(result.get("id") or "") or None
+        self.latest_table.selectRow(row)
         self.response_browser.setMarkdown(self.result_response_markdown(result))
+        completed = self.latest_table.rowCount()
+        total = self._benchmark_progress_total or completed
+        self.update_benchmark_progress(completed, total, "Completed prompt")
         self.refresh_history_tables()
         self.refresh_dashboard()
 
     def handle_benchmark_finished(self, payload: dict):
         results = payload.get("results") or []
-        self.status_label.setText(f"Completed {len(results)} prompt(s)")
+        completed = len(results)
+        self.status_label.setText(f"Completed {completed} prompt(s)")
+        self.update_benchmark_progress(
+            completed, self._benchmark_progress_total or completed or 1, "Completed"
+        )
         self.refresh_history_tables()
         self.refresh_dashboard()
 
     def handle_benchmark_stopped(self, payload: dict):
         results = payload.get("results") or []
-        self.status_label.setText(f"Stopped after {len(results)} prompt(s)")
+        completed = len(results)
+        self.status_label.setText(f"Stopped after {completed} prompt(s)")
+        self.update_benchmark_progress(
+            completed, self._benchmark_progress_total or completed or 1, "Stopped"
+        )
         self.refresh_history_tables()
         self.refresh_dashboard()
 
     def handle_benchmark_error(self, message: str):
         clean_message = str(message or "Benchmark failed.")
         self.status_label.setText("Error")
+        self.update_benchmark_progress(
+            self._benchmark_progress_done, self._benchmark_progress_total or 1, "Error"
+        )
         self.response_browser.setMarkdown(
             "**Benchmark failed before a result was recorded.**\n\n"
             f"```text\n{clean_message}\n```\n\n"
@@ -1481,6 +1944,29 @@ class LlmBenchmarkDialog(QDialog):
         )
         self.set_running_state(False)
         QMessageBox.critical(self, "Benchmark Error", clean_message)
+
+    def refresh_latest_results_table(self, limit: int = 50):
+        selected_id = self.current_response_result_id
+        self.latest_table.blockSignals(True)
+        self.populate_table(self.latest_table, self.history[: max(1, int(limit or 50))])
+        self.latest_table.blockSignals(False)
+
+        target_row = -1
+        if selected_id:
+            for row in range(self.latest_table.rowCount()):
+                item = self.latest_table.item(row, 0)
+                if str(item.data(Qt.UserRole) if item else "").strip() == selected_id:
+                    target_row = row
+                    break
+
+        if target_row < 0 and self.latest_table.rowCount() > 0:
+            target_row = 0
+
+        if target_row >= 0:
+            self.latest_table.selectRow(target_row)
+            self.show_result_response_by_id(
+                str(self.latest_table.item(target_row, 0).data(Qt.UserRole) or "")
+            )
 
     def refresh_dashboard(self):
         completed = len(self.history)
@@ -1581,6 +2067,7 @@ class LlmBenchmarkDialog(QDialog):
             item.setToolTip(str(value))
             item.setData(Qt.UserRole, result_id)
             table.setItem(row, column, item)
+        return row
 
     def refresh_compare_table(self):
         grouped: dict[tuple[str, str], list[dict]] = {}
@@ -1829,6 +2316,8 @@ class LlmBenchmarkDialog(QDialog):
             self.worker.stop()
             self.worker.wait(1500)
 
+        self._power_refresh_timer.stop()
+        self._power_inhibitor.release()
         super().closeEvent(event)
 
 

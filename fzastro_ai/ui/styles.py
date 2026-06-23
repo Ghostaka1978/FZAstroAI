@@ -578,7 +578,8 @@ def get_main_stylesheet():
             }
 
             QFrame#benchmarkControlsCard,
-            QFrame#benchmarkTelemetryCard {
+            QFrame#benchmarkTelemetryCard,
+            QFrame#benchmarkSetupCard {
                 background: #11161c;
                 border: 1px solid #26303a;
                 border-radius: 13px;
@@ -587,7 +588,8 @@ def get_main_stylesheet():
             QComboBox#benchmarkModelBox,
             QComboBox#benchmarkComboBox,
             QSpinBox#benchmarkSpinBox,
-            QDoubleSpinBox#benchmarkSpinBox {
+            QDoubleSpinBox#benchmarkSpinBox,
+            QLineEdit#benchmarkLineEdit {
                 background: #0f141a;
                 color: #e8ebef;
                 border: 1px solid #2d3742;
@@ -602,9 +604,54 @@ def get_main_stylesheet():
             QComboBox#benchmarkModelBox:focus,
             QComboBox#benchmarkComboBox:focus,
             QSpinBox#benchmarkSpinBox:focus,
-            QDoubleSpinBox#benchmarkSpinBox:focus {
+            QDoubleSpinBox#benchmarkSpinBox:focus,
+            QLineEdit#benchmarkLineEdit:focus {
                 border-color: #607b9d;
                 background: #111922;
+            }
+
+            QProgressBar#benchmarkProgressBar {
+                background: #0d1116;
+                color: #b7c2cf;
+                border: 1px solid #26313d;
+                border-radius: 7px;
+                min-height: 14px;
+                max-height: 14px;
+                text-align: center;
+                font-size: 10px;
+                font-weight: 650;
+            }
+
+            QProgressBar#benchmarkProgressBar::chunk {
+                background: #607b9d;
+                border-radius: 6px;
+            }
+
+            QSplitter#benchmarkRunSetupSplitter::handle,
+            QSplitter#benchmarkDashboardSplitter::handle {
+                background: #26313d;
+                border-radius: 4px;
+            }
+
+            QListWidget#benchmarkPromptQueue {
+                background: #0f1318;
+                color: #dfe5ec;
+                border: 1px solid #29313b;
+                border-radius: 10px;
+                padding: 6px;
+                selection-background-color: #23364a;
+                selection-color: #ffffff;
+                font-size: 12px;
+            }
+
+            QTextBrowser#benchmarkSetupBrowser {
+                background: #0f1318;
+                color: #e8edf2;
+                border: 1px solid #29313b;
+                border-radius: 10px;
+                padding: 10px;
+                font-size: 12px;
+                line-height: 1.35;
             }
 
             QTableWidget#benchmarkTable {
