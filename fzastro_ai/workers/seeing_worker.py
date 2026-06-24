@@ -5,8 +5,52 @@ from typing import Any
 
 from PySide6.QtCore import QThread, Signal
 
-from ..astro_tools.seeing_data import fetch_7timer_astro_forecast
+from ..astro_tools.seeing_data import (
+    fetch_7timer_astro_forecast,
+    fetch_latest_geosatellite_image,
+)
 from ..logging_utils import log_exception
+
+
+class SeeingSatelliteWorker(QThread):
+    """Fetch latest geostationary satellite imagery away from the UI thread."""
+
+    finished_satellite = Signal(dict, float, bool)
+    error_received = Signal(str)
+
+    def __init__(self, area: str = "europe", image_type: str = "infrared"):
+        super().__init__()
+        self.area = str(area or "europe")
+        self.image_type = str(image_type or "infrared")
+        self.stop_requested = False
+
+    def stop(self):
+        self.stop_requested = True
+        try:
+            self.requestInterruption()
+        except Exception:
+            pass
+
+    def should_stop(self) -> bool:
+        return bool(self.stop_requested or self.isInterruptionRequested())
+
+    def run(self):
+        start = time.perf_counter()
+        try:
+            if self.should_stop():
+                return
+            result = fetch_latest_geosatellite_image(
+                area=self.area, image_type=self.image_type
+            )
+            if self.should_stop():
+                return
+            elapsed = max(0.0, time.perf_counter() - start)
+            self.finished_satellite.emit(result, elapsed, True)
+        except Exception as error:
+            if self.should_stop():
+                return
+            log_exception("SeeingSatelliteWorker.run", error)
+            self.error_received.emit(str(error))
 
 
 class SeeingWorker(QThread):

@@ -10,6 +10,7 @@ from fzastro_ai.astro_tools.seeing_data import (
     attach_astro_context,
     build_7timer_astro_url,
     build_open_meteo_hourly_url,
+    build_metno_geosatellite_url,
     fetch_7timer_astro_forecast,
     normalise_altitude_correction,
     parse_7timer_astro_payload,
@@ -94,6 +95,88 @@ def test_build_open_meteo_hourly_url_requests_cloud_weather_for_site():
     assert "elevation=660.0" in url
 
 
+def test_build_metno_geosatellite_url_defaults_to_latest_europe_infrared():
+    url = build_metno_geosatellite_url()
+
+    assert "api.met.no/weatherapi/geosatellite" in url
+    assert "area=europe" in url
+    assert "type=infrared" in url
+    assert "time=" not in url
+
+
+def test_open_meteo_weather_keeps_precipitation_and_humidity_distinct():
+    result = parse_7timer_astro_payload(
+        {
+            "product": "astro",
+            "init": "2026061811",
+            "dataseries": [
+                {
+                    "timepoint": 3,
+                    "cloudcover": 1,
+                    "seeing": 2,
+                    "transparency": 2,
+                    "temp2m": 25,
+                    "wind10m": {"direction": "N", "speed": 2},
+                    "prec_type": "none",
+                }
+            ],
+        },
+        lat=50.17723,
+        lon=8.49655,
+        elev=660.0,
+        tz="Europe/Berlin",
+        altitude_correction=0,
+    )
+    row = result["rows"][0]
+
+    matched = apply_open_meteo_hourly_weather(
+        result,
+        {
+            "source_url": "https://api.open-meteo.com/v1/forecast",
+            "timezone": "Europe/Berlin",
+            "rows_by_local_hour": {
+                "2026-06-18T16:00:00+02:00": {
+                    "cloud_cover": 5,
+                    "temperature_2m": 19.4,
+                    "relative_humidity_2m": 91,
+                    "wind_speed_10m": 1.2,
+                    "wind_direction_10m": 180,
+                    "precipitation": 0.0,
+                    "precipitation_probability": 22,
+                }
+            },
+        },
+    )
+
+    assert matched == 1
+    assert row["humidity_pct"] == 91
+    assert row["humidity_text"] == "91% · high dew risk"
+    assert row["precip_probability_pct"] == 22
+    assert row["precip_amount_mm"] == 0.0
+    assert row["precip_text"] == "22% · 0.0 mm"
+    assert row["precip_type"] == "none"
+
+
+def test_moon_below_horizon_high_illumination_is_not_score_capped():
+    down_row = {
+        "score": 92,
+        "sun_altitude_deg": -25,
+        "astro_dark": True,
+        "moon_up": False,
+        "moon_pct": 90,
+    }
+    up_row = dict(down_row, moon_up=True)
+
+    seeing_data._apply_imaging_context_score(down_row)
+    seeing_data._apply_imaging_context_score(up_row)
+
+    assert down_row["score"] == 92
+    assert up_row["score"] == 50
+    assert seeing_data._moon_text(False, 90, "Waxing gibbous") == (
+        "Below horizon · 90% illuminated"
+    )
+
+
 def test_open_meteo_hourly_weather_overrides_7timer_cloud_and_rescores():
     result = parse_7timer_astro_payload(
         {
@@ -148,7 +231,9 @@ def test_open_meteo_hourly_weather_overrides_7timer_cloud_and_rescores():
     assert row["temp2m_c"] == 29.3
     assert row["wind_direction"] == "E"
     assert row["wind_speed_code"] == 2
-    assert row["precip_text"] == "None"
+    assert row["precip_text"] == "0% · 0.0 mm"
+    assert row["precip_amount_mm"] == 0.0
+    assert row["precip_probability_pct"] == 0
     assert row["score"] > old_score
 
 

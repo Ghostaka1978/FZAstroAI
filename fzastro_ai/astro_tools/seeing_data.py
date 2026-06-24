@@ -12,13 +12,14 @@ from zoneinfo import ZoneInfo
 from ..config import APP_DIR
 from ..json_store import atomic_write_json
 from ..logging_utils import log_debug, log_warning
-from ..network_utils import get_limited_json
+from ..network_utils import get_limited_json, get_limited_response
 
 SEEING_CACHE_DIR = APP_DIR / "seeing"
 SEEING_CACHE_MAX_AGE_SECONDS = 6 * 60 * 60
 SEVEN_TIMER_API_BASE = "http://www.7timer.info/bin/api.pl"
 OPEN_METEO_FORECAST_BASE = "https://api.open-meteo.com/v1/forecast"
 METNO_MOON_BASE = "https://api.met.no/weatherapi/sunrise/3.0/moon"
+METNO_GEOSATELLITE_BASE = "https://api.met.no/weatherapi/geosatellite/1.4/"
 REQUEST_HEADERS = {
     "User-Agent": "FZAstroAI/1.0 SEEING (+https://github.com/Ghostaka1978/FZAstroAI)",
 }
@@ -157,6 +158,7 @@ def build_open_meteo_hourly_url(
             [
                 "cloud_cover",
                 "temperature_2m",
+                "relative_humidity_2m",
                 "precipitation",
                 "precipitation_probability",
                 "wind_speed_10m",
@@ -167,6 +169,7 @@ def build_open_meteo_hourly_url(
             [
                 "cloud_cover",
                 "temperature_2m",
+                "relative_humidity_2m",
                 "precipitation",
                 "wind_speed_10m",
                 "wind_direction_10m",
@@ -184,6 +187,54 @@ def build_open_meteo_hourly_url(
     except Exception:
         pass
     return f"{OPEN_METEO_FORECAST_BASE}?{urlencode(query)}"
+
+
+def build_metno_geosatellite_url(
+    area: str = "europe", image_type: str = "infrared"
+) -> str:
+    """Return MET Norway latest geostationary satellite image URL.
+
+    Omitting the time parameter asks MET Norway for the latest available image.
+    Infrared is the SEEING default because it remains useful during darkness.
+    """
+    allowed_areas = {"africa", "atlantic_ocean", "europe", "global", "mediterranean"}
+    allowed_types = {"infrared", "visible"}
+    clean_area = str(area or "europe").strip().lower().replace(" ", "_")
+    clean_type = str(image_type or "infrared").strip().lower()
+    if clean_area not in allowed_areas:
+        clean_area = "europe"
+    if clean_type not in allowed_types:
+        clean_type = "infrared"
+    query = urlencode({"area": clean_area, "type": clean_type})
+    return f"{METNO_GEOSATELLITE_BASE}?{query}"
+
+
+def fetch_latest_geosatellite_image(
+    area: str = "europe", image_type: str = "infrared"
+) -> dict[str, Any]:
+    """Fetch the latest MET Norway geostationary satellite PNG image."""
+    url = build_metno_geosatellite_url(area=area, image_type=image_type)
+    response, image_bytes = get_limited_response(
+        url,
+        max_bytes=8 * 1024 * 1024,
+        timeout=18,
+        headers=REQUEST_HEADERS,
+    )
+    content_type = str(response.headers.get("content-type") or "").lower()
+    if not content_type.startswith("image/"):
+        raise ValueError("MET Norway geosatellite response was not an image.")
+    if not image_bytes:
+        raise ValueError("MET Norway geosatellite image was empty.")
+    return {
+        "provider": "MET Norway geosatellite",
+        "area": str(area or "europe"),
+        "image_type": str(image_type or "infrared"),
+        "source_url": url,
+        "content_type": content_type,
+        "last_modified": str(response.headers.get("last-modified") or ""),
+        "fetched_utc": datetime.now(timezone.utc).isoformat(),
+        "image_bytes": bytes(image_bytes),
+    }
 
 
 def _cache_key(
@@ -266,6 +317,11 @@ def fetch_open_meteo_hourly_weather(
         if isinstance(hourly.get("temperature_2m"), list)
         else []
     )
+    humidity = (
+        hourly.get("relative_humidity_2m")
+        if isinstance(hourly.get("relative_humidity_2m"), list)
+        else []
+    )
     wind_speeds = (
         hourly.get("wind_speed_10m")
         if isinstance(hourly.get("wind_speed_10m"), list)
@@ -290,6 +346,7 @@ def fetch_open_meteo_hourly_weather(
         len(times),
         len(cloud),
         len(temps),
+        len(humidity),
         len(wind_speeds),
         len(wind_dirs),
         len(precip),
@@ -309,6 +366,7 @@ def fetch_open_meteo_hourly_weather(
             "local_iso": hour_key,
             "cloud_cover": cloud[index],
             "temperature_2m": temps[index],
+            "relative_humidity_2m": humidity[index],
             "wind_speed_10m": wind_speeds[index],
             "wind_direction_10m": wind_dirs[index],
             "precipitation": precip[index],
@@ -327,6 +385,7 @@ def fetch_open_meteo_hourly_weather(
                 "local_iso": current_dt.isoformat(),
                 "cloud_cover": current_payload.get("cloud_cover"),
                 "temperature_2m": current_payload.get("temperature_2m"),
+                "relative_humidity_2m": current_payload.get("relative_humidity_2m"),
                 "wind_speed_10m": current_payload.get("wind_speed_10m"),
                 "wind_direction_10m": current_payload.get("wind_direction_10m"),
                 "precipitation": current_payload.get("precipitation"),
@@ -386,6 +445,10 @@ def _apply_open_meteo_record_to_row(
     temp = _float_value(record.get("temperature_2m"))
     if temp is not None:
         row["temp2m_c"] = round(temp, 1)
+    humidity = _float_value(record.get("relative_humidity_2m"))
+    if humidity is not None:
+        row["humidity_pct"] = max(0, min(100, int(round(humidity))))
+        row["humidity_text"] = _humidity_text_from_pct(row["humidity_pct"])
     wind_speed = _float_value(record.get("wind_speed_10m"))
     if wind_speed is not None:
         row["wind_speed_ms"] = round(wind_speed, 1)
@@ -394,8 +457,15 @@ def _apply_open_meteo_record_to_row(
     direction = _wind_direction_from_deg(record.get("wind_direction_10m"))
     if direction:
         row["wind_direction"] = direction
+    precip_amount = _float_value(record.get("precipitation"), 0.0) or 0.0
+    precip_probability = _float_value(record.get("precipitation_probability"))
+    row["precip_amount_mm"] = round(max(0.0, precip_amount), 2)
+    if precip_probability is not None:
+        row["precip_probability_pct"] = max(0, min(100, int(round(precip_probability))))
+    else:
+        row.pop("precip_probability_pct", None)
     precip_type, precip_text = _precip_text_from_open_meteo(
-        record.get("precipitation"), record.get("precipitation_probability")
+        precip_amount, precip_probability
     )
     row["precip_type"] = precip_type
     row["precip_text"] = precip_text
@@ -576,6 +646,10 @@ def apply_open_meteo_hourly_weather(
         temp = _float_value(record.get("temperature_2m"))
         if temp is not None:
             row["temp2m_c"] = round(temp, 1)
+        humidity = _float_value(record.get("relative_humidity_2m"))
+        if humidity is not None:
+            row["humidity_pct"] = max(0, min(100, int(round(humidity))))
+            row["humidity_text"] = _humidity_text_from_pct(row["humidity_pct"])
         wind_speed = _float_value(record.get("wind_speed_10m"))
         if wind_speed is not None:
             row["wind_speed_ms"] = round(wind_speed, 1)
@@ -584,8 +658,17 @@ def apply_open_meteo_hourly_weather(
         direction = _wind_direction_from_deg(record.get("wind_direction_10m"))
         if direction != "—":
             row["wind_direction"] = direction
+        precip_amount = _float_value(record.get("precipitation"), 0.0) or 0.0
+        precip_probability = _float_value(record.get("precipitation_probability"))
+        row["precip_amount_mm"] = round(max(0.0, precip_amount), 2)
+        if precip_probability is not None:
+            row["precip_probability_pct"] = max(
+                0, min(100, int(round(precip_probability)))
+            )
+        else:
+            row.pop("precip_probability_pct", None)
         precip_type, precip_text = _precip_text_from_open_meteo(
-            record.get("precipitation"), record.get("precipitation_probability")
+            precip_amount, precip_probability
         )
         row["precip_type"] = precip_type
         row["precip_text"] = precip_text
@@ -761,16 +844,74 @@ def _wind_direction_from_deg(value: Any) -> str:
     return labels[index]
 
 
+def _humidity_text_from_pct(value: Any) -> str:
+    pct = _float_value(value)
+    if pct is None:
+        return "—"
+    pct_i = max(0, min(100, int(round(pct))))
+    if pct_i >= 93:
+        note = "severe dew/fog risk"
+    elif pct_i >= 85:
+        note = "high dew risk"
+    elif pct_i >= 75:
+        note = "dew caution"
+    else:
+        note = "normal"
+    return f"{pct_i}% · {note}"
+
+
+def _humidity_score_cap(value: Any) -> int:
+    pct = _float_value(value)
+    if pct is None:
+        return 100
+    pct_i = max(0, min(100, int(round(pct))))
+    if pct_i >= 93:
+        return 55
+    if pct_i >= 90:
+        return 65
+    if pct_i >= 85:
+        return 75
+    if pct_i >= 75:
+        return 88
+    return 100
+
+
+def _moon_text(moon_up: Any, illumination_pct: Any, phase: Any = "") -> str:
+    pct = max(0, min(100, _int_value(illumination_pct, 0)))
+    phase_text = str(phase or "Moon").strip()
+    if moon_up is True:
+        return f"Above horizon · {pct}% illuminated"
+    if moon_up is False:
+        return f"Below horizon · {pct}% illuminated"
+    if phase_text and phase_text.lower() != "moon":
+        return f"{pct}% illuminated · {phase_text}"
+    return f"{pct}% illuminated"
+
+
+def _rh2m_text_from_7timer(value: Any) -> str:
+    code = _int_value(value, -1)
+    if code < 0:
+        return "—"
+    # 7Timer exposes relative humidity as a compact code. Open-Meteo overrides
+    # this with a real percent value in the default hybrid SEEING provider.
+    return f"7Timer RH code {code}"
+
+
 def _precip_text_from_open_meteo(amount: Any, probability: Any) -> tuple[str, str]:
-    amount_mm = _float_value(amount, 0.0) or 0.0
+    amount_mm = max(0.0, _float_value(amount, 0.0) or 0.0)
     probability_pct = _float_value(probability)
+    probability_text = (
+        f"{max(0, min(100, int(round(probability_pct))))}%"
+        if probability_pct is not None
+        else "probability n/a"
+    )
     if amount_mm > 0.05:
-        if probability_pct is not None:
-            return "rain", f"Rain {amount_mm:.1f} mm · {int(round(probability_pct))}%"
-        return "rain", f"Rain {amount_mm:.1f} mm"
+        return "rain", f"Rain {amount_mm:.1f} mm · {probability_text}"
     if probability_pct is not None and probability_pct >= 30:
-        return "rain", f"Possible rain {int(round(probability_pct))}%"
-    return "none", "None"
+        return "rain", f"Possible rain {probability_text} · {amount_mm:.1f} mm"
+    if probability_pct is not None:
+        return "none", f"{probability_text} · {amount_mm:.1f} mm"
+    return "none", f"{amount_mm:.1f} mm"
 
 
 def _cloud_score_from_pct(pct: int) -> int:
@@ -834,6 +975,7 @@ def _score_from_parts(
     cloud_pct: Any,
     wind_speed_code: Any = 2,
     precip_type: Any = "none",
+    humidity_pct: Any = None,
 ) -> int:
     seeing_score = _quality_from_code(_int_value(seeing_code), max_code=8)
     transparency_score = _quality_from_code(_int_value(transparency_code), max_code=8)
@@ -850,7 +992,17 @@ def _score_from_parts(
         + wind_score * 0.08
         + precip_score * 0.04
     )
-    return max(0, min(100, min(base_score, _cloud_score_cap(cloud_mid_pct))))
+    return max(
+        0,
+        min(
+            100,
+            min(
+                base_score,
+                _cloud_score_cap(cloud_mid_pct),
+                _humidity_score_cap(humidity_pct),
+            ),
+        ),
+    )
 
 
 def _row_score(row: dict[str, Any]) -> int:
@@ -862,6 +1014,7 @@ def _row_score(row: dict[str, Any]) -> int:
         cloud_pct=cloud_mid_pct,
         wind_speed_code=(row.get("wind10m") or {}).get("speed"),
         precip_type=row.get("prec_type"),
+        humidity_pct=row.get("humidity_pct"),
     )
 
 
@@ -872,6 +1025,7 @@ def _refresh_row_sky_score(row: dict[str, Any]) -> None:
         cloud_pct=row.get("cloud_mid_pct"),
         wind_speed_code=row.get("wind_speed_code"),
         precip_type=row.get("precip_type"),
+        humidity_pct=row.get("humidity_pct"),
     )
     row["score"] = score
     row["score_label"] = score_label(score)
@@ -1018,16 +1172,21 @@ def _apply_imaging_context_score(row: dict[str, Any]) -> None:
         row.get("sun_altitude_deg"), row.get("astro_dark")
     )
     moon_cap = _moon_score_cap(row.get("moon_up"), row.get("moon_pct"))
+    humidity_cap = _humidity_score_cap(row.get("humidity_pct"))
 
     darkness_scaled_score = round(base_score * sun_factor)
-    capped_score = max(0, min(100, darkness_scaled_score, sun_cap, moon_cap))
+    capped_score = max(
+        0, min(100, darkness_scaled_score, sun_cap, moon_cap, humidity_cap)
+    )
     row["score"] = capped_score
     row["score_label"] = score_label(capped_score)
 
     if row.get("astro_dark") is not True:
         row["score_note"] = "Reduced because this hour is not astronomical darkness."
     elif row.get("moon_up") is True and capped_score < base_score:
-        row["score_note"] = "Capped because the Moon is up."
+        row["score_note"] = "Capped because the Moon is above the horizon."
+    elif humidity_cap < 100 and capped_score < base_score:
+        row["score_note"] = "Capped because humidity raises dew/fog risk."
     elif capped_score < base_score:
         row["score_note"] = "Capped for imaging conditions."
     else:
@@ -1421,11 +1580,7 @@ def attach_astro_context(
         row["moon_pct"] = int(round(illum * 100))
         row["moon_phase"] = phase
         row["moon_up"] = moon_up
-        row["moon_text"] = (
-            f"{'Up' if moon_up else 'Down'} · {int(round(illum * 100))}%"
-            if moon_up is not None
-            else f"{int(round(illum * 100))}% · {phase}"
-        )
+        row["moon_text"] = _moon_text(moon_up, int(round(illum * 100)), phase)
         _apply_imaging_context_score(row)
 
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
@@ -1454,6 +1609,9 @@ def attach_astro_context(
     summary["best_moon"] = best_row.get("moon_text", "—")
     summary["best_moon_pct"] = best_row.get("moon_pct")
     summary["best_cloud_pct"] = best_row.get("cloud_mid_pct")
+    summary["best_precip"] = best_row.get("precip_text", "—")
+    summary["best_humidity"] = best_row.get("humidity_text", "—")
+    summary["best_humidity_pct"] = best_row.get("humidity_pct")
     summary["best_cloud_compact"] = (
         f"{best_row.get('cloud_mid_pct', '—')}% · {best_row.get('cloud_text', '—')}"
     )
@@ -1533,6 +1691,7 @@ def parse_7timer_astro_payload(
             "cloud_mid_pct": cloud_mid,
             "temp2m_c": item.get("temp2m"),
             "rh2m_code": item.get("rh2m"),
+            "humidity_text": _rh2m_text_from_7timer(item.get("rh2m")),
             "wind_direction": str(wind.get("direction") or "—"),
             "wind_speed_code": wind_speed_code,
             "wind_speed_text": WIND_SPEED_LABELS.get(wind_speed_code, "Unknown"),
@@ -1590,6 +1749,9 @@ def parse_7timer_astro_payload(
             "best_transparency": best_row.get("transparency_text", "—"),
             "best_cloud": best_row.get("cloud_text", "—"),
             "best_cloud_pct": best_row.get("cloud_mid_pct"),
+            "best_precip": best_row.get("precip_text", "—"),
+            "best_humidity": best_row.get("humidity_text", "—"),
+            "best_humidity_pct": best_row.get("humidity_pct"),
             "best_cloud_compact": f"{best_row.get('cloud_mid_pct', '—')}% · {best_row.get('cloud_text', '—')}",
             "best_true_seeing_time": best_seeing_row.get("local_label", "—"),
             "best_true_seeing": best_seeing_row.get("seeing_text", "—"),

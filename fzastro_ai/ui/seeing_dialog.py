@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -31,8 +32,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -47,10 +50,47 @@ from ..astro_tools.sky_quality import (
     sky_brightness_from_sqm,
     sqm_from_bortle,
 )
-from ..workers.seeing_worker import SeeingWorker
+from ..workers.seeing_worker import SeeingSatelliteWorker, SeeingWorker
 from ..workers.sky_quality_worker import SkyQualityFetchWorker
 from .astro_location_dialog import choose_astro_location
 from .window_utils import apply_window_defaults
+
+
+class ElidedLabel(QLabel):
+    """Single-line label that keeps full text in the tooltip and elides visibly.
+
+    Qt QLabel clips long text in tight layouts. The SEEING cockpit uses this for
+    dense status strips so the text never disappears behind buttons or splitters.
+    """
+
+    def __init__(
+        self, text: str = "", parent=None, mode: Qt.TextElideMode = Qt.ElideRight
+    ):
+        super().__init__(parent)
+        self._full_text = ""
+        self._elide_mode = mode
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setWordWrap(False)
+        if text:
+            self.setText(text)
+
+    def setText(self, text: str):  # noqa: N802 - Qt override
+        self._full_text = str(text or "")
+        self.setToolTip(self._full_text)
+        super().setText(self._elided_text())
+
+    def resizeEvent(self, event):  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        QLabel.setText(self, self._elided_text())
+
+    def _elided_text(self) -> str:
+        if not self._full_text:
+            return ""
+        margin = 10
+        width = max(24, self.width() - margin)
+        return QFontMetrics(self.font()).elidedText(
+            self._full_text, self._elide_mode, width
+        )
 
 
 class CloudCoverageWidget(QWidget):
@@ -91,6 +131,7 @@ class CloudCoverageWidget(QWidget):
     def paintEvent(self, event):  # noqa: N802 - Qt override
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
+        self._hit_regions = []
         rect = self.rect().adjusted(1, 1, -1, -1)
         painter.fillRect(rect, QColor("#0f1318"))
         painter.setPen(QPen(QColor("#29313b"), 1))
@@ -207,12 +248,17 @@ class CloudCoverageWidget(QWidget):
 class Seeing24HourGraphWidget(QWidget):
     """Detailed 24-hour SEEING record graph for cloud, Moon, darkness, and seeing."""
 
+    forecast_row_selected = Signal(int)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.block: dict[str, Any] = {}
         self.selected_local_iso = ""
+        self._hit_regions: list[tuple[QRectF, int]] = []
         self.setObjectName("seeing24HourGraph")
-        self.setMinimumHeight(230)
+        self.setMouseTracking(True)
+        self.setMinimumHeight(300)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def set_block(
         self, block: dict[str, Any] | None, selected_local_iso: str | None = None
@@ -226,6 +272,14 @@ class Seeing24HourGraphWidget(QWidget):
     def set_selected_local_iso(self, value: Any):
         self.selected_local_iso = str(value or "")
         self.update()
+
+    def mousePressEvent(self, event):  # noqa: N802 - Qt override
+        position = event.position() if hasattr(event, "position") else event.localPos()
+        for rect, row_index in self._hit_regions:
+            if rect.contains(position):
+                self.forecast_row_selected.emit(row_index)
+                return
+        super().mousePressEvent(event)
 
     @staticmethod
     def _parse_dt(value: Any) -> datetime | None:
@@ -250,12 +304,14 @@ class Seeing24HourGraphWidget(QWidget):
             value = int(pct)
         except Exception:
             value = 100
+        # Keep cloud colors visually distinct from the gold Moon-up lane.
+        # Clear is green, marginal cloud is amber-orange, heavy cloud is muted grey.
         if value <= 20:
-            return QColor("#2fb36b")
+            return QColor("#31c17b")
         if value <= 45:
-            return QColor("#b6a747")
+            return QColor("#d99148")
         if value <= 70:
-            return QColor("#b6793a")
+            return QColor("#d36b72")
         return QColor("#9aa5b1")
 
     @staticmethod
@@ -269,216 +325,460 @@ class Seeing24HourGraphWidget(QWidget):
         return QColor("#9aa5b1")
 
     def paintEvent(self, event):  # noqa: N802 - Qt override
+        """Render a science-first 24-hour matrix with exact hourly cells.
+
+        This intentionally avoids the earlier mixed plot/overlay design.  Each
+        metric gets its own row, every hour in the 24-hour record gets a cell,
+        and missing forecast points are shown explicitly as N/A cells instead
+        of becoming blank space or stretched bars.
+        """
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.Antialiasing, False)
         rect = self.rect().adjusted(1, 1, -1, -1)
         painter.fillRect(rect, QColor("#0f1318"))
         painter.setPen(QPen(QColor("#29313b"), 1))
         painter.drawRoundedRect(rect, 10, 10)
 
-        rows = (
-            self.block.get("rows") if isinstance(self.block.get("rows"), list) else []
-        )
+        self._hit_regions = []
+        matrix_rows = self.block.get("matrix_rows")
+        rows = matrix_rows if isinstance(matrix_rows, list) else None
+        if rows is None:
+            rows = (
+                self.block.get("rows")
+                if isinstance(self.block.get("rows"), list)
+                else []
+            )
         if not rows:
             painter.setPen(QColor("#8f9ba8"))
             painter.drawText(
                 rect,
                 Qt.AlignCenter,
-                "Select a 24-hour record to show cloud, Moon, astronomical darkness, and seeing.",
+                "Select a 24-hour record to show exact hourly SEEING data.",
             )
             return
 
-        start_dt = self._parse_dt(self.block.get("start_iso"))
-        end_dt = self._parse_dt(self.block.get("end_iso"))
+        start_dt = self._parse_dt(self.block.get("matrix_start_iso"))
+        end_dt = self._parse_dt(self.block.get("matrix_end_iso"))
+        if start_dt is None:
+            start_dt = self._parse_dt(self.block.get("start_iso"))
+        if end_dt is None:
+            end_dt = self._parse_dt(self.block.get("end_iso"))
         if start_dt is None:
             first_dt = self._parse_dt(rows[0].get("local_iso"))
             start_dt = first_dt or datetime.now()
         if end_dt is None:
             end_dt = start_dt + timedelta(hours=24)
-        total_seconds = max(1.0, (end_dt - start_dt).total_seconds())
+        total_seconds = max(3600.0, (end_dt - start_dt).total_seconds())
+        slot_count = max(1, min(48, int(round(total_seconds / 3600.0))))
 
-        left = 104
-        right = 18
-        top = 26
-        bottom = 34
-        width = max(1.0, rect.width() - left - right)
-        chart_bottom = rect.height() - bottom
-        cloud_y = top + 34
-        cloud_h = max(54, min(86, int(rect.height() * 0.28)))
-        seeing_y = cloud_y + cloud_h + 24
-        seeing_h = max(42, min(62, int(rect.height() * 0.20)))
-        dark_y = seeing_y + seeing_h + 22
-        lane_h = 16
-        moon_y = dark_y + lane_h + 11
-
-        painter.setPen(QColor("#dce9f6"))
-        title = str(self.block.get("label") or "24-hour imaging planner")
-        painter.drawText(
-            QRectF(left, 7, width * 0.62, 18), Qt.AlignLeft | Qt.AlignVCenter, title
-        )
-        painter.setPen(QColor("#9fb8d4"))
-        painter.drawText(
-            QRectF(left + width * 0.36, 7, width * 0.64, 18),
-            Qt.AlignRight | Qt.AlignVCenter,
-            "Cloud bars · Seeing dots/line · Blue astro dark · Gold Moon up",
-        )
-
-        # Lane labels.
-        painter.setPen(QColor("#a9b7c7"))
-        painter.drawText(
-            QRectF(12, cloud_y + cloud_h * 0.5 - 10, 80, 18),
-            Qt.AlignRight | Qt.AlignVCenter,
-            "Cloud cover",
-        )
-        painter.drawText(
-            QRectF(12, seeing_y + seeing_h * 0.5 - 10, 80, 18),
-            Qt.AlignRight | Qt.AlignVCenter,
+        fm = QFontMetrics(painter.font())
+        label_names = (
+            "Hour",
+            "Cloud %",
             "Seeing",
+            "Transp",
+            "Astro",
+            "Moon vis",
+            "Moon illum",
+            "RH %",
+            "Precip",
         )
-        painter.drawText(
-            QRectF(12, dark_y - 1, 80, 18),
-            Qt.AlignRight | Qt.AlignVCenter,
-            "Astro dark",
+        label_width = max(
+            112, max(fm.horizontalAdvance(name) for name in label_names) + 26
         )
-        painter.drawText(
-            QRectF(12, moon_y - 1, 80, 18), Qt.AlignRight | Qt.AlignVCenter, "Moon up"
+        left = min(max(118, label_width), max(118, int(rect.width() * 0.18)))
+        right = 16
+        top = 34
+        bottom = max(40, fm.height() * 2 + 12)
+        plot_w = max(1.0, rect.width() - left - right)
+        hour_h = max(24, fm.height() + 10)
+        row_gap = 2
+        metric_labels = (
+            "Cloud %",
+            "Seeing",
+            "Transp",
+            "Astro",
+            "Moon vis",
+            "Moon illum",
+            "RH %",
+            "Precip",
         )
+        metric_count = len(metric_labels)
+        available = max(120, rect.height() - top - bottom - hour_h - 12)
+        row_h = max(
+            22, min(34, int((available - row_gap * (metric_count - 1)) / metric_count))
+        )
+        grid_top = top + hour_h + 8
+        grid_h = metric_count * row_h + row_gap * (metric_count - 1)
+        cell_w = plot_w / float(slot_count)
+        cell_pad = 3
 
-        painter.setPen(QColor("#7f8fa1"))
-        painter.drawText(
-            QRectF(24, cloud_y - 2, 68, 16), Qt.AlignRight | Qt.AlignVCenter, "0%"
-        )
-        painter.drawText(
-            QRectF(24, cloud_y + cloud_h - 16, 68, 16),
-            Qt.AlignRight | Qt.AlignVCenter,
-            "100%",
-        )
-        painter.drawText(
-            QRectF(24, seeing_y - 2, 68, 16), Qt.AlignRight | Qt.AlignVCenter, "best"
-        )
-        painter.drawText(
-            QRectF(24, seeing_y + seeing_h - 16, 68, 16),
-            Qt.AlignRight | Qt.AlignVCenter,
-            "poor",
-        )
+        def normalize_dt(value: datetime) -> datetime:
+            if (value.tzinfo is None) != (start_dt.tzinfo is None):
+                return value.replace(tzinfo=None)
+            return value
 
-        # Background lanes and guides.
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#111923"))
-        painter.drawRoundedRect(QRectF(left, cloud_y, width, cloud_h), 4, 4)
-        painter.drawRoundedRect(QRectF(left, seeing_y, width, seeing_h), 4, 4)
-        painter.fillRect(QRectF(left, dark_y, width, lane_h), QColor("#26313d"))
-        painter.fillRect(QRectF(left, moon_y, width, lane_h), QColor("#26313d"))
-
-        painter.setPen(QPen(QColor("#26313d"), 1))
-        for y in (
-            cloud_y,
-            cloud_y + cloud_h * 0.25,
-            cloud_y + cloud_h * 0.5,
-            cloud_y + cloud_h * 0.75,
-            cloud_y + cloud_h,
-            seeing_y,
-            seeing_y + seeing_h * 0.5,
-            seeing_y + seeing_h,
-            dark_y + lane_h,
-            moon_y + lane_h,
-        ):
-            painter.drawLine(left, int(y), left + width, int(y))
-        for hour in range(0, 25, 3):
-            x = left + width * (hour / 24.0)
-            painter.drawLine(int(x), cloud_y - 8, int(x), moon_y + lane_h + 8)
-            label_dt = start_dt + timedelta(hours=hour)
-            painter.setPen(QColor("#95a4b4"))
-            painter.drawText(
-                QRectF(x - 28, chart_bottom + 4, 56, 14),
-                Qt.AlignCenter,
-                label_dt.strftime("%H:%M"),
-            )
-            painter.setPen(QPen(QColor("#26313d"), 1))
-
-        default_span = width * (3.0 / 24.0) * 0.82
-        selected_center: float | None = None
-        seeing_points: list[tuple[float, float, QColor, bool]] = []
-        best_score = max((int(row.get("score") or 0) for row in rows), default=0)
-
+        start_cmp = normalize_dt(start_dt)
+        row_by_slot: dict[int, dict[str, Any]] = {}
+        selected_slot: int | None = None
+        selected_label = ""
         for row in rows:
             local_dt = self._parse_dt(row.get("local_iso"))
             if local_dt is None:
                 continue
-            center = left + width * max(
-                0.0, min(1.0, (local_dt - start_dt).total_seconds() / total_seconds)
-            )
-            bar_w = max(9.0, min(default_span, width / max(4, len(rows)) * 0.78))
-            x = center - bar_w / 2.0
-            selected = str(row.get("local_iso") or "") == self.selected_local_iso
-            if selected:
-                selected_center = center
+            local_cmp = normalize_dt(local_dt)
+            offset_hours = (local_cmp - start_cmp).total_seconds() / 3600.0
+            slot = int(round(offset_hours))
+            if slot < 0 or slot >= slot_count:
+                continue
+            row_by_slot[slot] = row
+            if str(row.get("local_iso") or "") == self.selected_local_iso:
+                selected_slot = slot
+                selected_label = str(
+                    row.get("hour_label") or row.get("local_label") or ""
+                )
 
-            cloud_pct = max(0, min(100, int(row.get("cloud_mid_pct") or 0)))
-            cloud_bar_h = max(2.0, cloud_h * (cloud_pct / 100.0))
-            painter.fillRect(
-                QRectF(x, cloud_y + cloud_h - cloud_bar_h, bar_w, cloud_bar_h),
-                self._cloud_color(cloud_pct),
+        if selected_slot is None and self.selected_local_iso:
+            selected_dt = self._parse_dt(self.selected_local_iso)
+            if selected_dt is not None:
+                selected_cmp = normalize_dt(selected_dt)
+                slot = int(round((selected_cmp - start_cmp).total_seconds() / 3600.0))
+                if 0 <= slot < slot_count:
+                    selected_slot = slot
+                    selected_label = selected_dt.strftime("%a %H:%M")
+
+        def draw_text(rectf: QRectF, text: Any, color: QColor, flags: Qt.AlignmentFlag):
+            painter.setPen(color)
+            value = str(text or "")
+            painter.drawText(
+                rectf,
+                flags,
+                fm.elidedText(value, Qt.ElideRight, max(8, int(rectf.width()))),
             )
 
-            # Best score gets a subtle marker at the top of the cloud lane.
+        title = str(self.block.get("label") or "24-hour hourly matrix")
+        draw_text(
+            QRectF(left, 8, plot_w * 0.48, 20),
+            title,
+            QColor("#dce9f6"),
+            Qt.AlignLeft | Qt.AlignVCenter,
+        )
+        draw_text(
+            QRectF(left + plot_w * 0.48, 8, plot_w * 0.52, 20),
+            "Click an hour cell · each column is one exact forecast hour · N/A means no source point",
+            QColor("#9fb8d4"),
+            Qt.AlignRight | Qt.AlignVCenter,
+        )
+
+        def cell_rect(slot: int, lane_y: float, h: float) -> QRectF:
+            return QRectF(left + slot * cell_w, lane_y, cell_w + 0.5, h)
+
+        def bordered_cell(rectf: QRectF, fill: QColor, pen: QColor = QColor("#1f2a35")):
+            painter.fillRect(rectf, fill)
+            painter.setPen(QPen(pen, 1))
+            painter.drawRect(rectf.adjusted(0, 0, -1, -1))
+
+        def int_or_none(value: Any) -> int | None:
             try:
-                row_score = int(row.get("score") or 0)
+                return int(round(float(value)))
             except Exception:
-                row_score = 0
-            if row_score == best_score and best_score > 0:
-                painter.fillRect(QRectF(x, cloud_y - 5, bar_w, 3), QColor("#d8e8ff"))
+                return None
+
+        def cloud_color(value: int | None) -> QColor:
+            if value is None:
+                return QColor("#303943")
+            return self._cloud_color(max(0, min(100, value)))
+
+        def quality_color(value: int | None) -> QColor:
+            if value is None:
+                return QColor("#303943")
+            return self._seeing_color(max(0, min(100, value)))
+
+        def humidity_color(
+            value: int | None, precip_pct: int | None, precip_mm: float | None
+        ) -> QColor:
+            if (precip_pct is not None and precip_pct >= 35) or (
+                precip_mm is not None and precip_mm > 0.0
+            ):
+                return QColor("#d36b72")
+            if value is None:
+                return QColor("#303943")
+            if value >= 92:
+                return QColor("#d36b72")
+            if value >= 85:
+                return QColor("#d99148")
+            if value >= 75:
+                return QColor("#b6a747")
+            return QColor("#31c17b")
+
+        def short_quality_text(row: dict[str, Any], key: str, code_key: str) -> str:
+            value = str(row.get(key) or "").strip()
+            if value:
+                value = value.replace(" · ", " ").split(" ")[0].strip()
+                if len(value) <= 8:
+                    return value
+            code = int_or_none(row.get(code_key))
+            return f"C{code}" if code is not None else "N/A"
+
+        def darkness_text(row: dict[str, Any]) -> str:
+            if row.get("astro_dark") is True:
+                return "DARK"
+            text = str(row.get("astro_dark_text") or "").lower()
+            if "astronomical" in text:
+                return "A-TW"
+            if "nautical" in text:
+                return "N-TW"
+            if "civil" in text:
+                return "C-TW"
+            if "day" in text:
+                return "DAY"
+            return "TW/DAY"
+
+        def darkness_color(row: dict[str, Any] | None) -> QColor:
+            if not row:
+                return QColor("#303943")
+            if row.get("astro_dark") is True:
+                return QColor("#1d83c7")
+            sun_alt = None
+            try:
+                sun_alt = float(row.get("sun_altitude_deg"))
+            except Exception:
+                pass
+            if sun_alt is not None and sun_alt < -12.0:
+                return QColor("#526f99")
+            if sun_alt is not None and sun_alt < -6.0:
+                return QColor("#6f7658")
+            if sun_alt is not None and sun_alt < 0.0:
+                return QColor("#7d6a48")
+            return QColor("#4a4f57")
+
+        def moon_color(row: dict[str, Any] | None) -> QColor:
+            if not row:
+                return QColor("#303943")
+            if row.get("moon_up") is True:
+                return QColor("#c5a149")
+            if row.get("moon_up") is False:
+                return QColor("#26313d")
+            return QColor("#39424d")
+
+        def moon_visibility_text(row: dict[str, Any]) -> str:
+            if row.get("moon_up") is True:
+                return "UP"
+            if row.get("moon_up") is False:
+                return "DOWN" if cell_w >= 46 else "DN"
+            return "?"
+
+        def moon_illum_text(row: dict[str, Any]) -> str:
+            pct = int_or_none(row.get("moon_pct"))
+            return f"{pct}%" if pct is not None else "N/A"
+
+        def humidity_text(row: dict[str, Any]) -> str:
+            rh = int_or_none(row.get("humidity_pct"))
+            return f"{rh}%" if rh is not None else "N/A"
+
+        def precip_text(row: dict[str, Any]) -> str:
+            pp = int_or_none(row.get("precip_probability_pct"))
+            mm = None
+            try:
+                mm = float(row.get("precip_amount_mm"))
+            except Exception:
+                pass
+            if pp is None and mm is None:
+                return "N/A"
+            if cell_w >= 54:
+                pct = f"{pp}%" if pp is not None else "—%"
+                amount = f"{mm:.1f}mm" if mm is not None else "—mm"
+                return f"{pct} {amount}"
+            if pp is not None:
+                return f"P{pp}"
+            return f"{mm:.1f}mm" if mm is not None else "N/A"
+
+        # Header: every hour gets a cell, with no visual gaps.
+        draw_text(
+            QRectF(8, top, left - 18, hour_h),
+            "Hour",
+            QColor("#a9b7c7"),
+            Qt.AlignRight | Qt.AlignVCenter,
+        )
+        for slot in range(slot_count):
+            slot_dt = start_dt + timedelta(hours=slot)
+            rectf = cell_rect(slot, top, hour_h)
+            fill = QColor("#174f83") if slot_dt.hour == 0 else QColor("#1b2937")
+            if selected_slot == slot:
+                fill = QColor("#1f5c8e")
+            bordered_cell(rectf, fill, QColor("#2c3a48"))
+            draw_text(
+                rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                slot_dt.strftime("%H"),
+                QColor("#f2f7ff"),
+                Qt.AlignCenter,
+            )
+
+        lane_y_by_label: dict[str, float] = {}
+        for lane_index, label in enumerate(metric_labels):
+            y = grid_top + lane_index * (row_h + row_gap)
+            lane_y_by_label[label] = y
+            draw_text(
+                QRectF(8, y, left - 18, row_h),
+                label,
+                QColor("#a9b7c7"),
+                Qt.AlignRight | Qt.AlignVCenter,
+            )
+
+        for slot in range(slot_count):
+            row = row_by_slot.get(slot)
+            if row is None:
+                for label in metric_labels:
+                    rectf = cell_rect(slot, lane_y_by_label[label], row_h)
+                    bordered_cell(rectf, QColor("#252e38"), QColor("#18222d"))
+                    draw_text(
+                        rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                        "N/A",
+                        QColor("#7d8a97"),
+                        Qt.AlignCenter,
+                    )
+                continue
+
+            try:
+                row_index = int(row.get("row_index"))
+            except Exception:
+                row_index = -1
+            if row_index >= 0:
+                self._hit_regions.append(
+                    (
+                        QRectF(left + slot * cell_w, top, cell_w, grid_h + hour_h + 8),
+                        row_index,
+                    )
+                )
+
+            cloud_pct = int_or_none(row.get("cloud_mid_pct"))
+            cloud_pct = max(0, min(100, cloud_pct)) if cloud_pct is not None else None
+            rectf = cell_rect(slot, lane_y_by_label["Cloud %"], row_h)
+            bordered_cell(rectf, cloud_color(cloud_pct))
+            draw_text(
+                rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                f"{cloud_pct}%" if cloud_pct is not None else "N/A",
+                QColor("#ffffff"),
+                Qt.AlignCenter,
+            )
 
             seeing_quality = self._quality_from_code(row.get("seeing_code"), 8)
-            point_y = seeing_y + seeing_h - (seeing_h * (seeing_quality / 100.0))
-            seeing_points.append(
-                (center, point_y, self._seeing_color(seeing_quality), selected)
+            rectf = cell_rect(slot, lane_y_by_label["Seeing"], row_h)
+            bordered_cell(rectf, quality_color(seeing_quality))
+            draw_text(
+                rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                short_quality_text(row, "seeing_text", "seeing_code"),
+                QColor("#ffffff"),
+                Qt.AlignCenter,
             )
 
-            if row.get("astro_dark") is True:
-                painter.fillRect(QRectF(x, dark_y, bar_w, lane_h), QColor("#3296dc"))
-            if row.get("moon_up") is True:
-                painter.fillRect(QRectF(x, moon_y, bar_w, lane_h), QColor("#c5a149"))
-
-        # Draw seeing as a line/dot lane so it does not visually compete with cloud bars.
-        if len(seeing_points) > 1:
-            painter.setPen(QPen(QColor("#668fb8"), 2))
-            for first, second in zip(seeing_points, seeing_points[1:]):
-                painter.drawLine(
-                    QPointF(first[0], first[1]), QPointF(second[0], second[1])
-                )
-        for x, y, color, selected in seeing_points:
-            painter.setPen(QPen(QColor("#0f1318"), 2))
-            painter.setBrush(color)
-            radius = 5.0 if selected else 4.0
-            painter.drawEllipse(QPointF(x, y), radius, radius)
-
-        if selected_center is not None:
-            painter.setPen(QPen(QColor("#d8e8ff"), 2))
-            painter.drawLine(
-                QPointF(selected_center, cloud_y - 9),
-                QPointF(selected_center, moon_y + lane_h + 10),
+            trans_quality = self._quality_from_code(row.get("transparency_code"), 8)
+            rectf = cell_rect(slot, lane_y_by_label["Transp"], row_h)
+            bordered_cell(rectf, quality_color(trans_quality))
+            draw_text(
+                rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                short_quality_text(row, "transparency_text", "transparency_code"),
+                QColor("#ffffff"),
+                Qt.AlignCenter,
             )
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(
-                QRectF(
-                    selected_center - 7,
-                    cloud_y - 10,
-                    14,
-                    moon_y + lane_h - cloud_y + 20,
+
+            rectf = cell_rect(slot, lane_y_by_label["Astro"], row_h)
+            bordered_cell(rectf, darkness_color(row))
+            draw_text(
+                rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                darkness_text(row),
+                QColor("#ffffff"),
+                Qt.AlignCenter,
+            )
+
+            rectf = cell_rect(slot, lane_y_by_label["Moon vis"], row_h)
+            bordered_cell(rectf, moon_color(row))
+            draw_text(
+                rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                moon_visibility_text(row),
+                QColor("#ffffff"),
+                Qt.AlignCenter,
+            )
+
+            rectf = cell_rect(slot, lane_y_by_label["Moon illum"], row_h)
+            bordered_cell(
+                rectf,
+                (
+                    QColor("#5f5430")
+                    if row.get("moon_pct") is not None
+                    else QColor("#303943")
                 ),
-                5,
-                5,
+            )
+            draw_text(
+                rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                moon_illum_text(row),
+                QColor("#ffffff"),
+                Qt.AlignCenter,
             )
 
+            humidity_pct = int_or_none(row.get("humidity_pct"))
+            precip_pct = int_or_none(row.get("precip_probability_pct"))
+            precip_mm = None
+            try:
+                precip_mm = float(row.get("precip_amount_mm"))
+            except Exception:
+                pass
+            rectf = cell_rect(slot, lane_y_by_label["RH %"], row_h)
+            bordered_cell(rectf, humidity_color(humidity_pct, None, None))
+            draw_text(
+                rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                humidity_text(row),
+                QColor("#ffffff"),
+                Qt.AlignCenter,
+            )
+
+            rectf = cell_rect(slot, lane_y_by_label["Precip"], row_h)
+            bordered_cell(rectf, humidity_color(None, precip_pct, precip_mm))
+            draw_text(
+                rectf.adjusted(cell_pad, 0, -cell_pad, 0),
+                precip_text(row),
+                QColor("#ffffff"),
+                Qt.AlignCenter,
+            )
+
+        if selected_slot is not None:
+            x = left + selected_slot * cell_w
+            y0 = top
+            y1 = grid_top + grid_h
+            painter.setPen(QPen(QColor("#d8e8ff"), 3))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(QRectF(x + 1, y0 + 1, cell_w - 2, y1 - y0 - 2))
+            if selected_label:
+                bubble_w = min(
+                    132.0, max(64.0, float(fm.horizontalAdvance(selected_label) + 16))
+                )
+                bubble_x = max(
+                    left + 2.0,
+                    min(
+                        left + plot_w - bubble_w - 2.0,
+                        x + cell_w / 2.0 - bubble_w / 2.0,
+                    ),
+                )
+                bubble_rect = QRectF(bubble_x, max(2.0, top - 23.0), bubble_w, 18.0)
+                painter.fillRect(bubble_rect, QColor("#152536"))
+                painter.setPen(QPen(QColor("#49627b"), 1))
+                painter.drawRect(bubble_rect.adjusted(0, 0, -1, -1))
+                draw_text(
+                    bubble_rect.adjusted(5, 0, -5, 0),
+                    selected_label,
+                    QColor("#dce9f6"),
+                    Qt.AlignCenter,
+                )
+
+        # Continuous time baseline and date captions.
         painter.setPen(QColor("#95a4b4"))
         painter.drawText(
-            QRectF(left, chart_bottom + 18, width / 2, 14),
+            QRectF(left, grid_top + grid_h + 10, plot_w / 2, 16),
             Qt.AlignLeft | Qt.AlignVCenter,
             start_dt.strftime("%a %Y-%m-%d"),
         )
         painter.drawText(
-            QRectF(left + width / 2, chart_bottom + 18, width / 2, 14),
+            QRectF(left + plot_w / 2, grid_top + grid_h + 10, plot_w / 2, 16),
             Qt.AlignRight | Qt.AlignVCenter,
             end_dt.strftime("%a %Y-%m-%d"),
         )
@@ -1185,16 +1485,19 @@ class SeeingDialog(QDialog):
         apply_window_defaults(self)
         self.location = dict(location or {})
         self.seeing_worker: SeeingWorker | None = None
+        self.satellite_worker: SeeingSatelliteWorker | None = None
         self.sky_quality_worker: SkyQualityFetchWorker | None = None
+        self._satellite_pixmap: QPixmap | None = None
         self._result: dict[str, Any] = {}
         self._day_blocks: list[dict[str, Any]] = []
+        self._model_points_expanded = False
         self._close_after_worker = False
 
         self.setObjectName("seeingDialog")
         self.setWindowTitle("SEEING")
         self._prepare_window_chrome()
-        self.resize(1520, 940)
-        self.setMinimumSize(1220, 780)
+        self.resize(1740, 980)
+        self.setMinimumSize(1360, 840)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -1332,30 +1635,36 @@ class SeeingDialog(QDialog):
         self.cloud_chart = CloudCoverageWidget(self)
         self.cloud_chart.hide()
         self.day_graph = Seeing24HourGraphWidget(self)
-        self.day_graph.hide()
         self.night_planner = SeeingNightPlannerWidget(self)
         self.night_planner.forecast_row_selected.connect(
             self.handle_planner_row_selected
         )
+        self.day_graph.forecast_row_selected.connect(self.handle_planner_row_selected)
+        self.chart_splitter = QSplitter(Qt.Vertical, self)
+        self.chart_splitter.setObjectName("seeingChartSplitter")
+        self.chart_splitter.setChildrenCollapsible(False)
+        self.chart_splitter.setHandleWidth(6)
+
         planner_scroll = QScrollArea(self)
         planner_scroll.setObjectName("seeingPlannerScroll")
         planner_scroll.setWidgetResizable(True)
-        planner_scroll.setMinimumHeight(420)
+        planner_scroll.setMinimumHeight(320)
         planner_scroll.setFrameShape(QFrame.NoFrame)
         planner_scroll.setWidget(self.night_planner)
-        left_column.addWidget(planner_scroll, 10)
+        self.day_graph.setMinimumHeight(340)
+        self.chart_splitter.addWidget(planner_scroll)
+        self.chart_splitter.addWidget(self.day_graph)
+        self.chart_splitter.setStretchFactor(0, 5)
+        self.chart_splitter.setStretchFactor(1, 4)
+        left_column.addWidget(self.chart_splitter, 12)
 
-        table_panel = QFrame()
-        table_panel.setObjectName("astroLookupImagePanel")
-        table_layout = QVBoxLayout(table_panel)
-        table_layout.setContentsMargins(9, 9, 9, 9)
-        table_layout.setSpacing(6)
-        table_title = QLabel("Forecast model points for selected day · chronological")
-        table_title.setObjectName("astroLookupSectionTitle")
-        self.table = QTableWidget(0, 10)
-        self.table.setObjectName("seeingForecastTable")
-        self.table.setMinimumHeight(220)
-        self.table.setMaximumHeight(320)
+        # Internal row model only. Forecast model points for selected day.
+        # The old visible "Model rows" drawer was
+        # removed because the hourly science matrix is now the primary exact
+        # row selector.  Keep a hidden QTableWidget as a low-risk compatibility
+        # model for the existing selection/detail plumbing.
+        self.table = QTableWidget(0, 11, self)
+        self.table.setObjectName("seeingForecastTableModel")
         self.table.setHorizontalHeaderLabels(
             [
                 "Local",
@@ -1367,31 +1676,24 @@ class SeeingDialog(QDialog):
                 "Transparency",
                 "Wind",
                 "Temp",
+                "Humidity",
                 "Precip",
             ]
         )
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        for column in (0, 1, 2, 3, 4, 8, 9):
-            self.table.horizontalHeader().setSectionResizeMode(
-                column, QHeaderView.ResizeToContents
-            )
-        for column in (5, 6, 7):
-            self.table.horizontalHeader().setSectionResizeMode(
-                column, QHeaderView.Stretch
-            )
         self.table.itemSelectionChanged.connect(self.handle_selection_changed)
-        table_layout.addWidget(table_title)
-        table_layout.addWidget(self.table, 1)
-        left_column.addWidget(table_panel, 3)
+        self.table.hide()
 
         side_column = QVBoxLayout()
         side_column.setContentsMargins(0, 0, 0, 0)
         side_column.setSpacing(8)
+
+        self.inspector_tabs = QTabWidget()
+        self.inspector_tabs.setObjectName("seeingInspectorTabs")
+        self.inspector_tabs.setMinimumWidth(360)
+        self.inspector_tabs.setDocumentMode(True)
 
         detail_panel = QFrame()
         detail_panel.setObjectName("astroLookupImagePanel")
@@ -1402,12 +1704,12 @@ class SeeingDialog(QDialog):
         detail_title.setObjectName("astroLookupSectionTitle")
         self.detail_browser = QTextBrowser()
         self.detail_browser.setObjectName("astroLookupResultBrowser")
-        self.detail_browser.setMinimumWidth(350)
-        self.detail_browser.setMinimumHeight(250)
+        self.detail_browser.setMinimumWidth(340)
+        self.detail_browser.setMinimumHeight(420)
         self.detail_browser.setHtml(self._detail_html({}))
         detail_layout.addWidget(detail_title)
         detail_layout.addWidget(self.detail_browser, 1)
-        side_column.addWidget(detail_panel, 1)
+        self.inspector_tabs.addTab(detail_panel, "Hour")
 
         summary_panel = QFrame()
         summary_panel.setObjectName("astroLookupImagePanel")
@@ -1418,14 +1720,41 @@ class SeeingDialog(QDialog):
         summary_title.setObjectName("astroLookupSectionTitle")
         self.summary_browser = QTextBrowser()
         self.summary_browser.setObjectName("astroLookupResultBrowser")
-        self.summary_browser.setMinimumWidth(350)
-        self.summary_browser.setMinimumHeight(250)
+        self.summary_browser.setMinimumWidth(340)
+        self.summary_browser.setMinimumHeight(420)
         self.summary_browser.setHtml(self._summary_html({}))
         summary_layout.addWidget(summary_title)
         summary_layout.addWidget(self.summary_browser, 1)
-        side_column.addWidget(summary_panel, 1)
+        self.inspector_tabs.addTab(summary_panel, "Dark / Moon")
 
-        main_split.addLayout(left_column, 7)
+        satellite_panel = QFrame()
+        satellite_panel.setObjectName("astroLookupImagePanel")
+        satellite_layout = QVBoxLayout(satellite_panel)
+        satellite_layout.setContentsMargins(9, 9, 9, 9)
+        satellite_layout.setSpacing(6)
+        satellite_title = QLabel("Latest satellite")
+        satellite_title.setObjectName("astroLookupSectionTitle")
+        self.satellite_status_label = QLabel("Loading latest Europe infrared image…")
+        self.satellite_status_label.setObjectName("astroLookupStatusLabel")
+        self.satellite_status_label.setWordWrap(True)
+        self.satellite_image_label = QLabel(
+            "Satellite image will appear after loading."
+        )
+        self.satellite_image_label.setObjectName("astroLookupImageLabel")
+        self.satellite_image_label.setAlignment(Qt.AlignCenter)
+        self.satellite_image_label.setMinimumWidth(340)
+        self.satellite_image_label.setMinimumHeight(420)
+        self.satellite_image_label.setScaledContents(False)
+        self.satellite_image_label.setStyleSheet(
+            "background:#0f1318;border:1px solid #29394a;border-radius:8px;color:#93a8bd;"
+        )
+        satellite_layout.addWidget(satellite_title)
+        satellite_layout.addWidget(self.satellite_image_label, 1)
+        satellite_layout.addWidget(self.satellite_status_label)
+        self.inspector_tabs.addTab(satellite_panel, "Satellite")
+        side_column.addWidget(self.inspector_tabs, 1)
+
+        main_split.addLayout(left_column, 8)
         main_split.addLayout(side_column, 2)
         result_layout.addLayout(main_split, 1)
 
@@ -1440,6 +1769,76 @@ class SeeingDialog(QDialog):
         QTimer.singleShot(0, self._center_on_screen)
         QTimer.singleShot(80, self.refresh_forecast)
         QTimer.singleShot(950, self._ensure_auto_sky_quality)
+
+    def handle_model_points_toggle(self, checked: bool):
+        self._set_model_points_expanded(bool(checked))
+
+    def _set_model_points_expanded(self, expanded: bool):
+        self._model_points_expanded = bool(expanded)
+        if hasattr(self, "model_points_toggle"):
+            self.model_points_toggle.blockSignals(True)
+            self.model_points_toggle.setChecked(self._model_points_expanded)
+            self.model_points_toggle.setText(
+                "Collapse rows" if expanded else "Expand rows"
+            )
+            self.model_points_toggle.blockSignals(False)
+        if hasattr(self, "table"):
+            self.table.setVisible(self._model_points_expanded)
+        if hasattr(self, "table_panel"):
+            if self._model_points_expanded:
+                self.table_panel.setMaximumHeight(470)
+                self.table_panel.setMinimumHeight(280)
+                self.table_panel.setSizePolicy(
+                    QSizePolicy.Expanding, QSizePolicy.Preferred
+                )
+            else:
+                self.table_panel.setMaximumHeight(58)
+                self.table_panel.setMinimumHeight(48)
+                self.table_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.table_panel.updateGeometry()
+
+    def _model_point_summary_text(self, data: dict[str, Any] | None = None) -> str:
+        if not isinstance(data, dict) or not data:
+            count = self.table.rowCount() if hasattr(self, "table") else 0
+            return (
+                f"Collapsed · {count} rows available"
+                if count
+                else "Collapsed · no rows loaded"
+            )
+        local = str(
+            data.get("hour_label") or data.get("local_label") or "selected hour"
+        )
+        if "T" in local:
+            try:
+                local_dt = datetime.fromisoformat(local.replace("Z", "+00:00"))
+                local = local_dt.strftime("%a %H:%M")
+            except Exception:
+                pass
+        elif len(local) >= 16 and local[:4].isdigit():
+            try:
+                local_dt = datetime.fromisoformat(local.replace(" ", "T"))
+                local = local_dt.strftime("%a %H:%M")
+            except Exception:
+                local = local[-5:]
+        score = data.get("score", "—")
+        cloud = data.get("cloud_mid_pct")
+        cloud_text = f"cloud {cloud}%" if cloud is not None else "cloud —"
+        humidity = str(data.get("humidity_text") or "RH —").replace(
+            "severe dew/fog risk", "severe dew"
+        )
+        humidity = humidity.replace("high dew risk", "high dew").replace(
+            "dew caution", "dew watch"
+        )
+        precip = str(data.get("precip_text") or "precip —")
+        return (
+            f"{local} · score {score} · {cloud_text} · RH {humidity} · precip {precip}"
+        )
+
+    def _update_model_points_summary(self, data: dict[str, Any] | None = None):
+        if hasattr(self, "model_points_summary_label"):
+            text = self._model_point_summary_text(data)
+            self.model_points_summary_label.setText(text)
+            self.model_points_summary_label.setToolTip(text)
 
     def _has_site_quality(self) -> bool:
         try:
@@ -1747,6 +2146,7 @@ class SeeingDialog(QDialog):
         self._result = {}
         self._day_blocks = []
         self.table.setRowCount(0)
+        self._update_model_points_summary({})
         self.cloud_chart.set_rows([])
         self.day_graph_combo.blockSignals(True)
         self.day_graph_combo.clear()
@@ -1761,6 +2161,7 @@ class SeeingDialog(QDialog):
             self._summary_html({"status_note": "Loading forecast…"})
         )
         self.detail_browser.setHtml(self._detail_html({}))
+        self._reset_satellite_panel("Loading latest Europe infrared image…")
         self.status_label.setText("Loading…")
         self.current_period_label.setText(
             self._current_night_period_text({"status_note": "Loading night period…"})
@@ -1778,6 +2179,7 @@ class SeeingDialog(QDialog):
         worker.error_received.connect(self.handle_seeing_error)
         worker.finished.connect(self.handle_worker_finished)
         worker.start()
+        self._refresh_satellite_image()
 
     @staticmethod
     def _cache_age_status(seconds: Any) -> str:
@@ -1836,6 +2238,7 @@ class SeeingDialog(QDialog):
         )
         self._day_blocks = []
         self.table.setRowCount(0)
+        self._update_model_points_summary({})
         self.cloud_chart.set_rows([])
         self.day_graph_combo.blockSignals(True)
         self.day_graph_combo.clear()
@@ -1950,11 +2353,18 @@ class SeeingDialog(QDialog):
     def _build_24h_blocks(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Build one planner block per local calendar day.
 
-        The table below the planner is selected by these blocks. Grouping by
-        local date keeps each table view limited to the hours of that selected
-        day instead of mixing a noon-to-noon 24-hour record across two dates.
+        The planner cards and row table intentionally keep the original civil
+        local-date contract: every row in ``block["rows"]`` belongs to the same
+        local calendar date as ``block["start_iso"]``.  The science matrix is a
+        separate view layered on top of that block and uses ``matrix_rows`` plus
+        ``matrix_start_iso``/``matrix_end_iso`` to render a noon-to-noon window:
+
+            12 13 ... 23 | 00 01 ... 11
+
+        Keeping these two concepts separate prevents the UI from mixing table
+        rows across dates while still keeping midnight centered for astronomy.
         """
-        dated_rows = []
+        dated_rows: list[tuple[datetime, dict[str, Any]]] = []
         for index, row in enumerate(rows or []):
             copied = dict(row)
             copied["row_index"] = index
@@ -1969,6 +2379,7 @@ class SeeingDialog(QDialog):
         for dt, row in dated_rows:
             rows_by_day.setdefault(dt.date(), []).append((dt, row))
 
+        all_dated_rows = list(dated_rows)
         blocks: list[dict[str, Any]] = []
         for block_index, day in enumerate(sorted(rows_by_day), start=1):
             day_items = sorted(rows_by_day[day], key=lambda item: item[0])
@@ -1978,6 +2389,17 @@ class SeeingDialog(QDialog):
 
             start = day_items[0][0].replace(hour=0, minute=0, second=0, microsecond=0)
             end = start + timedelta(days=1)
+            matrix_start = start + timedelta(hours=12)
+            matrix_end = matrix_start + timedelta(days=1)
+            matrix_items = [
+                (dt, row)
+                for dt, row in all_dated_rows
+                if matrix_start <= dt < matrix_end
+            ]
+            matrix_rows = [
+                row for _dt, row in sorted(matrix_items, key=lambda item: item[0])
+            ]
+
             dark_rows = [row for row in block_rows if row.get("astro_dark") is True]
             twilight_rows = [row for row in block_rows if self._is_twilight_row(row)]
             imaging_rows = self._imaging_rows(block_rows)
@@ -1994,20 +2416,26 @@ class SeeingDialog(QDialog):
                 self._record_cloud_cap(avg_cloud, bool(dark_rows)),
             )
             moon_row = imaging_rows[len(imaging_rows) // 2]
-            display_dt = start
             exact_range = (
                 f"{start.strftime('%a %Y-%m-%d 00:00')} → "
                 f"{end.strftime('%a 00:00')}"
             )
+            matrix_range = (
+                f"{matrix_start.strftime('%a %Y-%m-%d 12:00')} → "
+                f"{matrix_end.strftime('%a %Y-%m-%d 12:00')}"
+            )
             blocks.append(
                 {
-                    "label": f"Day {block_index}: {exact_range}",
-                    "short_label": f"{display_dt.strftime('%a %d %b')} · 00:00 → 23:59",
-                    "day_label": display_dt.strftime("%A %d"),
-                    "display_iso": display_dt.isoformat(),
+                    "label": f"Day {block_index}: {matrix_range}",
+                    "short_label": f"{start.strftime('%a %d %b')} · 00:00 → 23:59",
+                    "day_label": start.strftime("%A %d"),
+                    "display_iso": start.isoformat(),
                     "start_iso": start.isoformat(),
                     "end_iso": end.isoformat(),
+                    "matrix_start_iso": matrix_start.isoformat(),
+                    "matrix_end_iso": matrix_end.isoformat(),
                     "rows": block_rows,
+                    "matrix_rows": matrix_rows,
                     "best_score": block_score,
                     "best_time": best.get("local_label"),
                     "avg_cloud": avg_cloud,
@@ -2037,7 +2465,7 @@ class SeeingDialog(QDialog):
             else:
                 cloud_label = "day forecast cloud"
             self.day_graph_combo.addItem(
-                f"Day {index + 1}: {block.get('short_label', f'day {index + 1}')} · {best_label} {score if score is not None else '—'} · {cloud_label} {cloud if cloud is not None else '—'}%",
+                f"Night {index + 1}: {block.get('short_label', f'night {index + 1}')} · {best_label} {score if score is not None else '—'} · {cloud_label} {cloud if cloud is not None else '—'}%",
                 index,
             )
         self.day_graph_combo.blockSignals(False)
@@ -2114,6 +2542,7 @@ class SeeingDialog(QDialog):
         if not self._day_blocks:
             self.night_planner.set_blocks([])
             self._populate_table([])
+            self._update_model_points_summary({})
             return
         if block_index is None:
             block_index = self._current_block_index()
@@ -2121,6 +2550,7 @@ class SeeingDialog(QDialog):
         block = self._day_blocks[block_index]
         rows = block.get("rows") if isinstance(block.get("rows"), list) else []
         selected = self._selected_row_index()
+        self.day_graph.set_block(block)
         self.night_planner.set_blocks(self._day_blocks, selected)
         self._populate_table(rows)
         if self.table.rowCount() > 0:
@@ -2197,6 +2627,7 @@ class SeeingDialog(QDialog):
                 row_data.get("transparency_text", "—"),
                 row_data.get("wind_speed_text", "—"),
                 self._temp_text(row_data.get("temp2m_c")),
+                row_data.get("humidity_text", "—"),
                 row_data.get("precip_text", "—"),
             ]
             row_copy = dict(row_data)
@@ -2218,10 +2649,11 @@ class SeeingDialog(QDialog):
                 elif column == 4:
                     item.setBackground(self._moon_brush(row_data))
                     item.setTextAlignment(Qt.AlignCenter)
-                elif column in {8, 9}:
+                elif column in {8, 9, 10}:
                     item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row, column, item)
         self.table.resizeRowsToContents()
+        self._update_model_points_summary({})
 
     @staticmethod
     def _temp_text(value: Any) -> str:
@@ -2240,7 +2672,9 @@ class SeeingDialog(QDialog):
             return
         data = item.data(Qt.UserRole)
         if isinstance(data, dict):
+            self._update_model_points_summary(data)
             self.detail_browser.setHtml(self._detail_html(data))
+            self.day_graph.set_selected_local_iso(data.get("local_iso"))
             row_index = int(data.get("row_index", row))
             self.cloud_chart.set_selected_index(row_index)
             block_index = self._block_index_for_row(data)
@@ -2640,6 +3074,7 @@ class SeeingDialog(QDialog):
         wind = html.escape(str(row.get("wind_speed_text") or "—"))
         direction = html.escape(str(row.get("wind_direction") or "—"))
         temp = html.escape(self._temp_text(row.get("temp2m_c")))
+        humidity = html.escape(str(row.get("humidity_text") or "—"))
         precip = html.escape(str(row.get("precip_text") or "—"))
         dark = html.escape(str(row.get("astro_dark_text") or "—"))
         sun_alt = html.escape(
@@ -2667,15 +3102,93 @@ class SeeingDialog(QDialog):
               <tr><td><div class="k">Score</div><div class="v">{score} · {score_text}</div></td><td><div class="k">Forecast cloud</div><div class="v">{cloud_pct}% · {cloud}</div></td></tr>
               <tr><td><div class="k">Astro dark</div><div class="v">{dark} · Sun {sun_alt}°</div></td><td><div class="k">Moon</div><div class="v">{moon} · {phase}</div></td></tr>
               <tr><td><div class="k">Seeing</div><div class="v">{seeing}</div></td><td><div class="k">Transparency</div><div class="v">{trans}</div></td></tr>
-              <tr><td><div class="k">Wind</div><div class="v">{wind} · {direction}</div></td><td><div class="k">Temp / precip</div><div class="v">{temp} · {precip}</div></td></tr>
+              <tr><td><div class="k">Wind</div><div class="v">{wind} · {direction}</div></td><td><div class="k">Temp / humidity</div><div class="v">{temp} · {humidity}</div></td></tr>
+              <tr><td colspan="2"><div class="k">Precipitation</div><div class="v">{precip}</div></td></tr>
             </table>
         </body></html>
         """
+
+    def _reset_satellite_panel(self, status: str = "Satellite image unavailable"):
+        self._satellite_pixmap = None
+        if hasattr(self, "satellite_image_label"):
+            self.satellite_image_label.setPixmap(QPixmap())
+            self.satellite_image_label.setText(
+                "Satellite image will appear after loading."
+            )
+        if hasattr(self, "satellite_status_label"):
+            self.satellite_status_label.setText(str(status))
+
+    def _satellite_area_for_location(self) -> str:
+        try:
+            lat = float(self.location.get("lat"))
+            lon = float(self.location.get("lon"))
+        except Exception:
+            return "europe"
+        if 28.0 <= lat <= 74.0 and -26.0 <= lon <= 46.0:
+            return "europe"
+        if 25.0 <= lat <= 48.0 and -15.0 <= lon <= 45.0:
+            return "mediterranean"
+        return "global"
+
+    def _refresh_satellite_image(self):
+        worker = getattr(self, "satellite_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        area = self._satellite_area_for_location()
+        self.satellite_status_label.setText(
+            f"Loading latest {area.replace('_', ' ')} infrared image…"
+        )
+        worker = SeeingSatelliteWorker(area=area, image_type="infrared")
+        self.satellite_worker = worker
+        worker.finished_satellite.connect(self.handle_satellite_finished)
+        worker.error_received.connect(self.handle_satellite_error)
+        worker.finished.connect(self.handle_worker_finished)
+        worker.start()
+
+    def _apply_satellite_pixmap(self):
+        pixmap = self._satellite_pixmap
+        if pixmap is None or pixmap.isNull():
+            return
+        target_width = max(260, self.satellite_image_label.width() - 12)
+        target_height = max(160, self.satellite_image_label.height() - 12)
+        scaled = pixmap.scaled(
+            target_width,
+            target_height,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        self.satellite_image_label.setText("")
+        self.satellite_image_label.setPixmap(scaled)
+
+    def handle_satellite_finished(self, result: dict, elapsed: float, success: bool):
+        image_bytes = result.get("image_bytes")
+        pixmap = QPixmap()
+        if isinstance(image_bytes, (bytes, bytearray)):
+            pixmap.loadFromData(bytes(image_bytes))
+        if pixmap.isNull():
+            self.handle_satellite_error("Latest satellite image could not be decoded.")
+            return
+        self._satellite_pixmap = pixmap
+        self._apply_satellite_pixmap()
+        area = str(result.get("area") or "europe").replace("_", " ")
+        kind = str(result.get("image_type") or "infrared")
+        modified = str(result.get("last_modified") or "latest available").strip()
+        self.satellite_status_label.setText(
+            f"MET Norway · {area.title()} {kind} · {modified} · {float(elapsed):.1f}s"
+        )
+
+    def handle_satellite_error(self, error: str):
+        self._satellite_pixmap = None
+        self.satellite_image_label.setPixmap(QPixmap())
+        self.satellite_image_label.setText("Latest satellite image unavailable.")
+        self.satellite_status_label.setText(f"Satellite unavailable: {error}")
 
     def handle_worker_finished(self):
         worker = self.sender()
         if worker is getattr(self, "seeing_worker", None):
             self.seeing_worker = None
+        if worker is getattr(self, "satellite_worker", None):
+            self.satellite_worker = None
         if worker is not None:
             worker.deleteLater()
         if self._close_after_worker:
@@ -2686,6 +3199,13 @@ class SeeingDialog(QDialog):
         if worker is not None and worker.isRunning():
             try:
                 worker.stop()
+            except Exception:
+                pass
+            return True
+        satellite_worker = getattr(self, "satellite_worker", None)
+        if satellite_worker is not None and satellite_worker.isRunning():
+            try:
+                satellite_worker.stop()
             except Exception:
                 pass
             return True
